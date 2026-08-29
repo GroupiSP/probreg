@@ -1,0 +1,74 @@
+"""Backend-neutral value objects shared by probabilistic-regression stages."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any
+
+# Backends supply concrete array and tree implementations in their adapters.
+Array = Any
+PyTree = Any
+
+
+class ParameterRole(StrEnum):
+    """The responsibility of a trainable model component."""
+
+    MEAN = "mean"
+    VARIANCE = "variance"
+    POSTERIOR = "posterior"
+    AUXILIARY = "auxiliary"
+
+
+@dataclass(frozen=True)
+class Batch:
+    """A batch of model inputs, optional targets, weights, and metadata."""
+
+    inputs: PyTree
+    targets: PyTree | None = None
+    sample_weight: Array | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CheckpointRef:
+    """An opaque reference to a persisted checkpoint."""
+
+    key: str
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TrainingState:
+    """State shared across one or more explicit training stages."""
+
+    model_components: dict[str, Any] = field(default_factory=dict)
+    parameter_roles: dict[str, ParameterRole] = field(default_factory=dict)
+    frozen_components: frozenset[str] = field(default_factory=frozenset)
+    optimizer_states: dict[str, Any] = field(default_factory=dict)
+    posterior_state: Any | None = None
+    rng_state: Any | None = None
+    stage: str | None = None
+    outer_iteration: int = 0
+    data_fingerprint: str | None = None
+    checkpoint_registry: dict[str, CheckpointRef] = field(default_factory=dict)
+    metric_history: dict[str, list[float]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class StageResult:
+    """The outcome of executing a training stage."""
+
+    state: TrainingState
+    metrics: Mapping[str, float] = field(default_factory=dict)
+    loss: float | None = None
+
+
+@dataclass(frozen=True)
+class ValidationResult:
+    """The outcome of validating a training stage."""
+
+    passed: bool
+    metrics: Mapping[str, float] = field(default_factory=dict)
+    message: str | None = None

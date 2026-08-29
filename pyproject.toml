@@ -1,14 +1,34 @@
 [project]
 name = "probreg"
 version = "0.1.0"
-description = "Add your description here"
+description = "Stage-oriented probabilistic regression"
 readme = "README.md"
 authors = [
     { name = "debrevitatevitae", email = "giotb92@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy>=2.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "docformatter>=1.7.7",
+    "hypothesis>=6.140.4",
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "ruff>=0.14.9",
+]
+
+[tool.docformatter]
+recursive = true
+black = true
+style = "google"
+
+[tool.pyright]
+typeCheckingMode = "basic"
+reportUnusedVariable = false

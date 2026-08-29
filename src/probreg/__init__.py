@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from probreg!"
+"""Probabilistic regression with explicit, composable training stages."""
