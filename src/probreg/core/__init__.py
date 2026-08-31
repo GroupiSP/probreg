@@ -7,8 +7,21 @@ from probreg.core.distributions import (
     Loss,
     PredictiveDistribution,
 )
+from probreg.core.early_stopping import (
+    EarlyStopper,
+    EarlyStoppingDecision,
+    EarlyStoppingState,
+    MetricSource,
+    OptimizationMode,
+)
 from probreg.core.metrics import cdf, coverage, crps, point_crps, rmse, wsu
-from probreg.core.protocols import Dataset, LoaderFactory, Optimizer, Step
+from probreg.core.protocols import (
+    Dataset,
+    LoaderFactory,
+    Optimizer,
+    Step,
+    ValidationStrategy,
+)
 from probreg.core.stages import StageState, TrainingStage, validate_transition
 from probreg.core.tracking import EventSink, ExperimentTracker, TrainingEvent
 from probreg.core.types import (
@@ -30,11 +43,16 @@ __all__ = [
     "CheckpointStore",
     "Dataset",
     "DistributionHead",
+    "EarlyStopper",
+    "EarlyStoppingDecision",
+    "EarlyStoppingState",
     "EventSink",
     "ExperimentTracker",
     "Likelihood",
     "LoaderFactory",
     "Loss",
+    "MetricSource",
+    "OptimizationMode",
     "Optimizer",
     "ParameterRole",
     "PredictiveDistribution",
@@ -46,6 +64,7 @@ __all__ = [
     "TrainingStage",
     "TrainingState",
     "ValidationResult",
+    "ValidationStrategy",
     "cdf",
     "coverage",
     "crps",

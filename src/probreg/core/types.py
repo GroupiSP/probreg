@@ -55,6 +55,35 @@ class TrainingState:
     checkpoint_registry: dict[str, CheckpointRef] = field(default_factory=dict)
     metric_history: dict[str, list[float]] = field(default_factory=dict)
 
+    def register_component(self, name: str, component: Any) -> None:
+        """Register a model component under ``name`` if none is registered yet.
+
+        Args:
+            name: The key under which ``component`` is stored in
+                ``model_components``.
+            component: The model component to register.
+        """
+        self.model_components.setdefault(name, component)
+
+    def register_optimizer(self, name: str, optimizer: Any) -> None:
+        """Register an optimizer state under ``name`` if none is registered yet.
+
+        Args:
+            name: The key under which ``optimizer`` is stored in
+                ``optimizer_states``.
+            optimizer: The optimizer state to register.
+        """
+        self.optimizer_states.setdefault(name, optimizer)
+
+    def record_metric(self, name: str, value: float) -> None:
+        """Append ``value`` to the metric history recorded under ``name``.
+
+        Args:
+            name: The metric name whose history is appended to.
+            value: The observed metric value to append.
+        """
+        self.metric_history.setdefault(name, []).append(value)
+
 
 @dataclass(frozen=True)
 class StageResult:

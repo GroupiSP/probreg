@@ -3,8 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from probreg.core.protocols import Dataset, LoaderFactory, Optimizer, Step
-from probreg.core.types import Batch, StageResult, TrainingState
+from probreg.core.protocols import (
+    Dataset,
+    LoaderFactory,
+    Optimizer,
+    Step,
+    ValidationStrategy,
+)
+from probreg.core.types import Batch, StageResult, TrainingState, ValidationResult
 
 
 class ExampleDataset:
@@ -39,11 +45,21 @@ def example_step(
     return StageResult(state=state, loss=0.0)
 
 
+def example_validation_strategy(
+    state: TrainingState, *, epoch: int
+) -> ValidationResult:
+    return ValidationResult(
+        passed=state.stage == "mean",
+        metrics={"validation_loss": float(epoch)},
+    )
+
+
 def test_protocol_implementations_are_usable() -> None:
     dataset: Dataset = ExampleDataset()
     loader: LoaderFactory = example_loader
     optimizer: Optimizer = ExampleOptimizer()
     step: Step = example_step
+    validation_strategy: ValidationStrategy = example_validation_strategy
 
     assert dataset.get(0) == {"index": 0}
     assert next(iter(loader(split="train", epoch=0))).targets == [2]
@@ -52,3 +68,6 @@ def test_protocol_implementations_are_usable() -> None:
         {"updates": 1},
     )
     assert step(Batch(inputs=[]), TrainingState(), key=None, training=True).loss == 0.0
+    assert validation_strategy(TrainingState(stage="mean"), epoch=2).metrics == {
+        "validation_loss": 2.0
+    }
