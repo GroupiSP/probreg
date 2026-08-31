@@ -73,8 +73,8 @@ def coverage(y_true: ArrayLike, lower: ArrayLike, upper: ArrayLike) -> float:
 def wsu(lower: ArrayLike, upper: ArrayLike, x: ArrayLike) -> float:
     """Return the normalized weighted spread of uncertainty intervals.
 
-    The calculation preserves QMoDeM's established WSU definition while using a
-    generic, strictly increasing coordinate rather than battery-specific time.
+    The calculation preserves QMoDeM's established WSU definition while using a generic,
+    strictly increasing coordinate rather than battery-specific time.
     """
     lower_bound, upper_bound, coordinate = _matching_vectors(
         ("lower", lower), ("upper", upper), ("x", x)

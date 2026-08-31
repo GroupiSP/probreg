@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Protocol
 
-from probreg.core.types import Batch, PyTree, StageResult, TrainingState
+from probreg.core.types import (
+    Batch,
+    PyTree,
+    StageResult,
+    TrainingState,
+    ValidationResult,
+)
 
 
 class Dataset(Protocol):
@@ -38,3 +44,9 @@ class Step(Protocol):
     def __call__(
         self, batch: Batch, state: TrainingState, *, key: Any, training: bool
     ) -> StageResult: ...
+
+
+class ValidationStrategy(Protocol):
+    """Evaluates a trained state according to a caller-defined policy."""
+
+    def __call__(self, state: TrainingState, *, epoch: int) -> ValidationResult: ...
