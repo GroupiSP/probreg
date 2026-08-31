@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This document contains informations for the agents about general coding guidelines employed in this project.
+This document contains information for the agents about general coding guidelines employed in this project.
 
 ## Interactions with the users
 
