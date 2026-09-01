@@ -27,7 +27,21 @@ checkpointing, and event-sink notifications.
 `examples/simple_regression_jax.py` demonstrates the full JAX-backend stack
 end to end on a synthetic linear-regression dataset.
 
-Not yet implemented: the distribution-valued Gaussian head, MVE and staged
-(Step 1/Step 2/VeBNN Step 3) training stages, and any qmodem integration
-adapter. The qmodem adapter is intentionally out of scope for this
-repository — it belongs downstream in `qmodem`, which depends on `probreg`.
+`src/probreg/core/losses.py` provides backend-neutral MVE objectives —
+`GaussianNLLLoss` (Nix & Weigend, 1994) and `BetaNLLLoss` (Seitzer et al.,
+2022) — implementing the `Loss` protocol via `PredictiveDistribution`
+alone, with no JAX dependency. `src/probreg/jax/distributions.py` adds the
+concrete JAX-backed `Gaussian` (`PredictiveDistribution`) and `GaussianHead`
+(`DistributionHead`) NNX module, parametrized by an explicit positive scale.
+`src/probreg/jax/mve.py` adds `make_mve_loss`, adapting a
+`GaussianNLLLoss`/`BetaNLLLoss` into a `SupervisedLoss` so mean-variance
+estimation (MVE) training reuses `run_supervised` unchanged.
+`examples/mve_regression_jax.py` demonstrates MVE end to end on synthetic
+heteroscedastic data, including a `plot_predictions` helper (behind the
+optional `plot` extra) that plots validation targets against the predicted
+mean and a ±2σ aleatoric interval.
+
+Not yet implemented: staged (Step 1/Step 2/VeBNN Step 3) training stages and
+any qmodem integration adapter. The qmodem adapter is intentionally out of
+scope for this repository — it belongs downstream in `qmodem`, which depends
+on `probreg`.
