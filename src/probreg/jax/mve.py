@@ -21,13 +21,14 @@ from flax import nnx
 
 from probreg.core.distributions import Loss
 from probreg.core.types import Batch
+from probreg.jax.evaluation import SupervisedLoss
 
 
 def make_mve_loss(
     loss: Loss,
     *,
     reduction: Callable[[jax.Array], jax.Array] = jnp.mean,
-) -> Callable[[nnx.Module, Any, Any, Any, jax.Array, bool], jax.Array]:
+) -> SupervisedLoss:
     """Build a :class:`SupervisedLoss` for mean-variance estimation.
 
     The returned callable expects ``model`` to be an NNX module that maps
