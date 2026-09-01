@@ -29,6 +29,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dev dependencies
-        run: uv sync --group dev
+        run: uv sync --extra jax --group dev
       - name: Run tests
         run: uv run pytest
