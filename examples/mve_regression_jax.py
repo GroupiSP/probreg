@@ -119,13 +119,39 @@ class InMemoryCheckpointStore(CheckpointStore):
 
 
 class PrintingEventSink:
-    """An :class:`EventSink` that prints a one-line summary per event."""
+    """An :class:`EventSink` that prints train/validation loss periodically.
+
+    Only ``validation_end`` events are handled, and only every ``every``
+    epochs, to keep console output readable across long training runs.
+
+    Attributes:
+        every: Print only on epochs that are a multiple of this value.
+            Defaults to ``10``.
+    """
+
+    def __init__(self, *, every: int = 10) -> None:
+        """Initialize the sink.
+
+        Args:
+            every: Print only on epochs that are a multiple of this
+                value. Defaults to ``10``.
+        """
+        self.every = every
 
     def on_event(self, event: TrainingEvent) -> None:
-        metrics = ", ".join(
-            f"{name}={value:.4f}" for name, value in event.metrics.items()
+        """Print the current training/validation loss, if due.
+
+        Args:
+            event: The training event to (conditionally) report on.
+        """
+        if event.name != "validation_end" or event.step % self.every != 0:
+            return
+        training_loss = event.state.metric_history["training_loss"][-1]
+        validation_loss = event.metrics["validation_loss"]
+        print(
+            f"epoch={event.step} training_loss={training_loss:.4f} "
+            f"validation_loss={validation_loss:.4f}"
         )
-        print(f"[{event.name}] epoch={event.step} {metrics}")
 
 
 def main() -> None:
