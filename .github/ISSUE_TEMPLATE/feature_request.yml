@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest an idea or enhancement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. Please describe the request clearly.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the feature and why it is valuable.
+      placeholder: A clear and concise description of the feature request.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Describe how you think this could work (optional).
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any alternatives or workarounds you considered (optional).
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to work on it
+          required: false
