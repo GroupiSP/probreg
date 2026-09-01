@@ -27,10 +27,9 @@ from probreg.jax.rng import split_key
 class SupervisedLoss(Protocol):
     """A callable computing a supervised loss for an NNX model.
 
-    Implementations compute a scalar loss from a model, a batch of
-    inputs/targets/sample weights, a PRNG key (e.g. for stochastic layers such
-    as dropout), and a flag indicating whether the call happens during training
-    (as opposed to evaluation).
+    Implementations compute a scalar loss from a model, a batch of inputs/targets/sample
+    weights, a PRNG key (e.g. for stochastic layers such as dropout), and a flag
+    indicating whether the call happens during training (as opposed to evaluation).
     """
 
     def __call__(
@@ -148,7 +147,9 @@ def evaluate_loader(
         consumed batches.
     """
     losses: list[float] = []
-    batch_metric_values: dict[str, list[float]] = {spec.name: [] for spec in metrics.batch}
+    batch_metric_values: dict[str, list[float]] = {
+        spec.name: [] for spec in metrics.batch
+    }
     epoch_metric_parts = [] if metrics.epoch else None
 
     for batch in loader:

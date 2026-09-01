@@ -15,7 +15,12 @@ from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink, TrainingEvent
 from probreg.core.types import StageResult, TrainingState
 from probreg.jax.evaluation import SupervisedLoss, _metric_mean
-from probreg.jax.metrics import BatchMetricSpec, MetricSuite, merge_metric_inputs, resolve_metric_inputs
+from probreg.jax.metrics import (
+    BatchMetricSpec,
+    MetricSuite,
+    merge_metric_inputs,
+    resolve_metric_inputs,
+)
 from probreg.jax.rng import split_key
 from probreg.jax.state import freeze_training_state, snapshot
 

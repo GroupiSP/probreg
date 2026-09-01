@@ -185,8 +185,13 @@ def _merge_metadata(mappings: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
     merged: dict[str, Any] = {}
     for key in keys:
         if not all(key in mapping for mapping in mappings):
-            raise ValueError(f"metadata[{key!r}] must be present for all batches or none.")
+            raise ValueError(
+                f"metadata[{key!r}] must be present for all batches or none."
+            )
         merged[key] = np.concatenate(
-            [_to_vector(mapping[key], name=f"metadata[{key!r}]") for mapping in mappings]
+            [
+                _to_vector(mapping[key], name=f"metadata[{key!r}]")
+                for mapping in mappings
+            ]
         )
     return merged

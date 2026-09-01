@@ -149,8 +149,8 @@ class GaussianHead(nnx.Module):
         return MetricInputs(
             targets=np.asarray(jax.device_get(batch.targets), dtype=float).reshape(-1),
             mean=np.asarray(jax.device_get(prediction.mean()), dtype=float).reshape(-1),
-            variance=np.asarray(jax.device_get(prediction.variance()), dtype=float).reshape(
-                -1
-            ),
+            variance=np.asarray(
+                jax.device_get(prediction.variance()), dtype=float
+            ).reshape(-1),
             metadata=batch.metadata,
         )

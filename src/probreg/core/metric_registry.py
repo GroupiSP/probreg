@@ -57,7 +57,9 @@ class SupportsMetricInputs(Protocol):
         ...
 
 
-def _as_vector(values: NDArray[np.float64] | object, *, name: str) -> NDArray[np.float64]:
+def _as_vector(
+    values: NDArray[np.float64] | object, *, name: str
+) -> NDArray[np.float64]:
     vector = np.asarray(values, dtype=float).reshape(-1)
     if vector.size == 0:
         raise ValueError(f"{name} must not be empty.")

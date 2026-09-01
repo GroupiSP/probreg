@@ -37,7 +37,9 @@ class LinearModel(nnx.Module):
             raise ValueError("batch.targets must be provided for epoch metrics.")
         return MetricInputs(
             targets=np.asarray(jax.device_get(batch.targets), dtype=float).reshape(-1),
-            mean=np.asarray(jax.device_get(self(batch.inputs)), dtype=float).reshape(-1),
+            mean=np.asarray(jax.device_get(self(batch.inputs)), dtype=float).reshape(
+                -1
+            ),
             metadata=batch.metadata,
         )
 

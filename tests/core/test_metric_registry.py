@@ -66,7 +66,9 @@ def test_metric_adapters_reject_missing_required_inputs() -> None:
         mean=np.array([0.0]),
     )
 
-    with pytest.raises(ValueError, match="requires lower/upper bounds or predictive variance"):
+    with pytest.raises(
+        ValueError, match="requires lower/upper bounds or predictive variance"
+    ):
         IntervalCoverage()(data)
     with pytest.raises(ValueError, match="requires lower and upper"):
         WeightedSpread()(data)
