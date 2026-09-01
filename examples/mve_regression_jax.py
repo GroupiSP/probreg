@@ -21,13 +21,15 @@ loss:
 
 Run it with:
 
-    uv run --extra jax python examples/mve_regression_jax.py
+    uv run --extra jax --extra plot python examples/mve_regression_jax.py
 """
 
 from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import numpy as np
 import optax
 from flax import nnx
 
@@ -154,6 +156,51 @@ class PrintingEventSink:
         )
 
 
+def plot_predictions(
+    model: nnx.Module,
+    inputs: jax.Array,
+    targets: jax.Array,
+    *,
+    save_path: str | None = None,
+) -> None:
+    """Plot validation targets against the model's mean and ±2σ interval.
+
+    Args:
+        model: An NNX module mapping inputs directly to a
+            :class:`~probreg.core.distributions.PredictiveDistribution`
+            (e.g. a :class:`~probreg.jax.distributions.GaussianHead`).
+        inputs: Validation inputs, shaped ``(n, 1)``.
+        targets: Validation targets, shaped ``(n, 1)``.
+        save_path: If given, save the figure to this path instead of
+            displaying it interactively.
+    """
+    order = jnp.argsort(inputs.squeeze(-1))
+    sorted_inputs = inputs[order]
+    x = np.asarray(sorted_inputs.squeeze(-1))
+    y = np.asarray(targets[order].squeeze(-1))
+
+    prediction = model(sorted_inputs)
+    mean = np.asarray(prediction.mean().squeeze(-1))
+    scale = np.asarray(jnp.sqrt(prediction.variance()).squeeze(-1))
+
+    _, ax = plt.subplots()
+    ax.scatter(x, y, s=10, alpha=0.6, label="validation data")
+    ax.plot(x, mean, color="C1", label="predicted mean")
+    ax.fill_between(
+        x, mean - 2 * scale, mean + 2 * scale, color="C1", alpha=0.2, label="±2σ"
+    )
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title("MVE predictions vs. validation data")
+    ax.legend()
+
+    if save_path is not None:
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
+
 def main() -> None:
     """Train an MVE model with early stopping and report the result."""
     data_key, model_key, rng_key = jax.random.split(jax.random.key(0), 3)
@@ -207,6 +254,8 @@ def main() -> None:
         "Predicted scale at x=3: "
         f"{float(high_uncertainty_prediction.scale.squeeze()):.4f}"
     )
+
+    plot_predictions(model, validation_inputs, validation_targets)
 
 
 if __name__ == "__main__":
