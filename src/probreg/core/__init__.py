@@ -15,6 +15,14 @@ from probreg.core.early_stopping import (
     OptimizationMode,
 )
 from probreg.core.metrics import cdf, coverage, crps, point_crps, rmse, wsu
+from probreg.core.metric_registry import (
+    EpochMetric,
+    IntervalCoverage,
+    MetricInputs,
+    RootMeanSquaredError,
+    SupportsMetricInputs,
+    WeightedSpread,
+)
 from probreg.core.protocols import (
     Dataset,
     LoaderFactory,
@@ -51,6 +59,7 @@ __all__ = [
     "Likelihood",
     "LoaderFactory",
     "Loss",
+    "MetricInputs",
     "MetricSource",
     "OptimizationMode",
     "Optimizer",
@@ -65,6 +74,11 @@ __all__ = [
     "TrainingState",
     "ValidationResult",
     "ValidationStrategy",
+    "EpochMetric",
+    "IntervalCoverage",
+    "RootMeanSquaredError",
+    "SupportsMetricInputs",
+    "WeightedSpread",
     "cdf",
     "coverage",
     "crps",

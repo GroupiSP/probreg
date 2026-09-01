@@ -7,6 +7,7 @@ from probreg.jax.evaluation import (
     make_evaluation_step,
 )
 from probreg.jax.mve import make_mve_loss
+from probreg.jax.metrics import BatchMetric, BatchMetricSpec, MetricSuite, Predictor
 from probreg.jax.rng import split_key
 from probreg.jax.state import (
     NnxSnapshot,
@@ -22,7 +23,11 @@ __all__ = [
     "Gaussian",
     "GaussianHead",
     "HeldOutValidation",
+    "BatchMetric",
+    "BatchMetricSpec",
+    "MetricSuite",
     "NnxSnapshot",
+    "Predictor",
     "SupervisedLoss",
     "create_optimizer",
     "evaluate_loader",

@@ -4,16 +4,20 @@ from collections.abc import Iterable
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 import pytest
 from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint
 from probreg.core.early_stopping import EarlyStopper, MetricSource
+from probreg.core.metric_registry import MetricInputs, RootMeanSquaredError
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import Batch, TrainingState, ValidationResult
 from probreg.jax import (
+    BatchMetricSpec,
     HeldOutValidation,
+    MetricSuite,
     create_optimizer,
     initialize_training_state,
     run_supervised,
@@ -22,6 +26,23 @@ from probreg.jax import (
 
 
 class LinearModel(nnx.Module):
+    def __init__(self, *, rngs: nnx.Rngs) -> None:
+        self.linear = nnx.Linear(1, 1, rngs=rngs)
+
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        return self.linear(inputs)
+
+    def produce_metric_inputs(self, batch: Batch, /) -> MetricInputs:
+        if batch.targets is None:
+            raise ValueError("batch.targets must be provided for epoch metrics.")
+        return MetricInputs(
+            targets=np.asarray(jax.device_get(batch.targets), dtype=float).reshape(-1),
+            mean=np.asarray(jax.device_get(self(batch.inputs)), dtype=float).reshape(-1),
+            metadata=batch.metadata,
+        )
+
+
+class PlainLinearModel(nnx.Module):
     def __init__(self, *, rngs: nnx.Rngs) -> None:
         self.linear = nnx.Linear(1, 1, rngs=rngs)
 
@@ -66,6 +87,21 @@ def squared_error(
     return jnp.mean(errors)
 
 
+def mean_absolute_error(
+    model: LinearModel,
+    inputs: jax.Array,
+    targets: jax.Array,
+    sample_weight: jax.Array | None,
+    key: jax.Array,
+    training: bool,
+) -> jax.Array:
+    del key, training
+    errors = jnp.abs(model(inputs) - targets)
+    if sample_weight is not None:
+        errors = errors * sample_weight
+    return jnp.mean(errors)
+
+
 def loader(*, split: str, epoch: int) -> Iterable[Batch]:
     del epoch
     target = 2.0 if split == "train" else 1.0
@@ -76,6 +112,15 @@ def make_components(
     learning_rate: float = 0.1,
 ) -> tuple[LinearModel, nnx.Optimizer, TrainingState]:
     model = LinearModel(rngs=nnx.Rngs(0))
+    optimizer = create_optimizer(model, optax.sgd(learning_rate))
+    state = initialize_training_state(model, optimizer, rng_key=jax.random.key(1))
+    return model, optimizer, state
+
+
+def make_plain_components(
+    learning_rate: float = 0.1,
+) -> tuple[PlainLinearModel, nnx.Optimizer, TrainingState]:
+    model = PlainLinearModel(rngs=nnx.Rngs(0))
     optimizer = create_optimizer(model, optax.sgd(learning_rate))
     state = initialize_training_state(model, optimizer, rng_key=jax.random.key(1))
     return model, optimizer, state
@@ -256,3 +301,87 @@ def test_split_key_is_reproducible() -> None:
 
     assert bool(jnp.array_equal(next_key, duplicate_next_key))
     assert bool(jnp.array_equal(operation_key, duplicate_operation_key))
+
+
+def test_run_supervised_records_registered_batch_and_epoch_metrics() -> None:
+    model, optimizer, state = make_components(learning_rate=0.0)
+    events = EventCollector()
+    metric_suite = MetricSuite(
+        batch=(BatchMetricSpec(name="mae", metric=mean_absolute_error),),
+        epoch=(RootMeanSquaredError(),),
+    )
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=loader,
+        loss=squared_error,
+        state=state,
+        epochs=2,
+        metrics=metric_suite,
+        event_sinks=[events],
+    )
+
+    assert set(result.metrics) == {"loss", "mae", "rmse"}
+    assert len(result.state.metric_history["training_loss"]) == 2
+    assert len(result.state.metric_history["training_mae"]) == 2
+    assert len(result.state.metric_history["training_rmse"]) == 2
+    assert all(
+        {"loss", "mae", "rmse"} <= set(event.metrics)
+        for event in events.events
+        if event.name == "epoch_end"
+    )
+
+
+def test_held_out_validation_prefixes_registered_metrics() -> None:
+    model, optimizer, state = make_components(learning_rate=0.0)
+    validation = HeldOutValidation(
+        model=model,
+        loader=loader,
+        loss=squared_error,
+        metrics=MetricSuite(
+            batch=(BatchMetricSpec(name="mae", metric=mean_absolute_error),),
+            epoch=(RootMeanSquaredError(),),
+        ),
+    )
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=loader,
+        loss=squared_error,
+        state=state,
+        epochs=2,
+        validation=validation,
+    )
+
+    assert len(result.state.metric_history["validation_loss"]) == 2
+    assert len(result.state.metric_history["validation_mae"]) == 2
+    assert len(result.state.metric_history["validation_rmse"]) == 2
+
+
+def test_metric_suite_rejects_reserved_and_duplicate_names() -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        MetricSuite(batch=(BatchMetricSpec(name="loss", metric=mean_absolute_error),))
+
+    with pytest.raises(ValueError, match="duplicate"):
+        MetricSuite(
+            batch=(BatchMetricSpec(name="mae", metric=mean_absolute_error),),
+            epoch=(RootMeanSquaredError(metric_name="mae"),),
+        )
+
+
+def test_epoch_metrics_require_predictor_or_model_support() -> None:
+    model, optimizer, state = make_plain_components()
+    metric_suite = MetricSuite(epoch=(RootMeanSquaredError(),))
+
+    with pytest.raises(ValueError, match="epoch metrics require either"):
+        run_supervised(
+            model=model,
+            optimizer=optimizer,
+            train_loader=loader,
+            loss=squared_error,
+            state=state,
+            epochs=1,
+            metrics=metric_suite,
+        )

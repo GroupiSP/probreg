@@ -14,6 +14,7 @@ from probreg.jax.evaluation import (
     evaluate_loader,
     make_evaluation_step,
 )
+from probreg.jax.metrics import MetricSuite
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class HeldOutValidation:
         loader: Factory producing the validation batch loader for a
             given split and epoch.
         loss: The supervised loss function used for evaluation.
+        metrics: Registered batch/epoch metrics for validation.
         metric_prefix: Prefix applied to metric names before returning
             them. Defaults to ``"validation_"``.
         metadata: Arbitrary caller-supplied metadata attached to this
@@ -34,6 +36,7 @@ class HeldOutValidation:
     model: nnx.Module
     loader: LoaderFactory
     loss: SupervisedLoss
+    metrics: MetricSuite = MetricSuite()
     metric_prefix: str = "validation_"
     metadata: dict[str, object] = field(default_factory=dict)
 
@@ -59,7 +62,8 @@ class HeldOutValidation:
             self.model,
             self.loader(split="validation", epoch=epoch),
             key=state.rng_state,
-            evaluation_step=make_evaluation_step(self.loss),
+            evaluation_step=make_evaluation_step(self.loss, metrics=self.metrics.batch),
+            metrics=self.metrics,
         )
         return ValidationResult(
             passed=True,

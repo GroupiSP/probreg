@@ -7,22 +7,30 @@ on it without either depending on the other.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+import math
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Protocol
 
 import jax
 from flax import nnx
 
 from probreg.core.types import Batch
+from probreg.jax.metrics import (
+    BatchMetricSpec,
+    MetricSuite,
+    merge_metric_inputs,
+    resolve_metric_inputs,
+)
 from probreg.jax.rng import split_key
 
 
 class SupervisedLoss(Protocol):
     """A callable computing a supervised loss for an NNX model.
 
-    Implementations compute a scalar loss from a model, a batch of inputs/targets/sample
-    weights, a PRNG key (e.g. for stochastic layers such as dropout), and a flag
-    indicating whether the call happens during training (as opposed to evaluation).
+    Implementations compute a scalar loss from a model, a batch of
+    inputs/targets/sample weights, a PRNG key (e.g. for stochastic layers such
+    as dropout), and a flag indicating whether the call happens during training
+    (as opposed to evaluation).
     """
 
     def __call__(
@@ -70,18 +78,24 @@ def _metric_mean(values: Iterable[float]) -> float:
     return sum(values) / len(values)
 
 
-def make_evaluation_step(loss: SupervisedLoss) -> Callable[..., jax.Array]:
+def make_evaluation_step(
+    loss: SupervisedLoss,
+    *,
+    metrics: Sequence[BatchMetricSpec] = (),
+) -> Callable[..., jax.Array | Mapping[str, jax.Array]]:
     """Create a JIT-compiled NNX supervised evaluation step.
 
     Args:
         loss: A callable computing the supervised loss given a model,
             inputs, targets, sample weights, a PRNG key, and a
             ``training`` flag.
+        metrics: Registered JAX-native batch metrics.
 
     Returns:
         A JIT-compiled function ``evaluate_step(model, inputs, targets,
-        sample_weight, key)`` that returns the scalar loss value without
-        updating any parameters.
+        sample_weight, key)``. When ``metrics`` is empty, it returns only
+        the scalar loss. Otherwise it returns a mapping containing
+        ``"loss"`` plus one scalar value per registered batch metric.
     """
 
     @nnx.jit
@@ -91,8 +105,21 @@ def make_evaluation_step(loss: SupervisedLoss) -> Callable[..., jax.Array]:
         targets: Any,
         sample_weight: Any,
         key: jax.Array,
-    ) -> jax.Array:
-        return loss(model, inputs, targets, sample_weight, key, False)
+    ) -> jax.Array | Mapping[str, jax.Array]:
+        loss_value = loss(model, inputs, targets, sample_weight, key, False)
+        if not metrics:
+            return loss_value
+        values: dict[str, jax.Array] = {"loss": loss_value}
+        for spec in metrics:
+            values[spec.name] = spec.metric(
+                model,
+                inputs,
+                targets,
+                sample_weight,
+                key,
+                False,
+            )
+        return values
 
     return evaluate_step
 
@@ -102,9 +129,10 @@ def evaluate_loader(
     loader: Iterable[Batch],
     *,
     key: jax.Array,
-    evaluation_step: Callable[..., jax.Array],
+    evaluation_step: Callable[..., jax.Array | Mapping[str, jax.Array]],
+    metrics: MetricSuite = MetricSuite(),
 ) -> tuple[dict[str, float], jax.Array]:
-    """Evaluate a loader and return mean loss plus the advanced random key.
+    """Evaluate a loader and return reduced metrics and the advanced random key.
 
     Args:
         model: The NNX module to evaluate.
@@ -112,24 +140,75 @@ def evaluate_loader(
         key: The JAX PRNG key to use, advanced once per batch.
         evaluation_step: The JIT-compiled evaluation step, e.g. one
             created by :func:`make_evaluation_step`.
+        metrics: Registered batch/epoch metrics for evaluation.
 
     Returns:
-        A tuple ``(metrics, key)`` where ``metrics`` maps ``"loss"`` to
-        the mean loss over ``loader`` and ``key`` is the PRNG key
-        advanced past all consumed batches.
+        A tuple ``(metrics, key)`` where ``metrics`` contains ``"loss"``
+        plus any registered metrics, and ``key`` is advanced past all
+        consumed batches.
     """
     losses: list[float] = []
+    batch_metric_values: dict[str, list[float]] = {spec.name: [] for spec in metrics.batch}
+    epoch_metric_parts = [] if metrics.epoch else None
+
     for batch in loader:
         key, batch_key = split_key(key)
-        losses.append(
-            float(
-                evaluation_step(
-                    model,
-                    batch.inputs,
-                    batch.targets,
-                    batch.sample_weight,
-                    batch_key,
-                )
-            )
+        step_output = evaluation_step(
+            model,
+            batch.inputs,
+            batch.targets,
+            batch.sample_weight,
+            batch_key,
         )
-    return {"loss": _metric_mean(losses)}, key
+        if isinstance(step_output, Mapping):
+            losses.append(float(step_output["loss"]))
+            for spec in metrics.batch:
+                if spec.name not in step_output:
+                    raise ValueError(
+                        f"evaluation step did not produce registered metric {spec.name!r}."
+                    )
+                batch_metric_values[spec.name].append(float(step_output[spec.name]))
+        else:
+            if metrics.batch:
+                raise ValueError(
+                    "evaluation_step must return metric mappings when batch metrics are registered."
+                )
+            losses.append(float(step_output))
+        if epoch_metric_parts is not None:
+            epoch_metric_parts.append(
+                resolve_metric_inputs(suite=metrics, model=model, batch=batch)
+            )
+
+    reduced: dict[str, float] = {"loss": _finite_float("loss", _metric_mean(losses))}
+    for spec in metrics.batch:
+        reduced[spec.name] = _finite_float(
+            spec.name,
+            spec.reduce(batch_metric_values[spec.name]),
+        )
+    if epoch_metric_parts is not None:
+        merged = merge_metric_inputs(epoch_metric_parts)
+        for epoch_metric in metrics.epoch:
+            reduced[epoch_metric.name] = _finite_float(
+                epoch_metric.name,
+                float(epoch_metric(merged)),
+            )
+    return reduced, key
+
+
+def _finite_float(name: str, value: float) -> float:
+    """Return ``value`` as a finite float.
+
+    Args:
+        name: Metric name for error messages.
+        value: Metric value.
+
+    Returns:
+        ``value`` cast to a Python float.
+
+    Raises:
+        ValueError: If the metric is not finite.
+    """
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"metric {name!r} must be finite, got {value}.")
+    return value

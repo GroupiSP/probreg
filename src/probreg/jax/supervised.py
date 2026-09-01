@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+import math
 from typing import Any
 
 import jax
@@ -14,11 +15,16 @@ from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink, TrainingEvent
 from probreg.core.types import StageResult, TrainingState
 from probreg.jax.evaluation import SupervisedLoss, _metric_mean
+from probreg.jax.metrics import BatchMetricSpec, MetricSuite, merge_metric_inputs, resolve_metric_inputs
 from probreg.jax.rng import split_key
 from probreg.jax.state import freeze_training_state, snapshot
 
 
-def make_train_step(loss: SupervisedLoss) -> Callable[..., jax.Array]:
+def make_train_step(
+    loss: SupervisedLoss,
+    *,
+    metrics: Sequence[BatchMetricSpec] = (),
+) -> Callable[..., jax.Array | Mapping[str, jax.Array]]:
     """Create a JIT-compiled NNX/Optax supervised training step.
 
     Args:
@@ -29,7 +35,9 @@ def make_train_step(loss: SupervisedLoss) -> Callable[..., jax.Array]:
     Returns:
         A JIT-compiled function ``train_step(model, optimizer, inputs,
         targets, sample_weight, key)`` that performs one gradient update
-        in place and returns the scalar loss value.
+        in place. When ``metrics`` is empty it returns the scalar loss.
+        Otherwise it returns a mapping containing ``"loss"`` plus
+        registered batch metric values.
     """
 
     @nnx.jit
@@ -40,7 +48,7 @@ def make_train_step(loss: SupervisedLoss) -> Callable[..., jax.Array]:
         targets: Any,
         sample_weight: Any,
         key: jax.Array,
-    ) -> jax.Array:
+    ) -> jax.Array | Mapping[str, jax.Array]:
         def loss_fn(current_model: nnx.Module) -> jax.Array:
             return loss(
                 current_model,
@@ -52,8 +60,21 @@ def make_train_step(loss: SupervisedLoss) -> Callable[..., jax.Array]:
             )
 
         loss_value, gradients = nnx.value_and_grad(loss_fn)(model)
+        if not metrics:
+            optimizer.update(model, gradients)
+            return loss_value
+        values: dict[str, jax.Array] = {"loss": loss_value}
+        for spec in metrics:
+            values[spec.name] = spec.metric(
+                model,
+                inputs,
+                targets,
+                sample_weight,
+                key,
+                True,
+            )
         optimizer.update(model, gradients)
-        return loss_value
+        return values
 
     return train_step
 
@@ -72,6 +93,7 @@ def run_supervised(
     checkpoint_store: CheckpointStore | None = None,
     checkpoint_key: str = "best",
     stage: str = "supervised",
+    metrics: MetricSuite = MetricSuite(),
 ) -> StageResult:
     """Train a single NNX model for a fixed or early-stopped number of epochs.
 
@@ -99,6 +121,7 @@ def run_supervised(
             saved. Defaults to ``"best"``.
         stage: The stage name recorded on ``state`` and emitted events.
             Defaults to ``"supervised"``.
+        metrics: Registered batch/epoch metrics for training.
 
     Returns:
         A :class:`StageResult` with the final ``state``, the last
@@ -121,29 +144,65 @@ def run_supervised(
     state.register_component("model", model)
     state.register_optimizer("optimizer", optimizer)
     state.stage = stage
-    train_step = make_train_step(loss)
-    metrics: Mapping[str, float] = {}
+    metric_suite = metrics
+    train_step = make_train_step(loss, metrics=metric_suite.batch)
+    latest_metrics: Mapping[str, float] = {}
 
     for epoch in range(epochs):
         train_losses: list[float] = []
+        train_batch_metric_values: dict[str, list[float]] = {
+            spec.name: [] for spec in metric_suite.batch
+        }
+        epoch_metric_parts = [] if metric_suite.epoch else None
         for batch in train_loader(split="train", epoch=epoch):
             state.rng_state, batch_key = split_key(state.rng_state)
-            train_losses.append(
-                float(
-                    train_step(
-                        model,
-                        optimizer,
-                        batch.inputs,
-                        batch.targets,
-                        batch.sample_weight,
-                        batch_key,
-                    )
+            if epoch_metric_parts is not None:
+                epoch_metric_parts.append(
+                    resolve_metric_inputs(suite=metric_suite, model=model, batch=batch)
                 )
+            step_output = train_step(
+                model,
+                optimizer,
+                batch.inputs,
+                batch.targets,
+                batch.sample_weight,
+                batch_key,
             )
+            if isinstance(step_output, Mapping):
+                train_losses.append(float(step_output["loss"]))
+                for spec in metric_suite.batch:
+                    if spec.name not in step_output:
+                        raise ValueError(
+                            f"train step did not produce registered metric {spec.name!r}."
+                        )
+                    train_batch_metric_values[spec.name].append(
+                        float(step_output[spec.name])
+                    )
+            else:
+                if metric_suite.batch:
+                    raise ValueError(
+                        "train_step must return metric mappings when batch metrics are registered."
+                    )
+                train_losses.append(float(step_output))
 
-        metrics = {"loss": _metric_mean(train_losses)}
-        _record_metrics(state, "training", metrics)
-        _emit(event_sinks, "epoch_end", stage, epoch, metrics, state)
+        epoch_metrics: dict[str, float] = {
+            "loss": _finite_float("loss", _metric_mean(train_losses))
+        }
+        for spec in metric_suite.batch:
+            epoch_metrics[spec.name] = _finite_float(
+                spec.name, spec.reduce(train_batch_metric_values[spec.name])
+            )
+        if epoch_metric_parts is not None:
+            merged = merge_metric_inputs(epoch_metric_parts)
+            for epoch_metric in metric_suite.epoch:
+                epoch_metrics[epoch_metric.name] = _finite_float(
+                    epoch_metric.name,
+                    float(epoch_metric(merged)),
+                )
+
+        latest_metrics = epoch_metrics
+        _record_metrics(state, "training", epoch_metrics)
+        _emit(event_sinks, "epoch_end", stage, epoch, epoch_metrics, state)
 
         validation_metrics: Mapping[str, float] = {}
         if validation is not None:
@@ -155,7 +214,7 @@ def run_supervised(
             )
 
         monitored_metrics = (
-            metrics
+            epoch_metrics
             if early_stopper is None or not early_stopper.expects_validation()
             else validation_metrics
         )
@@ -181,7 +240,26 @@ def run_supervised(
                 _emit(event_sinks, "early_stop", stage, epoch, monitored_metrics, state)
                 break
 
-    return StageResult(state=state, metrics=metrics, loss=metrics["loss"])
+    return StageResult(state=state, metrics=latest_metrics, loss=latest_metrics["loss"])
+
+
+def _finite_float(name: str, value: float) -> float:
+    """Return ``value`` as a finite float.
+
+    Args:
+        name: Metric name for diagnostics.
+        value: Metric value.
+
+    Returns:
+        ``value`` as a Python float.
+
+    Raises:
+        ValueError: If ``value`` is not finite.
+    """
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"metric {name!r} must be finite, got {value}.")
+    return value
 
 
 def _record_metrics(
