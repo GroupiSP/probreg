@@ -177,7 +177,9 @@ def run_supervised(
                     raise ValueError(
                         f"train step did not produce registered metric {spec.name!r}."
                     )
-                train_batch_metric_values[spec.name].append(float(step_output[spec.name]))
+                train_batch_metric_values[spec.name].append(
+                    float(step_output[spec.name])
+                )
 
         epoch_metrics: dict[str, float] = {
             "loss": _finite_float("loss", _metric_mean(train_losses))
