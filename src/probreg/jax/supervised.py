@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-import math
 from typing import Any
 
 import jax
@@ -14,10 +13,12 @@ from probreg.core.early_stopping import EarlyStopper
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink, TrainingEvent
 from probreg.core.types import StageResult, TrainingState
-from probreg.jax.evaluation import SupervisedLoss, _metric_mean
+from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.metrics import (
     BatchMetricSpec,
     MetricSuite,
+    _finite_float,
+    _metric_mean,
     merge_metric_inputs,
     resolve_metric_inputs,
 )
@@ -42,7 +43,8 @@ def make_train_step(
         targets, sample_weight, key)`` that performs one gradient update
         in place. When ``metrics`` is empty it returns the scalar loss.
         Otherwise it returns a mapping containing ``"loss"`` plus
-        registered batch metric values.
+        registered batch metric values. Loss and metric values are
+        evaluated on the pre-update model state for consistency.
     """
 
     @nnx.jit
@@ -246,25 +248,6 @@ def run_supervised(
                 break
 
     return StageResult(state=state, metrics=latest_metrics, loss=latest_metrics["loss"])
-
-
-def _finite_float(name: str, value: float) -> float:
-    """Return ``value`` as a finite float.
-
-    Args:
-        name: Metric name for diagnostics.
-        value: Metric value.
-
-    Returns:
-        ``value`` as a Python float.
-
-    Raises:
-        ValueError: If ``value`` is not finite.
-    """
-    value = float(value)
-    if not math.isfinite(value):
-        raise ValueError(f"metric {name!r} must be finite, got {value}.")
-    return value
 
 
 def _record_metrics(

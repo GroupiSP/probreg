@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -30,6 +32,25 @@ def _metric_mean(values: Sequence[float]) -> float:
     if not values:
         raise ValueError("a loader must provide at least one batch.")
     return sum(values) / len(values)
+
+
+def _finite_float(name: str, value: float) -> float:
+    """Return ``value`` as a finite float.
+
+    Args:
+        name: Metric name for error messages.
+        value: Metric value.
+
+    Returns:
+        ``value`` cast to a Python float.
+
+    Raises:
+        ValueError: If the metric is not finite.
+    """
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"metric {name!r} must be finite, got {value}.")
+    return value
 
 
 class BatchMetric(Protocol):
@@ -89,16 +110,15 @@ class MetricSuite:
         Raises:
             ValueError: If names are duplicated or ``"loss"`` is reused.
         """
-        names = ["loss"]
-        names.extend(spec.name for spec in self.batch)
-        names.extend(metric.name for metric in self.epoch)
-        duplicate_names = {
-            name for name in names if names.count(name) > 1 and name != "loss"
-        }
-        if "loss" in [spec.name for spec in self.batch] or "loss" in [
+        reserved = "loss"
+        registered_names = [spec.name for spec in self.batch] + [
             metric.name for metric in self.epoch
-        ]:
+        ]
+        if reserved in registered_names:
             raise ValueError("'loss' is reserved and cannot be registered as a metric.")
+        duplicate_names = {
+            name for name, count in Counter(registered_names).items() if count > 1
+        }
         if duplicate_names:
             duplicates = ", ".join(sorted(duplicate_names))
             raise ValueError(f"duplicate metric names are not allowed: {duplicates}.")

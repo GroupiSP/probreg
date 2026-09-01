@@ -7,7 +7,6 @@ on it without either depending on the other.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Protocol
 
@@ -18,6 +17,8 @@ from probreg.core.types import Batch
 from probreg.jax.metrics import (
     BatchMetricSpec,
     MetricSuite,
+    _finite_float,
+    _metric_mean,
     merge_metric_inputs,
     resolve_metric_inputs,
 )
@@ -57,24 +58,6 @@ class SupervisedLoss(Protocol):
             The scalar loss value.
         """
         ...
-
-
-def _metric_mean(values: Iterable[float]) -> float:
-    """Compute the arithmetic mean of an iterable of metric values.
-
-    Args:
-        values: The metric values to average, e.g. per-batch losses.
-
-    Returns:
-        The arithmetic mean of ``values``.
-
-    Raises:
-        ValueError: If ``values`` is empty.
-    """
-    values = tuple(values)
-    if not values:
-        raise ValueError("a loader must provide at least one batch.")
-    return sum(values) / len(values)
 
 
 def make_evaluation_step(
@@ -194,22 +177,3 @@ def evaluate_loader(
                 float(epoch_metric(merged)),
             )
     return reduced, key
-
-
-def _finite_float(name: str, value: float) -> float:
-    """Return ``value`` as a finite float.
-
-    Args:
-        name: Metric name for error messages.
-        value: Metric value.
-
-    Returns:
-        ``value`` cast to a Python float.
-
-    Raises:
-        ValueError: If the metric is not finite.
-    """
-    value = float(value)
-    if not math.isfinite(value):
-        raise ValueError(f"metric {name!r} must be finite, got {value}.")
-    return value
