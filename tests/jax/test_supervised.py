@@ -19,7 +19,10 @@ from probreg.jax import (
     HeldOutValidation,
     MetricSuite,
     create_optimizer,
+    evaluate_loader,
     initialize_training_state,
+    make_evaluation_step,
+    make_train_step,
     run_supervised,
     split_key,
 )
@@ -145,6 +148,37 @@ def test_fixed_epoch_training_without_validation_updates_parameters_and_rng() ->
     assert result.loss is not None
     assert not bool(jnp.array_equal(initial_key, result.state.rng_state))
     assert int(optimizer.step.get_value()) == 3
+
+
+def test_make_train_step_without_registered_metrics_returns_loss_mapping() -> None:
+    model, optimizer, _ = make_components()
+    train_step = make_train_step(squared_error)
+
+    output = train_step(
+        model,
+        optimizer,
+        jnp.array([[1.0]]),
+        jnp.array([[2.0]]),
+        None,
+        jax.random.key(0),
+    )
+
+    assert set(output) == {"loss"}
+
+
+def test_make_evaluation_step_without_registered_metrics_returns_loss_mapping() -> None:
+    model, _, state = make_components()
+    evaluation_step = make_evaluation_step(squared_error)
+
+    metrics, next_key = evaluate_loader(
+        model,
+        loader(split="train", epoch=0),
+        key=state.rng_state,
+        evaluation_step=evaluation_step,
+    )
+
+    assert set(metrics) == {"loss"}
+    assert not bool(jnp.array_equal(next_key, state.rng_state))
 
 
 def test_training_metric_stopping_saves_best_checkpoint_and_events() -> None:

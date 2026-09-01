@@ -64,7 +64,7 @@ def make_evaluation_step(
     loss: SupervisedLoss,
     *,
     metrics: Sequence[BatchMetricSpec] = (),
-) -> Callable[..., jax.Array | Mapping[str, jax.Array]]:
+) -> Callable[..., Mapping[str, jax.Array]]:
     """Create a JIT-compiled NNX supervised evaluation step.
 
     Args:
@@ -75,9 +75,8 @@ def make_evaluation_step(
 
     Returns:
         A JIT-compiled function ``evaluate_step(model, inputs, targets,
-        sample_weight, key)``. When ``metrics`` is empty, it returns only
-        the scalar loss. Otherwise it returns a mapping containing
-        ``"loss"`` plus one scalar value per registered batch metric.
+        sample_weight, key)`` returning a mapping containing ``"loss"``
+        plus one scalar value per registered batch metric.
     """
 
     @nnx.jit
@@ -87,10 +86,8 @@ def make_evaluation_step(
         targets: Any,
         sample_weight: Any,
         key: jax.Array,
-    ) -> jax.Array | Mapping[str, jax.Array]:
+    ) -> Mapping[str, jax.Array]:
         loss_value = loss(model, inputs, targets, sample_weight, key, False)
-        if not metrics:
-            return loss_value
         values: dict[str, jax.Array] = {"loss": loss_value}
         for spec in metrics:
             values[spec.name] = spec.metric(
@@ -111,7 +108,7 @@ def evaluate_loader(
     loader: Iterable[Batch],
     *,
     key: jax.Array,
-    evaluation_step: Callable[..., jax.Array | Mapping[str, jax.Array]],
+    evaluation_step: Callable[..., Mapping[str, jax.Array]],
     metrics: MetricSuite = MetricSuite(),
 ) -> tuple[dict[str, float], jax.Array]:
     """Evaluate a loader and return reduced metrics and the advanced random key.
@@ -144,20 +141,13 @@ def evaluate_loader(
             batch.sample_weight,
             batch_key,
         )
-        if isinstance(step_output, Mapping):
-            losses.append(float(step_output["loss"]))
-            for spec in metrics.batch:
-                if spec.name not in step_output:
-                    raise ValueError(
-                        f"evaluation step did not produce registered metric {spec.name!r}."
-                    )
-                batch_metric_values[spec.name].append(float(step_output[spec.name]))
-        else:
-            if metrics.batch:
+        losses.append(float(step_output["loss"]))
+        for spec in metrics.batch:
+            if spec.name not in step_output:
                 raise ValueError(
-                    "evaluation_step must return metric mappings when batch metrics are registered."
+                    f"evaluation step did not produce registered metric {spec.name!r}."
                 )
-            losses.append(float(step_output))
+            batch_metric_values[spec.name].append(float(step_output[spec.name]))
         if epoch_metric_parts is not None:
             epoch_metric_parts.append(
                 resolve_metric_inputs(suite=metrics, model=model, batch=batch)

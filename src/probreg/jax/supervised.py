@@ -30,7 +30,7 @@ def make_train_step(
     loss: SupervisedLoss,
     *,
     metrics: Sequence[BatchMetricSpec] = (),
-) -> Callable[..., jax.Array | Mapping[str, jax.Array]]:
+) -> Callable[..., Mapping[str, jax.Array]]:
     """Create a JIT-compiled NNX/Optax supervised training step.
 
     Args:
@@ -41,8 +41,7 @@ def make_train_step(
     Returns:
         A JIT-compiled function ``train_step(model, optimizer, inputs,
         targets, sample_weight, key)`` that performs one gradient update
-        in place. When ``metrics`` is empty it returns the scalar loss.
-        Otherwise it returns a mapping containing ``"loss"`` plus
+        in place and returns a mapping containing ``"loss"`` plus
         registered batch metric values. Loss and metric values are
         evaluated on the pre-update model state for consistency.
     """
@@ -55,7 +54,7 @@ def make_train_step(
         targets: Any,
         sample_weight: Any,
         key: jax.Array,
-    ) -> jax.Array | Mapping[str, jax.Array]:
+    ) -> Mapping[str, jax.Array]:
         def loss_fn(current_model: nnx.Module) -> jax.Array:
             return loss(
                 current_model,
@@ -67,9 +66,6 @@ def make_train_step(
             )
 
         loss_value, gradients = nnx.value_and_grad(loss_fn)(model)
-        if not metrics:
-            optimizer.update(model, gradients)
-            return loss_value
         values: dict[str, jax.Array] = {"loss": loss_value}
         for spec in metrics:
             values[spec.name] = spec.metric(
@@ -175,22 +171,13 @@ def run_supervised(
                 batch.sample_weight,
                 batch_key,
             )
-            if isinstance(step_output, Mapping):
-                train_losses.append(float(step_output["loss"]))
-                for spec in metric_suite.batch:
-                    if spec.name not in step_output:
-                        raise ValueError(
-                            f"train step did not produce registered metric {spec.name!r}."
-                        )
-                    train_batch_metric_values[spec.name].append(
-                        float(step_output[spec.name])
-                    )
-            else:
-                if metric_suite.batch:
+            train_losses.append(float(step_output["loss"]))
+            for spec in metric_suite.batch:
+                if spec.name not in step_output:
                     raise ValueError(
-                        "train_step must return metric mappings when batch metrics are registered."
+                        f"train step did not produce registered metric {spec.name!r}."
                     )
-                train_losses.append(float(step_output))
+                train_batch_metric_values[spec.name].append(float(step_output[spec.name]))
 
         epoch_metrics: dict[str, float] = {
             "loss": _finite_float("loss", _metric_mean(train_losses))
