@@ -1,10 +1,12 @@
 """Optional JAX/Flax NNX training backend."""
 
+from probreg.jax.distributions import Gaussian, GaussianHead
 from probreg.jax.evaluation import (
     SupervisedLoss,
     evaluate_loader,
     make_evaluation_step,
 )
+from probreg.jax.mve import make_mve_loss
 from probreg.jax.rng import split_key
 from probreg.jax.state import (
     NnxSnapshot,
@@ -17,6 +19,8 @@ from probreg.jax.supervised import make_train_step, run_supervised
 from probreg.jax.validation import HeldOutValidation
 
 __all__ = [
+    "Gaussian",
+    "GaussianHead",
     "HeldOutValidation",
     "NnxSnapshot",
     "SupervisedLoss",
@@ -25,6 +29,7 @@ __all__ = [
     "freeze_training_state",
     "initialize_training_state",
     "make_evaluation_step",
+    "make_mve_loss",
     "make_train_step",
     "run_supervised",
     "snapshot",

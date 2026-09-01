@@ -36,3 +36,13 @@ When no validation strategy or early stopper is passed to `run_supervised`, it
 runs for the requested number of epochs. An early stopper monitoring validation
 metrics requires a validation strategy; use a training-metric source explicitly
 for convergence-driven training without validation.
+
+## Plotting
+
+Install the optional `plot` extra (Matplotlib) to run examples that visualize
+predictions, e.g. `examples/mve_regression_jax.py`:
+
+```bash
+uv sync --extra jax --extra plot --group dev
+uv run python examples/mve_regression_jax.py
+```
