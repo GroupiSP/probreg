@@ -17,10 +17,10 @@ from probreg.core.types import Batch
 from probreg.jax.metrics import (
     BatchMetricSpec,
     MetricSuite,
-    _finite_float,
-    _metric_mean,
-    merge_metric_inputs,
-    resolve_metric_inputs,
+    collect_step_metrics,
+    initialize_batch_metric_values,
+    maybe_collect_epoch_metric_inputs,
+    reduce_metric_suite,
 )
 from probreg.jax.rng import split_key
 
@@ -127,9 +127,7 @@ def evaluate_loader(
         consumed batches.
     """
     losses: list[float] = []
-    batch_metric_values: dict[str, list[float]] = {
-        spec.name: [] for spec in metrics.batch
-    }
+    batch_metric_values = initialize_batch_metric_values(metrics.batch)
     epoch_metric_parts = [] if metrics.epoch else None
 
     for batch in loader:
@@ -141,29 +139,26 @@ def evaluate_loader(
             batch.sample_weight,
             batch_key,
         )
-        losses.append(float(step_output["loss"]))
-        for spec in metrics.batch:
-            if spec.name not in step_output:
-                raise ValueError(
-                    f"evaluation step did not produce registered metric {spec.name!r}."
-                )
-            batch_metric_values[spec.name].append(float(step_output[spec.name]))
-        if epoch_metric_parts is not None:
-            epoch_metric_parts.append(
-                resolve_metric_inputs(suite=metrics, model=model, batch=batch)
-            )
-
-    reduced: dict[str, float] = {"loss": _finite_float("loss", _metric_mean(losses))}
-    for spec in metrics.batch:
-        reduced[spec.name] = _finite_float(
-            spec.name,
-            spec.reduce(batch_metric_values[spec.name]),
+        collect_step_metrics(
+            step_output,
+            metrics=metrics.batch,
+            losses=losses,
+            batch_metric_values=batch_metric_values,
+            context="evaluation step",
         )
-    if epoch_metric_parts is not None:
-        merged = merge_metric_inputs(epoch_metric_parts)
-        for epoch_metric in metrics.epoch:
-            reduced[epoch_metric.name] = _finite_float(
-                epoch_metric.name,
-                float(epoch_metric(merged)),
-            )
-    return reduced, key
+        maybe_collect_epoch_metric_inputs(
+            epoch_metric_parts,
+            suite=metrics,
+            model=model,
+            batch=batch,
+        )
+
+    return (
+        reduce_metric_suite(
+            suite=metrics,
+            losses=losses,
+            batch_metric_values=batch_metric_values,
+            epoch_metric_parts=epoch_metric_parts,
+        ),
+        key,
+    )

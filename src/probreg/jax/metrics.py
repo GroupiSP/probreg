@@ -177,6 +177,108 @@ def merge_metric_inputs(parts: Sequence[MetricInputs]) -> MetricInputs:
     )
 
 
+def initialize_batch_metric_values(
+    metrics: Sequence[BatchMetricSpec],
+) -> dict[str, list[float]]:
+    """Create per-metric host-side accumulation buffers.
+
+    Args:
+        metrics: Registered batch metrics.
+
+    Returns:
+        A mapping from metric name to an initially empty list of observed values.
+    """
+    return {spec.name: [] for spec in metrics}
+
+
+def collect_step_metrics(
+    step_output: Mapping[str, Any],
+    *,
+    metrics: Sequence[BatchMetricSpec],
+    losses: list[float],
+    batch_metric_values: dict[str, list[float]],
+    context: str,
+) -> None:
+    """Append a step's emitted metrics into host-side accumulators.
+
+    Args:
+        step_output: Metric mapping emitted by a train/evaluation step.
+        metrics: Registered batch metrics expected in ``step_output``.
+        losses: Accumulator for scalar loss values.
+        batch_metric_values: Per-metric host-side accumulation buffers.
+        context: Human-readable call-site name used in error messages.
+
+    Raises:
+        ValueError: If a registered metric is missing from ``step_output``.
+    """
+    losses.append(float(step_output["loss"]))
+    for spec in metrics:
+        if spec.name not in step_output:
+            raise ValueError(
+                f"{context} did not produce registered metric {spec.name!r}."
+            )
+        batch_metric_values[spec.name].append(float(step_output[spec.name]))
+
+
+def maybe_collect_epoch_metric_inputs(
+    parts: list[MetricInputs] | None,
+    *,
+    suite: MetricSuite,
+    model: nnx.Module,
+    batch: Batch,
+) -> None:
+    """Append epoch metric inputs for a batch when epoch metrics are enabled.
+
+    Args:
+        parts: Mutable metric-input accumulator, or ``None`` when epoch metrics
+            are not registered.
+        suite: Metric suite used to resolve metric inputs.
+        model: The model being trained or evaluated.
+        batch: The current batch.
+    """
+    if parts is None:
+        return
+    parts.append(resolve_metric_inputs(suite=suite, model=model, batch=batch))
+
+
+def reduce_metric_suite(
+    *,
+    suite: MetricSuite,
+    losses: Sequence[float],
+    batch_metric_values: Mapping[str, Sequence[float]],
+    epoch_metric_parts: Sequence[MetricInputs] | None,
+) -> dict[str, float]:
+    """Reduce accumulated batch and epoch metrics into a single mapping.
+
+    Args:
+        suite: Registered metric suite.
+        losses: Scalar batch loss values.
+        batch_metric_values: Accumulated batch metric values by name.
+        epoch_metric_parts: Per-batch materialized epoch metric inputs, or
+            ``None`` when no epoch metrics are registered.
+
+    Returns:
+        Reduced loader/epoch metrics containing ``"loss"`` plus all registered
+        batch and epoch metrics.
+    """
+    reduced: dict[str, float] = {"loss": _finite_float("loss", _metric_mean(losses))}
+    for spec in suite.batch:
+        reduced[spec.name] = _finite_float(
+            spec.name,
+            spec.reduce(batch_metric_values[spec.name]),
+        )
+    if epoch_metric_parts is None:
+        return reduced
+
+    merged = merge_metric_inputs(epoch_metric_parts)
+    for epoch_metric in suite.epoch:
+        reduced[epoch_metric.name] = _finite_float(
+            epoch_metric.name,
+            float(epoch_metric(merged)),
+        )
+    return reduced
+
+
 def _to_vector(values: Any, *, name: str) -> NDArray[np.float64]:
     vector = np.asarray(values, dtype=float).reshape(-1)
     if vector.size == 0:
