@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from probreg.core.distributions import PredictiveDistribution
 from probreg.core.types import Array, Batch
@@ -12,6 +13,21 @@ from probreg.core.types import Array, Batch
 def _identity(value: Array) -> Array:
     """Return ``value`` unchanged; the default no-op gradient-stopping hook."""
     return value
+
+
+class Loss(Protocol):
+    def per_example(self, prediction: PredictiveDistribution, batch: Batch) -> Array:
+        """Compute the per-example loss for a given predictive distribution and batch.
+
+        Args:
+            prediction: The predictive distribution produced for ``batch``.
+            batch: The batch whose ``targets`` are scored under
+                ``prediction``.
+
+        Returns:
+            An array of per-example loss values.
+        """
+        ...
 
 
 @dataclass(frozen=True)
