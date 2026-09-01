@@ -31,4 +31,3 @@ Not yet implemented: the distribution-valued Gaussian head, MVE and staged
 (Step 1/Step 2/VeBNN Step 3) training stages, and any qmodem integration
 adapter. The qmodem adapter is intentionally out of scope for this
 repository — it belongs downstream in `qmodem`, which depends on `probreg`.
-

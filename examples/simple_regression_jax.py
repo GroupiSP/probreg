@@ -28,6 +28,7 @@ from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper, MetricSource, OptimizationMode
+from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import Batch
 from probreg.jax import (
@@ -99,7 +100,9 @@ def make_dataset(
     return inputs, targets
 
 
-def make_loader(inputs: jax.Array, targets: jax.Array, *, batch_size: int) -> "LoaderFactory":
+def make_loader(
+    inputs: jax.Array, targets: jax.Array, *, batch_size: int
+) -> LoaderFactory:
     """Build a :class:`LoaderFactory` that yields shuffled mini-batches.
 
     Args:

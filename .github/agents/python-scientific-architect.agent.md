@@ -65,4 +65,3 @@ class StepSolver(Protocol):
     """Abstract numerical step solver interface."""
     def step(self, state: SystemState, dt: float) -> FloatArray: ...
 ```
-
