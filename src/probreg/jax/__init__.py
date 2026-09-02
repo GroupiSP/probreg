@@ -28,6 +28,8 @@ from probreg.jax.state import (
 )
 from probreg.jax.supervised import make_train_step, run_supervised
 from probreg.jax.two_step import (
+    MeanStage,
+    SupervisedStageOptions,
     make_gamma_residual_loss,
     make_mean_squared_error_loss,
     materialize_residual_loader,
@@ -44,12 +46,14 @@ __all__ = [
     "GaussianHead",
     "GaussianPredictor",
     "HeldOutValidation",
+    "MeanStage",
     "MetricSuite",
     "NnxSnapshot",
     "PredictionRequirements",
     "Predictor",
     "ReferenceSamplesExtractor",
     "SupervisedLoss",
+    "SupervisedStageOptions",
     "create_optimizer",
     "evaluate_loader",
     "freeze_training_state",

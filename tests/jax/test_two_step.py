@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import optax
 import pytest
 from flax import nnx
 
+from probreg.core.checkpoints import Checkpoint
+from probreg.core.early_stopping import EarlyStopper, MetricSource
 from probreg.core.losses import GammaResidualNLLLoss
-from probreg.core.types import Batch
+from probreg.core.types import Batch, ParameterRole, StageState, TrainingState
+from probreg.jax.state import create_optimizer
 from probreg.jax.two_step import (
+    MeanStage,
+    SupervisedStageOptions,
     make_gamma_residual_loss,
     make_mean_squared_error_loss,
     materialize_residual_loader,
@@ -54,6 +60,20 @@ class DropoutMeanModel(nnx.Module):
 
     def __call__(self, inputs: jax.Array) -> jax.Array:
         return self.dropout(inputs)
+
+
+class MemoryCheckpointStore:
+    def __init__(self) -> None:
+        self.values: dict[str, Checkpoint] = {}
+
+    def save(self, key: str, checkpoint: Checkpoint) -> None:
+        self.values[key] = checkpoint
+
+    def load(self, key: str) -> Checkpoint:
+        return self.values[key]
+
+    def exists(self, key: str) -> bool:
+        return key in self.values
 
 
 def test_mean_squared_error_loss_supports_weights_and_reduction() -> None:
@@ -263,3 +283,109 @@ def test_materialized_residual_loader_rejects_unknown_split() -> None:
 
     with pytest.raises(ValueError, match="was not materialized"):
         loader(split="validation", epoch=0)
+
+
+def mean_loader(*, split: str, epoch: int) -> list[Batch]:
+    del split, epoch
+    return [
+        Batch(
+            inputs=jnp.array([[-1.0], [0.0], [1.0]]),
+            targets=jnp.array([[-2.0], [0.0], [2.0]]),
+        )
+    ]
+
+
+def make_mean_stage(
+    *,
+    learning_rate: float = 0.1,
+    checkpoint_store: MemoryCheckpointStore | None = None,
+    early_stopper: EarlyStopper | None = None,
+) -> tuple[MeanStage, TrainingState]:
+    model = LinearModel(rngs=nnx.Rngs(0))
+    optimizer = create_optimizer(model, optax.sgd(learning_rate))
+    stage = MeanStage(
+        model=model,
+        optimizer=optimizer,
+        train_loader=mean_loader,
+        options=SupervisedStageOptions(
+            epochs=10,
+            checkpoint_store=checkpoint_store,
+            checkpoint_key="mean-best",
+            early_stopper=early_stopper,
+        ),
+    )
+    return stage, TrainingState(rng_state=jax.random.key(1))
+
+
+def test_mean_stage_prepares_trains_and_validates_lifecycle() -> None:
+    stage, state = make_mean_stage()
+
+    stage.prepare(state)
+    initial_loss = float(
+        stage.loss(
+            stage.model,
+            mean_loader(split="train", epoch=0)[0].inputs,
+            mean_loader(split="train", epoch=0)[0].targets,
+            None,
+            jax.random.key(2),
+            False,
+        )
+    )
+    result = stage.train(state)
+
+    assert state.lifecycle_state is StageState.MEAN_READY
+    assert state.active_stage == "mean"
+    assert state.model_components["mean_model"] is stage.model
+    assert state.optimizer_states["mean_optimizer"] is stage.optimizer
+    assert state.parameter_roles["mean_model"] is ParameterRole.MEAN
+    assert result.loss is not None and result.loss < initial_loss
+    assert stage.validate(state).passed
+
+
+def test_mean_stage_rejects_invalid_lifecycle_without_advancing_state() -> None:
+    stage, state = make_mean_stage()
+    state.lifecycle_state = StageState.VARIANCE_READY
+
+    with pytest.raises(ValueError, match="requires NEW or INITIALIZED"):
+        stage.prepare(state)
+
+    assert state.lifecycle_state is StageState.VARIANCE_READY
+
+
+def test_mean_stage_rejects_conflicting_parameter_role() -> None:
+    stage, state = make_mean_stage()
+    state.parameter_roles["mean_model"] = ParameterRole.VARIANCE
+
+    with pytest.raises(ValueError, match="already has role"):
+        stage.prepare(state)
+
+    assert state.lifecycle_state is StageState.NEW
+
+
+def test_mean_stage_selects_existing_checkpoint() -> None:
+    store = MemoryCheckpointStore()
+    stopper = EarlyStopper(
+        metric="loss",
+        mode="min",
+        patience=0,
+        source=MetricSource.TRAINING,
+    )
+    stage, state = make_mean_stage(
+        learning_rate=0.0,
+        checkpoint_store=store,
+        early_stopper=stopper,
+    )
+
+    stage.prepare(state)
+    stage.train(state)
+    reference = stage.select_checkpoint(state)
+
+    assert reference.key == "mean-best"
+    assert reference.metadata == {"stage": "mean"}
+
+
+def test_mean_stage_rejects_missing_checkpoint() -> None:
+    stage, state = make_mean_stage()
+
+    with pytest.raises(ValueError, match="not available"):
+        stage.select_checkpoint(state)

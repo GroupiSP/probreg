@@ -2,19 +2,35 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 from flax import nnx
 
+from probreg.core.checkpoints import CheckpointStore
+from probreg.core.early_stopping import EarlyStopper
 from probreg.core.losses import GammaResidualNLLLoss
-from probreg.core.protocols import LoaderFactory
-from probreg.core.types import Batch
+from probreg.core.protocols import LoaderFactory, ValidationStrategy
+from probreg.core.tracking import EventSink
+from probreg.core.types import (
+    Batch,
+    CheckpointRef,
+    ParameterRole,
+    StageResult,
+    StageState,
+    TrainingState,
+    ValidationResult,
+)
 from probreg.jax.evaluation import SupervisedLoss
+from probreg.jax.metrics import MetricSuite
+from probreg.jax.supervised import run_supervised
 
 _DEFAULT_GAMMA_RESIDUAL_LOSS = GammaResidualNLLLoss()
+_EMPTY_METRIC_SUITE = MetricSuite()
 
 
 def make_mean_squared_error_loss(
@@ -156,3 +172,175 @@ def _materialize_residual_batch(mean_model: nnx.Module, batch: Batch) -> Batch:
         sample_weight=batch.sample_weight,
         metadata=batch.metadata,
     )
+
+
+@dataclass(frozen=True)
+class SupervisedStageOptions:
+    """Shared epoch-runner options for concrete supervised stages.
+
+    Attributes:
+        epochs: Maximum number of training epochs.
+        validation: Optional validation strategy.
+        early_stopper: Optional early-stopping policy.
+        event_sinks: Event consumers notified by the runner.
+        checkpoint_store: Optional best-checkpoint store.
+        checkpoint_key: Explicit caller-selected best-checkpoint key.
+        metrics: Batch and epoch metric registrations.
+    """
+
+    epochs: int
+    validation: ValidationStrategy | None = None
+    early_stopper: EarlyStopper | None = None
+    event_sinks: Sequence[EventSink] = ()
+    checkpoint_store: CheckpointStore | None = None
+    checkpoint_key: str = "best"
+    metrics: MetricSuite = _EMPTY_METRIC_SUITE
+
+
+@dataclass
+class MeanStage:
+    """Concrete Step 1 stage training a deterministic mean model with MSE."""
+
+    model: nnx.Module
+    optimizer: nnx.Optimizer
+    train_loader: LoaderFactory
+    options: SupervisedStageOptions
+    model_name: str = "mean_model"
+    optimizer_name: str = "mean_optimizer"
+    loss: SupervisedLoss = field(default_factory=make_mean_squared_error_loss)
+    name: str = field(default="mean", init=False)
+    requires: frozenset[str] = field(default_factory=frozenset, init=False)
+    produces: frozenset[str] = field(
+        default_factory=lambda: frozenset({"mean"}),
+        init=False,
+    )
+
+    def prepare(self, state: TrainingState) -> None:
+        """Register Step 1 ownership and initialize the staged lifecycle.
+
+        Args:
+            state: Shared staged training state.
+
+        Raises:
+            ValueError: If the lifecycle or component ownership is invalid.
+        """
+        if state.lifecycle_state not in (StageState.NEW, StageState.INITIALIZED):
+            raise ValueError("mean stage requires NEW or INITIALIZED lifecycle state.")
+        _validate_named_registration(
+            state.model_components,
+            self.model_name,
+            self.model,
+            kind="model component",
+        )
+        _validate_named_registration(
+            state.optimizer_states,
+            self.optimizer_name,
+            self.optimizer,
+            kind="optimizer state",
+        )
+        _validate_parameter_role(state, self.model_name, ParameterRole.MEAN)
+        state.register_component(self.model_name, self.model)
+        state.register_optimizer(self.optimizer_name, self.optimizer)
+        state.parameter_roles[self.model_name] = ParameterRole.MEAN
+        state.lifecycle_state = StageState.INITIALIZED
+        state.active_stage = self.name
+
+    def train(self, state: TrainingState) -> StageResult:
+        """Train the mean model and transition the workflow to ``MEAN_READY``.
+
+        Args:
+            state: Prepared staged training state.
+
+        Returns:
+            The supervised runner result.
+
+        Raises:
+            ValueError: If the stage was not prepared or training is non-finite.
+        """
+        if state.lifecycle_state is not StageState.INITIALIZED:
+            raise ValueError("mean stage must be prepared before training.")
+        result = run_supervised(
+            model=self.model,
+            optimizer=self.optimizer,
+            train_loader=self.train_loader,
+            loss=self.loss,
+            state=state,
+            epochs=self.options.epochs,
+            validation=self.options.validation,
+            early_stopper=self.options.early_stopper,
+            event_sinks=self.options.event_sinks,
+            checkpoint_store=self.options.checkpoint_store,
+            checkpoint_key=self.options.checkpoint_key,
+            stage=self.name,
+            model_name=self.model_name,
+            optimizer_name=self.optimizer_name,
+            metrics=self.options.metrics,
+        )
+        if result.loss is None or not math.isfinite(result.loss):
+            raise ValueError("mean stage produced a non-finite final loss.")
+        state.lifecycle_state = StageState.MEAN_READY
+        return result
+
+    def validate(self, state: TrainingState) -> ValidationResult:
+        """Validate mean-stage lifecycle and ownership invariants.
+
+        Args:
+            state: Shared staged training state.
+
+        Returns:
+            A validation result describing whether Step 1 is ready.
+        """
+        passed = (
+            state.lifecycle_state is StageState.MEAN_READY
+            and state.model_components.get(self.model_name) is self.model
+            and state.optimizer_states.get(self.optimizer_name) is self.optimizer
+            and state.parameter_roles.get(self.model_name) is ParameterRole.MEAN
+        )
+        return ValidationResult(
+            passed=passed,
+            message=None if passed else "mean stage invariants are not satisfied.",
+        )
+
+    def select_checkpoint(self, state: TrainingState) -> CheckpointRef:
+        """Return the explicitly configured mean checkpoint reference.
+
+        Args:
+            state: Shared staged training state.
+
+        Returns:
+            Reference to the configured best checkpoint.
+
+        Raises:
+            ValueError: If no configured checkpoint exists.
+        """
+        del state
+        store = self.options.checkpoint_store
+        key = self.options.checkpoint_key
+        if store is None or not store.exists(key):
+            raise ValueError(f"checkpoint {key!r} is not available.")
+        return CheckpointRef(key=key, metadata={"stage": self.name})
+
+
+def _validate_named_registration(
+    registry: dict[str, Any],
+    name: str,
+    value: Any,
+    *,
+    kind: str,
+) -> None:
+    """Reject a conflicting named object without mutating the registry."""
+    if name in registry and registry[name] is not value:
+        raise ValueError(f"{kind} {name!r} is already registered.")
+
+
+def _validate_parameter_role(
+    state: TrainingState,
+    component_name: str,
+    role: ParameterRole,
+) -> None:
+    """Reject conflicting component ownership without mutating state."""
+    registered = state.parameter_roles.get(component_name)
+    if registered is not None and registered is not role:
+        raise ValueError(
+            f"model component {component_name!r} already has role {registered.value!r}."
+        )
