@@ -114,6 +114,8 @@ class MetricSuite:
         registered_names = [spec.name for spec in self.batch] + [
             metric.name for metric in self.epoch
         ]
+        if any(not name for name in registered_names):
+            raise ValueError("metric names must not be empty.")
         if reserved in registered_names:
             raise ValueError("'loss' is reserved and cannot be registered as a metric.")
         duplicate_names = {
