@@ -273,6 +273,94 @@ def run_xsin_two_step(data: XSinData, config: XSinConfig) -> XSinResult:
     )
 
 
+def print_xsin_metrics(method: str, result: XSinResult) -> None:
+    """Print the common XSin comparison metrics.
+
+    Args:
+        method: Human-readable method label.
+        result: Benchmark result to report.
+    """
+    print(f"method={method}")
+    print(f"mean_rmse={result.mean_rmse:.6f}")
+    print(f"aleatoric_variance_rmse={result.variance_rmse:.6f}")
+
+
+def plot_xsin_result(method: str, data: XSinData, result: XSinResult) -> None:
+    """Show a common interactive mean/aleatoric comparison plot.
+
+    Args:
+        method: Human-readable method label used in the figure title.
+        data: Shared observations and exact benchmark functions.
+        result: Predicted mean and aleatoric variance.
+    """
+    import matplotlib.pyplot as plt
+
+    inputs = jax.device_get(data.evaluation_inputs).reshape(-1)
+    true_mean = jax.device_get(data.true_mean).reshape(-1)
+    true_variance = jax.device_get(data.true_variance).reshape(-1)
+    predicted_mean = jax.device_get(result.mean).reshape(-1)
+    predicted_variance = jax.device_get(result.variance).reshape(-1)
+    train_inputs = jax.device_get(data.train_inputs).reshape(-1)
+    train_targets = jax.device_get(data.train_targets).reshape(-1)
+
+    figure, (mean_axis, variance_axis) = plt.subplots(
+        2,
+        1,
+        figsize=(9, 8),
+        sharex=True,
+    )
+    mean_axis.scatter(
+        train_inputs,
+        train_targets,
+        s=8,
+        alpha=0.2,
+        label="training observations",
+    )
+    mean_axis.plot(inputs, true_mean, color="black", label="true mean")
+    mean_axis.plot(inputs, predicted_mean, color="C1", label="predicted mean")
+    mean_axis.fill_between(
+        inputs,
+        true_mean - 2.0 * jnp.sqrt(true_variance),
+        true_mean + 2.0 * jnp.sqrt(true_variance),
+        color="black",
+        alpha=0.1,
+        label="true aleatoric band",
+    )
+    mean_axis.fill_between(
+        inputs,
+        predicted_mean - 2.0 * jnp.sqrt(predicted_variance),
+        predicted_mean + 2.0 * jnp.sqrt(predicted_variance),
+        color="C1",
+        alpha=0.2,
+        label="predicted aleatoric band",
+    )
+    mean_axis.set_ylabel("target")
+    mean_axis.legend(ncol=2)
+
+    variance_axis.plot(
+        inputs,
+        true_variance,
+        color="black",
+        label="true aleatoric variance",
+    )
+    variance_axis.plot(
+        inputs,
+        predicted_variance,
+        color="C1",
+        label="predicted aleatoric variance",
+    )
+    variance_axis.set_xlabel("x")
+    variance_axis.set_ylabel("variance")
+    variance_axis.legend()
+
+    figure.suptitle(
+        f"{method}: mean RMSE={result.mean_rmse:.4f}, "
+        f"variance RMSE={result.variance_rmse:.4f}"
+    )
+    figure.tight_layout()
+    plt.show()
+
+
 def _summarize(
     mean: jax.Array,
     variance: jax.Array,
