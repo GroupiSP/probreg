@@ -25,6 +25,8 @@ from probreg.jax.metrics import (
 from probreg.jax.rng import split_key
 from probreg.jax.state import freeze_training_state, snapshot
 
+_EMPTY_METRIC_SUITE = MetricSuite()
+
 
 def make_train_step(
     loss: SupervisedLoss,
@@ -98,7 +100,9 @@ def run_supervised(
     checkpoint_store: CheckpointStore | None = None,
     checkpoint_key: str = "best",
     stage: str = "supervised",
-    metrics: MetricSuite = MetricSuite(),
+    model_name: str = "model",
+    optimizer_name: str = "optimizer",
+    metrics: MetricSuite = _EMPTY_METRIC_SUITE,
 ) -> StageResult:
     """Train a single NNX model for a fixed or early-stopped number of epochs.
 
@@ -126,6 +130,10 @@ def run_supervised(
             saved. Defaults to ``"best"``.
         stage: The stage name recorded on ``state`` and emitted events.
             Defaults to ``"supervised"``.
+        model_name: Name under which ``model`` is registered in ``state``.
+            Defaults to ``"model"``.
+        optimizer_name: Name under which ``optimizer`` is registered in
+            ``state``. Defaults to ``"optimizer"``.
         metrics: Registered batch/epoch metrics for training.
 
     Returns:
@@ -146,7 +154,14 @@ def run_supervised(
     if early_stopper and early_stopper.expects_validation() and validation is None:
         raise ValueError("validation metric monitoring requires a validation strategy.")
 
-    _initialize_run_state(state, stage=stage, model=model, optimizer=optimizer)
+    _initialize_run_state(
+        state,
+        stage=stage,
+        model=model,
+        optimizer=optimizer,
+        model_name=model_name,
+        optimizer_name=optimizer_name,
+    )
     metric_suite = metrics
     train_step = make_train_step(loss, metrics=metric_suite.batch)
     latest_metrics: Mapping[str, float] = {}
@@ -196,6 +211,8 @@ def _initialize_run_state(
     stage: str,
     model: nnx.Module,
     optimizer: nnx.Optimizer,
+    model_name: str,
+    optimizer_name: str,
 ) -> None:
     """Register mutable training components on the live state.
 
@@ -204,10 +221,12 @@ def _initialize_run_state(
         stage: Stage name to record on ``state``.
         model: Model trained by the runner.
         optimizer: Optimizer updating ``model``.
+        model_name: Name under which ``model`` is registered.
+        optimizer_name: Name under which ``optimizer`` is registered.
     """
-    state.register_component("model", model)
-    state.register_optimizer("optimizer", optimizer)
-    state.stage = stage
+    state.register_component(model_name, model)
+    state.register_optimizer(optimizer_name, optimizer)
+    state.active_stage = stage
 
 
 def _run_training_epoch(

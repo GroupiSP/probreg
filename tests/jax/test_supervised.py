@@ -160,6 +160,44 @@ def test_fixed_epoch_training_without_validation_updates_parameters_and_rng() ->
     assert int(optimizer.step.get_value()) == 3
 
 
+def test_run_supervised_registers_named_model_and_optimizer() -> None:
+    model, optimizer, state = make_components()
+    state.model_components.clear()
+    state.optimizer_states.clear()
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=loader,
+        loss=squared_error,
+        state=state,
+        epochs=1,
+        stage="mean",
+        model_name="mean_model",
+        optimizer_name="mean_optimizer",
+    )
+
+    assert result.state.model_components == {"mean_model": model}
+    assert result.state.optimizer_states == {"mean_optimizer": optimizer}
+    assert result.state.active_stage == "mean"
+
+
+def test_run_supervised_default_registration_names_remain_compatible() -> None:
+    model, optimizer, state = make_components()
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=loader,
+        loss=squared_error,
+        state=state,
+        epochs=1,
+    )
+
+    assert result.state.model_components == {"model": model}
+    assert result.state.optimizer_states == {"optimizer": optimizer}
+
+
 def test_make_train_step_without_registered_metrics_returns_loss_mapping() -> None:
     model, optimizer, _ = make_components()
     train_step = make_train_step(squared_error)

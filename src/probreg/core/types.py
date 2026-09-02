@@ -86,24 +86,36 @@ class TrainingState:
         self.active_stage = value
 
     def register_component(self, name: str, component: Any) -> None:
-        """Register a model component under ``name`` if none is registered yet.
+        """Register a model component under ``name``.
 
         Args:
             name: The key under which ``component`` is stored in
                 ``model_components``.
             component: The model component to register.
+
+        Raises:
+            ValueError: If ``name`` is already bound to a different object.
         """
-        self.model_components.setdefault(name, component)
+        registered = self.model_components.get(name)
+        if name in self.model_components and registered is not component:
+            raise ValueError(f"model component {name!r} is already registered.")
+        self.model_components[name] = component
 
     def register_optimizer(self, name: str, optimizer: Any) -> None:
-        """Register an optimizer state under ``name`` if none is registered yet.
+        """Register an optimizer state under ``name``.
 
         Args:
             name: The key under which ``optimizer`` is stored in
                 ``optimizer_states``.
             optimizer: The optimizer state to register.
+
+        Raises:
+            ValueError: If ``name`` is already bound to a different object.
         """
-        self.optimizer_states.setdefault(name, optimizer)
+        registered = self.optimizer_states.get(name)
+        if name in self.optimizer_states and registered is not optimizer:
+            raise ValueError(f"optimizer state {name!r} is already registered.")
+        self.optimizer_states[name] = optimizer
 
     def record_metric(self, name: str, value: float) -> None:
         """Append ``value`` to the metric history recorded under ``name``.

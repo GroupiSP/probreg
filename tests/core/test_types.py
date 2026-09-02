@@ -49,3 +49,28 @@ def test_training_state_stage_alias_preserves_active_stage_compatibility() -> No
 
     assert state.active_stage == "supervised"
     assert state.stage == "supervised"
+
+
+def test_training_state_allows_idempotent_component_registration() -> None:
+    state = TrainingState()
+    component = object()
+    optimizer = object()
+
+    state.register_component("mean", component)
+    state.register_component("mean", component)
+    state.register_optimizer("mean", optimizer)
+    state.register_optimizer("mean", optimizer)
+
+    assert state.model_components == {"mean": component}
+    assert state.optimizer_states == {"mean": optimizer}
+
+
+def test_training_state_rejects_conflicting_component_registration() -> None:
+    state = TrainingState()
+    state.register_component("mean", object())
+    state.register_optimizer("mean", object())
+
+    with pytest.raises(ValueError, match="model component 'mean'"):
+        state.register_component("mean", object())
+    with pytest.raises(ValueError, match="optimizer state 'mean'"):
+        state.register_optimizer("mean", object())
