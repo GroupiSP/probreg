@@ -107,6 +107,18 @@ def mean_absolute_error(
     return jnp.mean(errors)
 
 
+def training_flag_metric(
+    model: LinearModel,
+    inputs: jax.Array,
+    targets: jax.Array,
+    sample_weight: jax.Array | None,
+    key: jax.Array,
+    training: bool,
+) -> jax.Array:
+    del model, inputs, targets, sample_weight, key
+    return jnp.asarray(1.0 if training else 0.0)
+
+
 def loader(*, split: str, epoch: int) -> Iterable[Batch]:
     del epoch
     target = 2.0 if split == "train" else 1.0
@@ -164,6 +176,25 @@ def test_make_train_step_without_registered_metrics_returns_loss_mapping() -> No
     )
 
     assert set(output) == {"loss"}
+
+
+def test_make_train_step_evaluates_batch_metrics_in_inference_mode() -> None:
+    model, optimizer, _ = make_components()
+    train_step = make_train_step(
+        squared_error,
+        metrics=(BatchMetricSpec(name="training_flag", metric=training_flag_metric),),
+    )
+
+    output = train_step(
+        model,
+        optimizer,
+        jnp.array([[1.0]]),
+        jnp.array([[2.0]]),
+        None,
+        jax.random.key(0),
+    )
+
+    assert output["training_flag"] == pytest.approx(0.0)
 
 
 def test_make_evaluation_step_without_registered_metrics_returns_loss_mapping() -> None:

@@ -42,8 +42,10 @@ def make_train_step(
         A JIT-compiled function ``train_step(model, optimizer, inputs,
         targets, sample_weight, key)`` that performs one gradient update
         in place and returns a mapping containing ``"loss"`` plus
-        registered batch metric values. Loss and metric values are
-        evaluated on the pre-update model state for consistency.
+        registered batch metric values. Loss is evaluated on the
+        pre-update training-state model, while batch metrics are computed
+        on the same pre-update parameters with ``training=False`` to
+        avoid a second state-mutating training-mode forward pass.
     """
 
     @nnx.jit
@@ -74,7 +76,7 @@ def make_train_step(
                 targets,
                 sample_weight,
                 key,
-                True,
+                False,
             )
         optimizer.update(model, gradients)
         return values
