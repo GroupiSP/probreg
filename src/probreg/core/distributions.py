@@ -8,7 +8,12 @@ from probreg.core.types import Array, Batch
 
 
 class PredictiveDistribution(Protocol):
-    """A probability distribution produced by a regression model."""
+    """A probability distribution produced by a regression model.
+
+    This protocol is the backend-neutral model/loss boundary. Epoch metrics use backend
+    adapters to materialize host arrays rather than retaining distribution objects,
+    which intentionally have no concatenation or indexing contract.
+    """
 
     @property
     def batch_shape(self) -> tuple[int, ...]: ...

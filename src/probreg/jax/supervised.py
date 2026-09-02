@@ -19,7 +19,7 @@ from probreg.jax.metrics import (
     MetricSuite,
     collect_step_metrics,
     initialize_batch_metric_values,
-    maybe_collect_epoch_metric_inputs,
+    maybe_collect_epoch_prediction_data,
     reduce_metric_suite,
 )
 from probreg.jax.rng import split_key
@@ -240,11 +240,12 @@ def _run_training_epoch(
 
     for batch in train_loader(split="train", epoch=epoch):
         state.rng_state, batch_key = split_key(state.rng_state)
-        maybe_collect_epoch_metric_inputs(
+        maybe_collect_epoch_prediction_data(
             epoch_metric_parts,
             suite=metrics,
             model=model,
             batch=batch,
+            batch_key=batch_key,
         )
         step_output = train_step(
             model,

@@ -5,7 +5,6 @@ import jax.numpy as jnp
 import pytest
 from flax import nnx
 
-from probreg.core.types import Batch
 from probreg.jax.distributions import Gaussian, GaussianHead
 
 
@@ -74,20 +73,3 @@ def test_gaussian_head_produces_positive_scale_under_extreme_inputs() -> None:
 def test_gaussian_head_rejects_non_positive_out_features() -> None:
     with pytest.raises(ValueError, match="out_features"):
         GaussianHead(1, 0, rngs=nnx.Rngs(0))
-
-
-def test_gaussian_head_produces_metric_inputs() -> None:
-    head = GaussianHead(1, 1, rngs=nnx.Rngs(0))
-    batch = Batch(
-        inputs=jnp.array([[0.0], [1.0]]),
-        targets=jnp.array([[1.0], [2.0]]),
-        metadata={"x": jnp.array([0.0, 1.0])},
-    )
-
-    metric_inputs = head.produce_metric_inputs(batch)
-
-    assert metric_inputs.targets.shape == (2,)
-    assert metric_inputs.mean.shape == (2,)
-    assert metric_inputs.variance is not None
-    assert metric_inputs.variance.shape == (2,)
-    assert "x" in metric_inputs.metadata

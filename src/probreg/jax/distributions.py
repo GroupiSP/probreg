@@ -13,11 +13,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 import jax.scipy.stats as jstats
-import numpy as np
 from flax import nnx
-
-from probreg.core.metric_registry import MetricInputs
-from probreg.core.types import Batch
 
 
 @dataclass(frozen=True)
@@ -129,28 +125,3 @@ class GaussianHead(nnx.Module):
         raw_loc, raw_scale = jnp.split(self.linear(features), 2, axis=-1)
         scale = jax.nn.softplus(raw_scale) + self.eps
         return Gaussian(loc=raw_loc, scale=scale)
-
-    def produce_metric_inputs(self, batch: Batch, /) -> MetricInputs:
-        """Decode a batch into host-side metric inputs.
-
-        Args:
-            batch: A batch whose ``inputs`` are forwarded through this head.
-
-        Returns:
-            Materialized metric inputs with flattened ``targets``, ``mean``,
-            and ``variance`` arrays, plus forwarded batch metadata.
-
-        Raises:
-            ValueError: If ``batch.targets`` is ``None``.
-        """
-        if batch.targets is None:
-            raise ValueError("batch.targets must be provided for epoch metrics.")
-        prediction = self(batch.inputs)
-        return MetricInputs(
-            targets=np.asarray(jax.device_get(batch.targets), dtype=float).reshape(-1),
-            mean=np.asarray(jax.device_get(prediction.mean()), dtype=float).reshape(-1),
-            variance=np.asarray(
-                jax.device_get(prediction.variance()), dtype=float
-            ).reshape(-1),
-            metadata=batch.metadata,
-        )

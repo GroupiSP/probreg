@@ -11,13 +11,22 @@ from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint
 from probreg.core.early_stopping import EarlyStopper, MetricSource
-from probreg.core.metric_registry import MetricInputs, RootMeanSquaredError
+from probreg.core.losses import GaussianNLLLoss
+from probreg.core.metric_registry import (
+    EpochPredictionData,
+    EvaluationGrid,
+    PointContinuousRankedProbabilityScore,
+    RootMeanSquaredError,
+)
 from probreg.core.tracking import TrainingEvent
-from probreg.core.types import Batch, TrainingState, ValidationResult
+from probreg.core.types import Batch, StageResult, TrainingState, ValidationResult
 from probreg.jax import (
     BatchMetricSpec,
+    GaussianHead,
+    GaussianPredictor,
     HeldOutValidation,
     MetricSuite,
+    PredictionRequirements,
     create_optimizer,
     evaluate_loader,
     initialize_training_state,
@@ -26,6 +35,7 @@ from probreg.jax import (
     run_supervised,
     split_key,
 )
+from probreg.jax.mve import make_mve_loss
 
 
 class LinearModel(nnx.Module):
@@ -35,24 +45,21 @@ class LinearModel(nnx.Module):
     def __call__(self, inputs: jax.Array) -> jax.Array:
         return self.linear(inputs)
 
-    def produce_metric_inputs(self, batch: Batch, /) -> MetricInputs:
-        if batch.targets is None:
-            raise ValueError("batch.targets must be provided for epoch metrics.")
-        return MetricInputs(
-            targets=np.asarray(jax.device_get(batch.targets), dtype=float).reshape(-1),
-            mean=np.asarray(jax.device_get(self(batch.inputs)), dtype=float).reshape(
-                -1
-            ),
-            metadata=batch.metadata,
-        )
 
-
-class PlainLinearModel(nnx.Module):
-    def __init__(self, *, rngs: nnx.Rngs) -> None:
-        self.linear = nnx.Linear(1, 1, rngs=rngs)
-
-    def __call__(self, inputs: jax.Array) -> jax.Array:
-        return self.linear(inputs)
+def linear_predictor(
+    model: nnx.Module,
+    batch: Batch,
+    requirements: PredictionRequirements,
+    key: jax.Array,
+    /,
+) -> EpochPredictionData:
+    del requirements, key
+    if batch.targets is None:
+        raise ValueError("batch.targets must be provided for epoch metrics.")
+    return EpochPredictionData(
+        targets=np.asarray(jax.device_get(batch.targets), dtype=float).reshape(-1),
+        mean=np.asarray(jax.device_get(model(batch.inputs)), dtype=float).reshape(-1),
+    )
 
 
 class MemoryCheckpointStore:
@@ -129,15 +136,6 @@ def make_components(
     learning_rate: float = 0.1,
 ) -> tuple[LinearModel, nnx.Optimizer, TrainingState]:
     model = LinearModel(rngs=nnx.Rngs(0))
-    optimizer = create_optimizer(model, optax.sgd(learning_rate))
-    state = initialize_training_state(model, optimizer, rng_key=jax.random.key(1))
-    return model, optimizer, state
-
-
-def make_plain_components(
-    learning_rate: float = 0.1,
-) -> tuple[PlainLinearModel, nnx.Optimizer, TrainingState]:
-    model = PlainLinearModel(rngs=nnx.Rngs(0))
     optimizer = create_optimizer(model, optax.sgd(learning_rate))
     state = initialize_training_state(model, optimizer, rng_key=jax.random.key(1))
     return model, optimizer, state
@@ -376,6 +374,7 @@ def test_run_supervised_records_registered_batch_and_epoch_metrics() -> None:
     metric_suite = MetricSuite(
         batch=(BatchMetricSpec(name="mae", metric=mean_absolute_error),),
         epoch=(RootMeanSquaredError(),),
+        predictor=linear_predictor,
     )
 
     result = run_supervised(
@@ -409,6 +408,7 @@ def test_held_out_validation_prefixes_registered_metrics() -> None:
         metrics=MetricSuite(
             batch=(BatchMetricSpec(name="mae", metric=mean_absolute_error),),
             epoch=(RootMeanSquaredError(),),
+            predictor=linear_predictor,
         ),
     )
 
@@ -438,17 +438,62 @@ def test_metric_suite_rejects_reserved_and_duplicate_names() -> None:
         )
 
 
-def test_epoch_metrics_require_predictor_or_model_support() -> None:
-    model, optimizer, state = make_plain_components()
-    metric_suite = MetricSuite(epoch=(RootMeanSquaredError(),))
+def test_epoch_metrics_require_explicit_predictor() -> None:
+    with pytest.raises(ValueError, match="explicit suite predictor"):
+        MetricSuite(epoch=(RootMeanSquaredError(),))
 
-    with pytest.raises(ValueError, match="epoch metrics require either"):
-        run_supervised(
+
+def test_sampled_epoch_metrics_preserve_loss_batch_metric_and_rng_trajectory() -> None:
+    def random_key_metric(
+        model: nnx.Module,
+        inputs: jax.Array,
+        targets: jax.Array,
+        sample_weight: jax.Array | None,
+        key: jax.Array,
+        training: bool,
+    ) -> jax.Array:
+        del model, inputs, targets, sample_weight, training
+        return jax.random.uniform(key)
+
+    batch_metric = BatchMetricSpec(name="key_probe", metric=random_key_metric)
+    grid = EvaluationGrid(np.linspace(-5.0, 5.0, 51))
+    base_suite = MetricSuite(batch=(batch_metric,))
+    sampled_suite = MetricSuite(
+        batch=(batch_metric,),
+        epoch=(PointContinuousRankedProbabilityScore(),),
+        predictor=GaussianPredictor(),
+        predictive_sample_count=8,
+        evaluation_grid=grid,
+    )
+
+    def run(metrics: MetricSuite) -> tuple[StageResult, GaussianHead]:
+        model = GaussianHead(1, 1, rngs=nnx.Rngs(7))
+        optimizer = create_optimizer(model, optax.sgd(0.01))
+        state = initialize_training_state(model, optimizer, rng_key=jax.random.key(11))
+        result = run_supervised(
             model=model,
             optimizer=optimizer,
             train_loader=loader,
-            loss=squared_error,
+            loss=make_mve_loss(GaussianNLLLoss()),
             state=state,
-            epochs=1,
-            metrics=metric_suite,
+            epochs=2,
+            metrics=metrics,
         )
+        return result, model
+
+    base_result, base_model = run(base_suite)
+    sampled_result, sampled_model = run(sampled_suite)
+
+    assert base_result.metrics["loss"] == pytest.approx(sampled_result.metrics["loss"])
+    assert base_result.metrics["key_probe"] == pytest.approx(
+        sampled_result.metrics["key_probe"]
+    )
+    assert bool(
+        jnp.array_equal(base_result.state.rng_state, sampled_result.state.rng_state)
+    )
+    for base_leaf, sampled_leaf in zip(
+        jax.tree.leaves(nnx.state(base_model)),
+        jax.tree.leaves(nnx.state(sampled_model)),
+        strict=True,
+    ):
+        assert jnp.array_equal(base_leaf, sampled_leaf)

@@ -1,4 +1,4 @@
-"""Metric registration primitives for the JAX backend."""
+"""Metric registration and prediction materialization for the JAX backend."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import math
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from statistics import NormalDist
 from typing import Any, Protocol
 
 import jax
@@ -13,8 +14,17 @@ import numpy as np
 from flax import nnx
 from numpy.typing import NDArray
 
-from probreg.core.metric_registry import EpochMetric, MetricInputs, SupportsMetricInputs
+from probreg.core.metric_registry import (
+    EpochMetric,
+    EpochPredictionData,
+    EvaluationGrid,
+    MetricRequirements,
+    PredictionInterval,
+)
 from probreg.core.types import Batch
+from probreg.jax.distributions import Gaussian
+
+_METRIC_RNG_NAMESPACE = 0x4D455452  # "METR" in ASCII
 
 
 def _metric_mean(values: Sequence[float]) -> float:
@@ -35,7 +45,7 @@ def _metric_mean(values: Sequence[float]) -> float:
 
 
 def _finite_float(name: str, value: float) -> float:
-    """Return ``value`` as a finite float.
+    """Return ``value`` as a finite Python float.
 
     Args:
         name: Metric name for error messages.
@@ -88,35 +98,305 @@ class BatchMetricSpec:
             raise ValueError("batch metric name must not be empty.")
 
 
-class Predictor(Protocol):
-    """Override for producing epoch metric inputs from a model and batch."""
+@dataclass(frozen=True, slots=True)
+class PredictionRequirements:
+    """Combined metric requirements plus explicit materialization configuration."""
 
-    def __call__(self, model: nnx.Module, batch: Batch, /) -> MetricInputs:
-        """Produce epoch metric inputs for ``batch``."""
+    fields: MetricRequirements
+    predictive_sample_count: int | None = None
+    evaluation_grid: EvaluationGrid | None = None
+
+    def __post_init__(self) -> None:
+        """Validate sample and grid configuration.
+
+        Raises:
+            ValueError: If required samples/grid lack explicit configuration.
+        """
+        if self.fields.predictive_samples:
+            if self.predictive_sample_count is None:
+                raise ValueError(
+                    "sample-based epoch metrics require predictive_sample_count."
+                )
+            if self.predictive_sample_count <= 0:
+                raise ValueError("predictive_sample_count must be positive.")
+        elif (
+            self.predictive_sample_count is not None
+            and self.predictive_sample_count <= 0
+        ):
+            raise ValueError("predictive_sample_count must be positive.")
+        if self.fields.evaluation_grid and self.evaluation_grid is None:
+            raise ValueError("CRPS epoch metrics require an explicit evaluation_grid.")
+
+
+class CoordinateExtractor(Protocol):
+    """Extract a numeric scoring-unit coordinate from a domain batch."""
+
+    def __call__(self, batch: Batch, /) -> Any:
+        """Return coordinates corresponding to the batch targets."""
+        ...
+
+
+class ReferenceSamplesExtractor(Protocol):
+    """Materialize reference samples at the JAX/domain boundary."""
+
+    def __call__(self, batch: Batch, key: jax.Array, /) -> Any:
+        """Return samples shaped ``(n_scoring_units, n_draws)``."""
+        ...
+
+
+class Predictor(Protocol):
+    """Materialize typed host predictions from a JAX model and batch."""
+
+    def __call__(
+        self,
+        model: nnx.Module,
+        batch: Batch,
+        requirements: PredictionRequirements,
+        key: jax.Array,
+        /,
+    ) -> EpochPredictionData:
+        """Produce host-resident prediction data for ``batch``."""
         ...
 
 
 @dataclass(frozen=True, slots=True)
+class GaussianPredictor:
+    """Materialize scalar epoch data from a model returning ``Gaussian``.
+
+    Attributes:
+        coordinate_extractor: Optional explicit adapter for coordinate metadata.
+        reference_samples_extractor: Optional explicit adapter for conditional CRPS
+            reference draws. It must return ``(n_scoring_units, n_draws)``.
+    """
+
+    coordinate_extractor: CoordinateExtractor | None = None
+    reference_samples_extractor: ReferenceSamplesExtractor | None = None
+
+    def __call__(
+        self,
+        model: nnx.Module,
+        batch: Batch,
+        requirements: PredictionRequirements,
+        key: jax.Array,
+        /,
+    ) -> EpochPredictionData:
+        """Materialize only fields requested by registered epoch metrics.
+
+        Args:
+            model: Model mapping batch inputs to a scalar-event Gaussian.
+            batch: Domain batch containing targets.
+            requirements: Combined fields and explicit sample/grid configuration.
+            key: Dedicated metric PRNG key.
+
+        Returns:
+            Validated host-resident prediction data.
+
+        Raises:
+            TypeError: If the model does not return a Gaussian.
+            ValueError: If targets, event shape, extractors, or shapes are invalid.
+        """
+        targets = _require_targets(batch)
+        prediction = _require_scalar_gaussian(model(batch.inputs))
+        mean, targets = _materialize_mean_and_targets(prediction, targets)
+        fields = requirements.fields
+
+        return EpochPredictionData(
+            targets=targets,
+            mean=mean,
+            variance=_materialize_variance(prediction, required=fields.variance),
+            predictive_samples=_materialize_predictive_samples(
+                prediction,
+                requirements=requirements,
+                key=key,
+            ),
+            reference_samples=_materialize_reference_samples(
+                self.reference_samples_extractor,
+                batch=batch,
+                key=key,
+                n_scoring_units=targets.size,
+                required=fields.reference_samples,
+            ),
+            intervals=_materialize_intervals(prediction, fields.interval_levels),
+            coordinate=_materialize_coordinate(
+                self.coordinate_extractor,
+                batch=batch,
+                required=fields.coordinate,
+            ),
+            evaluation_grid=_required_evaluation_grid(requirements),
+        )
+
+
+def _require_targets(batch: Batch) -> Any:
+    """Return batch targets required by host-side epoch metrics."""
+    if batch.targets is None:
+        raise ValueError("batch.targets must be provided for epoch metrics.")
+    return batch.targets
+
+
+def _require_scalar_gaussian(prediction: object) -> Gaussian:
+    """Validate and return a scalar-event Gaussian prediction."""
+    if not isinstance(prediction, Gaussian):
+        raise TypeError("GaussianPredictor requires a model returning Gaussian.")
+    if prediction.event_shape != ():
+        raise ValueError("epoch metrics support scalar distribution events only.")
+    return prediction
+
+
+def _materialize_mean_and_targets(
+    prediction: Gaussian,
+    targets: Any,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Materialize shape-compatible predictive means and targets."""
+    mean = np.broadcast_to(
+        np.asarray(jax.device_get(prediction.mean()), dtype=np.float64),
+        prediction.batch_shape,
+    )
+    target_values = np.asarray(jax.device_get(targets), dtype=np.float64)
+    if mean.shape != target_values.shape:
+        raise ValueError("prediction mean and targets must have matching shapes.")
+    return mean.reshape(-1), target_values.reshape(-1)
+
+
+def _materialize_variance(
+    prediction: Gaussian,
+    *,
+    required: bool,
+) -> NDArray[np.float64] | None:
+    """Materialize broadcast predictive variance when requested."""
+    if not required:
+        return None
+    return np.broadcast_to(
+        np.asarray(jax.device_get(prediction.variance()), dtype=np.float64),
+        prediction.batch_shape,
+    ).reshape(-1)
+
+
+def _materialize_predictive_samples(
+    prediction: Gaussian,
+    *,
+    requirements: PredictionRequirements,
+    key: jax.Array,
+) -> NDArray[np.float64] | None:
+    """Materialize predictive draws when requested."""
+    if not requirements.fields.predictive_samples:
+        return None
+    assert requirements.predictive_sample_count is not None
+    draws = prediction.sample(
+        jax.random.fold_in(key, 0),
+        sample_shape=(requirements.predictive_sample_count,),
+    )
+    return _draws_to_rows(
+        draws,
+        prediction_shape=prediction.batch_shape,
+        name="predictive_samples",
+    )
+
+
+def _materialize_reference_samples(
+    extractor: ReferenceSamplesExtractor | None,
+    *,
+    batch: Batch,
+    key: jax.Array,
+    n_scoring_units: int,
+    required: bool,
+) -> NDArray[np.float64] | None:
+    """Materialize and validate empirical reference draws when requested."""
+    if not required:
+        return None
+    if extractor is None:
+        raise ValueError("conditional CRPS requires a reference_samples_extractor.")
+    samples = np.asarray(
+        jax.device_get(extractor(batch, jax.random.fold_in(key, 1))),
+        dtype=np.float64,
+    )
+    if samples.ndim != 2 or samples.shape[0] != n_scoring_units:
+        raise ValueError(
+            "reference samples must have shape (n_scoring_units, n_draws)."
+        )
+    return samples
+
+
+def _materialize_intervals(
+    prediction: Gaussian,
+    levels: frozenset[float],
+) -> tuple[PredictionInterval, ...]:
+    """Materialize exact Gaussian intervals in level order."""
+    return tuple(_gaussian_interval(prediction, level) for level in sorted(levels))
+
+
+def _materialize_coordinate(
+    extractor: CoordinateExtractor | None,
+    *,
+    batch: Batch,
+    required: bool,
+) -> NDArray[np.float64] | None:
+    """Materialize an explicit scoring-unit coordinate when requested."""
+    if not required:
+        return None
+    if extractor is None:
+        raise ValueError("coordinate-based metrics require a coordinate_extractor.")
+    return np.asarray(
+        jax.device_get(extractor(batch)),
+        dtype=np.float64,
+    ).reshape(-1)
+
+
+def _required_evaluation_grid(
+    requirements: PredictionRequirements,
+) -> EvaluationGrid | None:
+    """Return the configured grid only when requested by the metric suite."""
+    if not requirements.fields.evaluation_grid:
+        return None
+    return requirements.evaluation_grid
+
+
+def _draws_to_rows(
+    draws: Any,
+    *,
+    prediction_shape: tuple[int, ...],
+    name: str,
+) -> NDArray[np.float64]:
+    """Convert JAX sample-first draws to host scoring-unit rows."""
+    array = np.asarray(jax.device_get(draws), dtype=np.float64)
+    if array.ndim != len(prediction_shape) + 1 or array.shape[1:] != prediction_shape:
+        raise ValueError(f"{name} must have shape (n_draws, *prediction_shape).")
+    return np.moveaxis(array, 0, -1).reshape(-1, array.shape[0])
+
+
+def _gaussian_interval(prediction: Gaussian, level: float) -> PredictionInterval:
+    """Materialize an exact central Gaussian interval at ``level``."""
+    z_value = NormalDist().inv_cdf((1.0 + level) / 2.0)
+    lower = prediction.loc - z_value * prediction.scale
+    upper = prediction.loc + z_value * prediction.scale
+    return PredictionInterval(
+        level=level,
+        lower=np.asarray(jax.device_get(lower), dtype=np.float64).reshape(-1),
+        upper=np.asarray(jax.device_get(upper), dtype=np.float64).reshape(-1),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class MetricSuite:
-    """A complete metric registration suite for training or validation."""
+    """Complete metric registration and materialization configuration."""
 
     batch: tuple[BatchMetricSpec, ...] = ()
     epoch: tuple[EpochMetric, ...] = ()
     predictor: Predictor | None = None
+    predictive_sample_count: int | None = None
+    evaluation_grid: EvaluationGrid | None = None
 
     def __post_init__(self) -> None:
-        """Validate registered metric names.
+        """Validate names and explicit epoch materialization configuration.
 
         Raises:
-            ValueError: If names are duplicated or ``"loss"`` is reused.
+            ValueError: If names/configuration are invalid or a predictor is absent.
         """
-        reserved = "loss"
         registered_names = [spec.name for spec in self.batch] + [
             metric.name for metric in self.epoch
         ]
         if any(not name for name in registered_names):
             raise ValueError("metric names must not be empty.")
-        if reserved in registered_names:
+        if "loss" in registered_names:
             raise ValueError("'loss' is reserved and cannot be registered as a metric.")
         duplicate_names = {
             name for name, count in Counter(registered_names).items() if count > 1
@@ -124,72 +404,144 @@ class MetricSuite:
         if duplicate_names:
             duplicates = ", ".join(sorted(duplicate_names))
             raise ValueError(f"duplicate metric names are not allowed: {duplicates}.")
+        if self.epoch and self.predictor is None:
+            raise ValueError("epoch metrics require an explicit suite predictor.")
+        self.prediction_requirements
+
+    @property
+    def metric_requirements(self) -> MetricRequirements:
+        """Return the union of registered epoch metric requirements."""
+        combined = MetricRequirements()
+        for metric in self.epoch:
+            combined = combined.union(metric.requirements)
+        return combined
+
+    @property
+    def prediction_requirements(self) -> PredictionRequirements:
+        """Return combined fields plus explicit suite configuration."""
+        return PredictionRequirements(
+            fields=self.metric_requirements,
+            predictive_sample_count=self.predictive_sample_count,
+            evaluation_grid=self.evaluation_grid,
+        )
 
 
-def resolve_metric_inputs(
+def metric_key(batch_key: jax.Array) -> jax.Array:
+    """Derive a stable metric-only key without advancing runner RNG state."""
+    return jax.random.fold_in(batch_key, _METRIC_RNG_NAMESPACE)
+
+
+def resolve_epoch_prediction_data(
     *,
     suite: MetricSuite,
     model: nnx.Module,
     batch: Batch,
-) -> MetricInputs:
-    """Resolve epoch metric inputs using suite override or model protocol.
-
-    Args:
-        suite: The metric suite with optional predictor override.
-        model: The model being evaluated.
-        batch: The current batch.
-
-    Returns:
-        Materialized metric inputs for ``batch``.
-
-    Raises:
-        ValueError: If no predictor is available for non-empty epoch metrics.
-    """
-    if suite.predictor is not None:
-        return suite.predictor(model, batch)
-    if isinstance(model, SupportsMetricInputs):
-        return model.produce_metric_inputs(batch)
-    raise ValueError(
-        "epoch metrics require either suite.predictor or a model implementing "
-        "SupportsMetricInputs.produce_metric_inputs."
+    key: jax.Array,
+) -> EpochPredictionData:
+    """Materialize one batch using an isolated inference-mode model clone."""
+    if suite.predictor is None:
+        raise ValueError("epoch metrics require an explicit suite predictor.")
+    prediction_model = nnx.clone(model)
+    prediction_model.eval()
+    return suite.predictor(
+        prediction_model,
+        batch,
+        suite.prediction_requirements,
+        key,
     )
 
 
-def merge_metric_inputs(parts: Sequence[MetricInputs]) -> MetricInputs:
-    """Concatenate per-batch metric inputs into one epoch input object.
+def merge_epoch_prediction_data(
+    parts: Sequence[EpochPredictionData],
+) -> EpochPredictionData:
+    """Merge batches according to each typed field's scoring axes.
 
     Args:
-        parts: Per-batch metric inputs.
+        parts: Per-batch host-materialized prediction data.
 
     Returns:
-        A merged :class:`MetricInputs` object.
+        One validated epoch prediction object.
 
     Raises:
-        ValueError: If ``parts`` is empty or optional fields are inconsistently present.
+        ValueError: If parts are empty or optional fields/configuration conflict.
     """
     if not parts:
-        raise ValueError("at least one metric input batch is required.")
-    return MetricInputs(
-        targets=_concat_required([part.targets for part in parts], name="targets"),
-        mean=_concat_required([part.mean for part in parts], name="mean"),
-        variance=_concat_optional([part.variance for part in parts], name="variance"),
-        lower=_concat_optional([part.lower for part in parts], name="lower"),
-        upper=_concat_optional([part.upper for part in parts], name="upper"),
-        metadata=_merge_metadata([part.metadata for part in parts]),
+        raise ValueError("at least one epoch prediction batch is required.")
+    interval_levels = {interval.level for interval in parts[0].intervals}
+    if any(
+        {interval.level for interval in part.intervals} != interval_levels
+        for part in parts
+    ):
+        raise ValueError("prediction interval levels must match across batches.")
+    intervals = tuple(
+        PredictionInterval(
+            level=level,
+            lower=np.concatenate([part.interval(level).lower for part in parts]),
+            upper=np.concatenate([part.interval(level).upper for part in parts]),
+        )
+        for level in sorted(interval_levels)
     )
+    return EpochPredictionData(
+        targets=np.concatenate([part.targets for part in parts]),
+        mean=np.concatenate([part.mean for part in parts]),
+        variance=_concat_optional_vectors(parts, "variance"),
+        predictive_samples=_concat_optional_samples(parts, "predictive_samples"),
+        reference_samples=_concat_optional_samples(parts, "reference_samples"),
+        intervals=intervals,
+        coordinate=_concat_optional_vectors(parts, "coordinate"),
+        evaluation_grid=_merge_grid(parts),
+    )
+
+
+def _concat_optional_vectors(
+    parts: Sequence[EpochPredictionData], name: str
+) -> NDArray[np.float64] | None:
+    """Concatenate an optional vector field with all-or-none semantics."""
+    values = [getattr(part, name) for part in parts]
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise ValueError(f"{name} must be present for all batches or none.")
+    return np.concatenate(values)  # type: ignore[arg-type]
+
+
+def _concat_optional_samples(
+    parts: Sequence[EpochPredictionData], name: str
+) -> NDArray[np.float64] | None:
+    """Concatenate sample rows while requiring a stable draw count."""
+    values = [getattr(part, name) for part in parts]
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise ValueError(f"{name} must be present for all batches or none.")
+    matrices = values  # narrowed by checks above
+    draw_counts = {matrix.shape[1] for matrix in matrices if matrix is not None}
+    if len(draw_counts) != 1:
+        raise ValueError(f"{name} draw counts must match across batches.")
+    return np.concatenate(matrices, axis=0)  # type: ignore[arg-type]
+
+
+def _merge_grid(parts: Sequence[EpochPredictionData]) -> EvaluationGrid | None:
+    """Retain one shared grid and reject missing or conflicting grids."""
+    grids = [part.evaluation_grid for part in parts]
+    if all(grid is None for grid in grids):
+        return None
+    if any(grid is None for grid in grids):
+        raise ValueError("evaluation_grid must be present for all batches or none.")
+    first = grids[0]
+    assert first is not None
+    if any(
+        grid is None or not np.array_equal(grid.values, first.values)
+        for grid in grids[1:]
+    ):
+        raise ValueError("evaluation_grid must be shared across all batches.")
+    return first
 
 
 def initialize_batch_metric_values(
     metrics: Sequence[BatchMetricSpec],
 ) -> dict[str, list[float]]:
-    """Create per-metric host-side accumulation buffers.
-
-    Args:
-        metrics: Registered batch metrics.
-
-    Returns:
-        A mapping from metric name to an initially empty list of observed values.
-    """
+    """Create per-metric host-side accumulation buffers."""
     return {spec.name: [] for spec in metrics}
 
 
@@ -201,18 +553,7 @@ def collect_step_metrics(
     batch_metric_values: dict[str, list[float]],
     context: str,
 ) -> None:
-    """Append a step's emitted metrics into host-side accumulators.
-
-    Args:
-        step_output: Metric mapping emitted by a train/evaluation step.
-        metrics: Registered batch metrics expected in ``step_output``.
-        losses: Accumulator for scalar loss values.
-        batch_metric_values: Per-metric host-side accumulation buffers.
-        context: Human-readable call-site name used in error messages.
-
-    Raises:
-        ValueError: If a registered metric is missing from ``step_output``.
-    """
+    """Append one step's loss and registered batch metrics."""
     losses.append(float(step_output["loss"]))
     for spec in metrics:
         if spec.name not in step_output:
@@ -222,25 +563,25 @@ def collect_step_metrics(
         batch_metric_values[spec.name].append(float(step_output[spec.name]))
 
 
-def maybe_collect_epoch_metric_inputs(
-    parts: list[MetricInputs] | None,
+def maybe_collect_epoch_prediction_data(
+    parts: list[EpochPredictionData] | None,
     *,
     suite: MetricSuite,
     model: nnx.Module,
     batch: Batch,
+    batch_key: jax.Array,
 ) -> None:
-    """Append epoch metric inputs for a batch when epoch metrics are enabled.
-
-    Args:
-        parts: Mutable metric-input accumulator, or ``None`` when epoch metrics
-            are not registered.
-        suite: Metric suite used to resolve metric inputs.
-        model: The model being trained or evaluated.
-        batch: The current batch.
-    """
+    """Append one batch's typed data when epoch metrics are enabled."""
     if parts is None:
         return
-    parts.append(resolve_metric_inputs(suite=suite, model=model, batch=batch))
+    parts.append(
+        resolve_epoch_prediction_data(
+            suite=suite,
+            model=model,
+            batch=batch,
+            key=metric_key(batch_key),
+        )
+    )
 
 
 def reduce_metric_suite(
@@ -248,74 +589,19 @@ def reduce_metric_suite(
     suite: MetricSuite,
     losses: Sequence[float],
     batch_metric_values: Mapping[str, Sequence[float]],
-    epoch_metric_parts: Sequence[MetricInputs] | None,
+    epoch_metric_parts: Sequence[EpochPredictionData] | None,
 ) -> dict[str, float]:
-    """Reduce accumulated batch and epoch metrics into a single mapping.
-
-    Args:
-        suite: Registered metric suite.
-        losses: Scalar batch loss values.
-        batch_metric_values: Accumulated batch metric values by name.
-        epoch_metric_parts: Per-batch materialized epoch metric inputs, or
-            ``None`` when no epoch metrics are registered.
-
-    Returns:
-        Reduced loader/epoch metrics containing ``"loss"`` plus all registered
-        batch and epoch metrics.
-    """
+    """Reduce accumulated batch and typed epoch metrics into one mapping."""
     reduced: dict[str, float] = {"loss": _finite_float("loss", _metric_mean(losses))}
     for spec in suite.batch:
         reduced[spec.name] = _finite_float(
-            spec.name,
-            spec.reduce(batch_metric_values[spec.name]),
+            spec.name, spec.reduce(batch_metric_values[spec.name])
         )
     if epoch_metric_parts is None:
         return reduced
-
-    merged = merge_metric_inputs(epoch_metric_parts)
+    merged = merge_epoch_prediction_data(epoch_metric_parts)
     for epoch_metric in suite.epoch:
         reduced[epoch_metric.name] = _finite_float(
-            epoch_metric.name,
-            float(epoch_metric(merged)),
+            epoch_metric.name, epoch_metric(merged)
         )
     return reduced
-
-
-def _to_vector(values: Any, *, name: str) -> NDArray[np.float64]:
-    vector = np.asarray(values, dtype=float).reshape(-1)
-    if vector.size == 0:
-        raise ValueError(f"{name} must not be empty.")
-    return vector
-
-
-def _concat_required(values: Sequence[Any], *, name: str) -> NDArray[np.float64]:
-    return np.concatenate([_to_vector(value, name=name) for value in values])
-
-
-def _concat_optional(
-    values: Sequence[Any | None], *, name: str
-) -> NDArray[np.float64] | None:
-    if all(value is None for value in values):
-        return None
-    if any(value is None for value in values):
-        raise ValueError(f"{name} must be present for all batches or none.")
-    return np.concatenate([_to_vector(value, name=name) for value in values])  # type: ignore[arg-type]
-
-
-def _merge_metadata(mappings: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
-    if not mappings:
-        return {}
-    keys: set[str] = set().union(*(mapping.keys() for mapping in mappings))
-    merged: dict[str, Any] = {}
-    for key in keys:
-        if not all(key in mapping for mapping in mappings):
-            raise ValueError(
-                f"metadata[{key!r}] must be present for all batches or none."
-            )
-        merged[key] = np.concatenate(
-            [
-                _to_vector(mapping[key], name=f"metadata[{key!r}]")
-                for mapping in mappings
-            ]
-        )
-    return merged

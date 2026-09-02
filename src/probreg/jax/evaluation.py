@@ -19,7 +19,7 @@ from probreg.jax.metrics import (
     MetricSuite,
     collect_step_metrics,
     initialize_batch_metric_values,
-    maybe_collect_epoch_metric_inputs,
+    maybe_collect_epoch_prediction_data,
     reduce_metric_suite,
 )
 from probreg.jax.rng import split_key
@@ -146,11 +146,12 @@ def evaluate_loader(
             batch_metric_values=batch_metric_values,
             context="evaluation step",
         )
-        maybe_collect_epoch_metric_inputs(
+        maybe_collect_epoch_prediction_data(
             epoch_metric_parts,
             suite=metrics,
             model=model,
             batch=batch,
+            batch_key=batch_key,
         )
 
     return (
