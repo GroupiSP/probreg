@@ -13,6 +13,8 @@ loss:
   (:class:`~probreg.core.losses.GaussianNLLLoss`), adapted into a
   :class:`~probreg.jax.evaluation.SupervisedLoss` by
   :func:`~probreg.jax.mve.make_mve_loss`;
+* composable RMSE and sample/grid-based point-CRPS metrics for both training
+  and held-out validation;
 * a :class:`~probreg.jax.HeldOutValidation` strategy evaluated after every
   epoch;
 * an :class:`~probreg.core.early_stopping.EarlyStopper` monitoring the
@@ -36,12 +38,19 @@ from flax import nnx
 from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper, MetricSource, OptimizationMode
 from probreg.core.losses import GaussianNLLLoss
+from probreg.core.metric_registry import (
+    EvaluationGrid,
+    PointContinuousRankedProbabilityScore,
+    RootMeanSquaredError,
+)
 from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import Batch
 from probreg.jax import (
     GaussianHead,
+    GaussianPredictor,
     HeldOutValidation,
+    MetricSuite,
     create_optimizer,
     initialize_training_state,
     run_supervised,
@@ -121,7 +130,7 @@ class InMemoryCheckpointStore(CheckpointStore):
 
 
 class PrintingEventSink:
-    """An :class:`EventSink` that prints train/validation loss periodically.
+    """Print train/validation loss, RMSE, and point-CRPS periodically.
 
     Only ``validation_end`` events are handled, and only every ``every``
     epochs, to keep console output readable across long training runs.
@@ -141,18 +150,22 @@ class PrintingEventSink:
         self.every = every
 
     def on_event(self, event: TrainingEvent) -> None:
-        """Print the current training/validation loss, if due.
+        """Print current training/validation metrics, if due.
 
         Args:
             event: The training event to (conditionally) report on.
         """
         if event.name != "validation_end" or event.step % self.every != 0:
             return
-        training_loss = event.state.metric_history["training_loss"][-1]
-        validation_loss = event.metrics["validation_loss"]
+        history = event.state.metric_history
         print(
-            f"epoch={event.step} training_loss={training_loss:.4f} "
-            f"validation_loss={validation_loss:.4f}"
+            f"epoch={event.step} "
+            f"training_loss={history['training_loss'][-1]:.4f} "
+            f"training_rmse={history['training_rmse'][-1]:.4f} "
+            f"training_point_crps={history['training_point_crps'][-1]:.4f} "
+            f"validation_loss={event.metrics['validation_loss']:.4f} "
+            f"validation_rmse={event.metrics['validation_rmse']:.4f} "
+            f"validation_point_crps={event.metrics['validation_point_crps']:.4f}"
         )
 
 
@@ -215,10 +228,20 @@ def main() -> None:
     state = initialize_training_state(model, optimizer, rng_key=rng_key)
 
     mve_loss = make_mve_loss(GaussianNLLLoss())
+    metric_suite = MetricSuite(
+        epoch=(
+            RootMeanSquaredError(),
+            PointContinuousRankedProbabilityScore(),
+        ),
+        predictor=GaussianPredictor(),
+        predictive_sample_count=128,
+        evaluation_grid=EvaluationGrid(np.linspace(-10.0, 10.0, 401)),
+    )
     validation = HeldOutValidation(
         model=model,
         loader=make_loader(validation_inputs, validation_targets, batch_size=64),
         loss=mve_loss,
+        metrics=metric_suite,
     )
     early_stopper = EarlyStopper(
         metric="validation_loss",
@@ -239,10 +262,21 @@ def main() -> None:
         event_sinks=[PrintingEventSink()],
         checkpoint_store=InMemoryCheckpointStore(),
         checkpoint_key="best",
+        metrics=metric_suite,
     )
 
     print(f"Final training loss: {result.loss:.4f}")
-    print(f"Final metrics: {result.metrics}")
+    print(f"Final training RMSE: {result.metrics['rmse']:.4f}")
+    print(f"Final training point-CRPS: {result.metrics['point_crps']:.4f}")
+    print(
+        "Final validation RMSE: "
+        f"{result.state.metric_history['validation_rmse'][-1]:.4f}"
+    )
+    print(
+        "Final validation point-CRPS: "
+        f"{result.state.metric_history['validation_point_crps'][-1]:.4f}"
+    )
+    print(f"Final training metrics: {result.metrics}")
 
     low_uncertainty_prediction = model(jnp.array([[-3.0]]))
     high_uncertainty_prediction = model(jnp.array([[3.0]]))

@@ -7,13 +7,21 @@ on it without either depending on the other.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Protocol
 
 import jax
 from flax import nnx
 
 from probreg.core.types import Batch
+from probreg.jax.metrics import (
+    BatchMetricSpec,
+    MetricSuite,
+    collect_step_metrics,
+    initialize_batch_metric_values,
+    maybe_collect_epoch_prediction_data,
+    reduce_metric_suite,
+)
 from probreg.jax.rng import split_key
 
 
@@ -52,36 +60,23 @@ class SupervisedLoss(Protocol):
         ...
 
 
-def _metric_mean(values: Iterable[float]) -> float:
-    """Compute the arithmetic mean of an iterable of metric values.
-
-    Args:
-        values: The metric values to average, e.g. per-batch losses.
-
-    Returns:
-        The arithmetic mean of ``values``.
-
-    Raises:
-        ValueError: If ``values`` is empty.
-    """
-    values = tuple(values)
-    if not values:
-        raise ValueError("a loader must provide at least one batch.")
-    return sum(values) / len(values)
-
-
-def make_evaluation_step(loss: SupervisedLoss) -> Callable[..., jax.Array]:
+def make_evaluation_step(
+    loss: SupervisedLoss,
+    *,
+    metrics: Sequence[BatchMetricSpec] = (),
+) -> Callable[..., Mapping[str, jax.Array]]:
     """Create a JIT-compiled NNX supervised evaluation step.
 
     Args:
         loss: A callable computing the supervised loss given a model,
             inputs, targets, sample weights, a PRNG key, and a
             ``training`` flag.
+        metrics: Registered JAX-native batch metrics.
 
     Returns:
         A JIT-compiled function ``evaluate_step(model, inputs, targets,
-        sample_weight, key)`` that returns the scalar loss value without
-        updating any parameters.
+        sample_weight, key)`` returning a mapping containing ``"loss"``
+        plus one scalar value per registered batch metric.
     """
 
     @nnx.jit
@@ -91,8 +86,19 @@ def make_evaluation_step(loss: SupervisedLoss) -> Callable[..., jax.Array]:
         targets: Any,
         sample_weight: Any,
         key: jax.Array,
-    ) -> jax.Array:
-        return loss(model, inputs, targets, sample_weight, key, False)
+    ) -> Mapping[str, jax.Array]:
+        loss_value = loss(model, inputs, targets, sample_weight, key, False)
+        values: dict[str, jax.Array] = {"loss": loss_value}
+        for spec in metrics:
+            values[spec.name] = spec.metric(
+                model,
+                inputs,
+                targets,
+                sample_weight,
+                key,
+                False,
+            )
+        return values
 
     return evaluate_step
 
@@ -102,9 +108,10 @@ def evaluate_loader(
     loader: Iterable[Batch],
     *,
     key: jax.Array,
-    evaluation_step: Callable[..., jax.Array],
+    evaluation_step: Callable[..., Mapping[str, jax.Array]],
+    metrics: MetricSuite = MetricSuite(),
 ) -> tuple[dict[str, float], jax.Array]:
-    """Evaluate a loader and return mean loss plus the advanced random key.
+    """Evaluate a loader and return reduced metrics and the advanced random key.
 
     Args:
         model: The NNX module to evaluate.
@@ -112,24 +119,47 @@ def evaluate_loader(
         key: The JAX PRNG key to use, advanced once per batch.
         evaluation_step: The JIT-compiled evaluation step, e.g. one
             created by :func:`make_evaluation_step`.
+        metrics: Registered batch/epoch metrics for evaluation.
 
     Returns:
-        A tuple ``(metrics, key)`` where ``metrics`` maps ``"loss"`` to
-        the mean loss over ``loader`` and ``key`` is the PRNG key
-        advanced past all consumed batches.
+        A tuple ``(metrics, key)`` where ``metrics`` contains ``"loss"``
+        plus any registered metrics, and ``key`` is advanced past all
+        consumed batches.
     """
     losses: list[float] = []
+    batch_metric_values = initialize_batch_metric_values(metrics.batch)
+    epoch_metric_parts = [] if metrics.epoch else None
+
     for batch in loader:
         key, batch_key = split_key(key)
-        losses.append(
-            float(
-                evaluation_step(
-                    model,
-                    batch.inputs,
-                    batch.targets,
-                    batch.sample_weight,
-                    batch_key,
-                )
-            )
+        step_output = evaluation_step(
+            model,
+            batch.inputs,
+            batch.targets,
+            batch.sample_weight,
+            batch_key,
         )
-    return {"loss": _metric_mean(losses)}, key
+        collect_step_metrics(
+            step_output,
+            metrics=metrics.batch,
+            losses=losses,
+            batch_metric_values=batch_metric_values,
+            context="evaluation step",
+        )
+        maybe_collect_epoch_prediction_data(
+            epoch_metric_parts,
+            suite=metrics,
+            model=model,
+            batch=batch,
+            batch_key=batch_key,
+        )
+
+    return (
+        reduce_metric_suite(
+            suite=metrics,
+            losses=losses,
+            batch_metric_values=batch_metric_values,
+            epoch_metric_parts=epoch_metric_parts,
+        ),
+        key,
+    )

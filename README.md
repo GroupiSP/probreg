@@ -37,6 +37,51 @@ runs for the requested number of epochs. An early stopper monitoring validation
 metrics requires a validation strategy; use a training-metric source explicitly
 for convergence-driven training without validation.
 
+### Epoch metrics
+
+Host-side epoch metrics consume `EpochPredictionData`, a typed representation of
+materialized scalar targets, moments, sample matrices, labelled intervals, and an
+optional coordinate. Distribution objects remain the generic model/loss boundary;
+a JAX predictor such as `GaussianPredictor` explicitly transfers only the fields
+required by the registered metrics to the host. This keeps epoch merging independent
+of a distribution backend and avoids retaining device-backed distribution objects.
+
+Configure sample/grid-based metrics explicitly:
+
+```python
+import numpy as np
+
+from probreg.core import (
+    EvaluationGrid,
+    PointContinuousRankedProbabilityScore,
+    RootMeanSquaredError,
+)
+from probreg.jax import GaussianPredictor, MetricSuite
+
+metrics = MetricSuite(
+    epoch=(RootMeanSquaredError(), PointContinuousRankedProbabilityScore()),
+    predictor=GaussianPredictor(),
+    predictive_sample_count=128,
+    evaluation_grid=EvaluationGrid(np.linspace(-10.0, 10.0, 401)),
+)
+```
+
+`PointContinuousRankedProbabilityScore` compares each scalar target with that
+unit's predictive draws. `ContinuousRankedProbabilityScore` instead averages the
+predictive CRPS over each unit's empirical reference distribution and therefore
+requires an explicit `reference_samples_extractor` on the predictor. Both score each
+independent scalar unit and then average; non-scalar event distributions are rejected.
+The shared grid must be finite and strictly increasing. Predictive sample storage costs
+`O(n_scoring_units * predictive_sample_count)` host memory.
+
+Intervals are selected by their declared confidence level. `WeightedSpread` also
+requires an explicit numeric coordinate extractor at the JAX/domain boundary; generic
+batch metadata never enters the core epoch metric contract. Metric sample keys are
+derived in a separate namespace, so registering sampled epoch metrics does not alter
+the loss or batch-metric RNG trajectory. Prediction adapters run an inference-mode
+clone of the model, so stateful layers and internal RNG streams are not mutated by
+metric collection.
+
 ## Plotting
 
 Install the optional `plot` extra (Matplotlib) to run examples that visualize
