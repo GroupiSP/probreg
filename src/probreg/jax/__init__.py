@@ -28,6 +28,7 @@ from probreg.jax.state import (
 )
 from probreg.jax.supervised import make_train_step, run_supervised
 from probreg.jax.two_step import (
+    GammaVarianceStage,
     MeanStage,
     SupervisedStageOptions,
     make_gamma_residual_loss,
@@ -42,6 +43,7 @@ __all__ = [
     "CoordinateExtractor",
     "Gamma",
     "GammaHead",
+    "GammaVarianceStage",
     "Gaussian",
     "GaussianHead",
     "GaussianPredictor",

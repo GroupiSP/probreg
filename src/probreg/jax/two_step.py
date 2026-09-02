@@ -321,6 +321,167 @@ class MeanStage:
         return CheckpointRef(key=key, metadata={"stage": self.name})
 
 
+@dataclass
+class GammaVarianceStage:
+    """Concrete Step 2 stage fitting Gamma-distributed squared residuals."""
+
+    model: nnx.Module
+    optimizer: nnx.Optimizer
+    source_loader: LoaderFactory
+    options: SupervisedStageOptions
+    mean_model_name: str = "mean_model"
+    model_name: str = "variance_model"
+    optimizer_name: str = "variance_optimizer"
+    splits: Sequence[str] = ("train", "validation")
+    source_epoch: int = 0
+    validation_factory: Callable[[LoaderFactory], ValidationStrategy] | None = None
+    loss: SupervisedLoss = field(default_factory=make_gamma_residual_loss)
+    name: str = field(default="variance", init=False)
+    requires: frozenset[str] = field(
+        default_factory=lambda: frozenset({"mean"}),
+        init=False,
+    )
+    produces: frozenset[str] = field(
+        default_factory=lambda: frozenset({"variance"}),
+        init=False,
+    )
+    _residual_loader: LoaderFactory | None = field(default=None, init=False, repr=False)
+    _validation: ValidationStrategy | None = field(default=None, init=False, repr=False)
+
+    def prepare(self, state: TrainingState) -> None:
+        """Validate Step 1 output and materialize fixed residual targets.
+
+        Args:
+            state: Shared state whose mean component is ready.
+
+        Raises:
+            TypeError: If the registered mean component is not an NNX module.
+            ValueError: If lifecycle, ownership, or registrations are invalid.
+        """
+        if state.lifecycle_state is not StageState.MEAN_READY:
+            raise ValueError("variance stage requires MEAN_READY lifecycle state.")
+        if self.mean_model_name not in state.model_components:
+            raise ValueError(
+                f"mean model component {self.mean_model_name!r} is not registered."
+            )
+        mean_model = state.model_components[self.mean_model_name]
+        if not isinstance(mean_model, nnx.Module):
+            raise TypeError("registered mean model must be an NNX module.")
+        if state.parameter_roles.get(self.mean_model_name) is not ParameterRole.MEAN:
+            raise ValueError("registered mean model must have the MEAN parameter role.")
+        _validate_named_registration(
+            state.model_components,
+            self.model_name,
+            self.model,
+            kind="model component",
+        )
+        _validate_named_registration(
+            state.optimizer_states,
+            self.optimizer_name,
+            self.optimizer,
+            kind="optimizer state",
+        )
+        _validate_parameter_role(state, self.model_name, ParameterRole.VARIANCE)
+
+        residual_loader = materialize_residual_loader(
+            mean_model,
+            self.source_loader,
+            splits=self.splits,
+            source_epoch=self.source_epoch,
+        )
+        validation = (
+            self.validation_factory(residual_loader)
+            if self.validation_factory is not None
+            else self.options.validation
+        )
+
+        state.register_component(self.model_name, self.model)
+        state.register_optimizer(self.optimizer_name, self.optimizer)
+        state.parameter_roles[self.model_name] = ParameterRole.VARIANCE
+        state.frozen_components = state.frozen_components | {self.mean_model_name}
+        state.active_stage = self.name
+        self._residual_loader = residual_loader
+        self._validation = validation
+
+    def train(self, state: TrainingState) -> StageResult:
+        """Train the variance model and transition to ``VARIANCE_READY``.
+
+        Args:
+            state: Prepared state retaining a frozen mean component.
+
+        Returns:
+            The supervised runner result.
+
+        Raises:
+            ValueError: If preparation is incomplete or training is non-finite.
+        """
+        if state.lifecycle_state is not StageState.MEAN_READY:
+            raise ValueError("variance stage requires MEAN_READY lifecycle state.")
+        if self._residual_loader is None:
+            raise ValueError("variance stage must be prepared before training.")
+        result = run_supervised(
+            model=self.model,
+            optimizer=self.optimizer,
+            train_loader=self._residual_loader,
+            loss=self.loss,
+            state=state,
+            epochs=self.options.epochs,
+            validation=self._validation,
+            early_stopper=self.options.early_stopper,
+            event_sinks=self.options.event_sinks,
+            checkpoint_store=self.options.checkpoint_store,
+            checkpoint_key=self.options.checkpoint_key,
+            stage=self.name,
+            model_name=self.model_name,
+            optimizer_name=self.optimizer_name,
+            metrics=self.options.metrics,
+        )
+        if result.loss is None or not math.isfinite(result.loss):
+            raise ValueError("variance stage produced a non-finite final loss.")
+        state.lifecycle_state = StageState.VARIANCE_READY
+        return result
+
+    def validate(self, state: TrainingState) -> ValidationResult:
+        """Validate variance-stage lifecycle, ownership, and freezing.
+
+        Args:
+            state: Shared staged training state.
+
+        Returns:
+            A validation result describing whether Step 2 is ready.
+        """
+        passed = (
+            state.lifecycle_state is StageState.VARIANCE_READY
+            and state.model_components.get(self.model_name) is self.model
+            and state.optimizer_states.get(self.optimizer_name) is self.optimizer
+            and state.parameter_roles.get(self.model_name) is ParameterRole.VARIANCE
+            and self.mean_model_name in state.frozen_components
+        )
+        return ValidationResult(
+            passed=passed,
+            message=None if passed else "variance stage invariants are not satisfied.",
+        )
+
+    def select_checkpoint(self, state: TrainingState) -> CheckpointRef:
+        """Return the explicitly configured variance checkpoint reference.
+
+        Args:
+            state: Shared staged training state.
+
+        Returns:
+            Reference to the configured best checkpoint.
+
+        Raises:
+            ValueError: If no configured checkpoint exists.
+        """
+        del state
+        store = self.options.checkpoint_store
+        key = self.options.checkpoint_key
+        if store is None or not store.exists(key):
+            raise ValueError(f"checkpoint {key!r} is not available.")
+        return CheckpointRef(key=key, metadata={"stage": self.name})
+
+
 def _validate_named_registration(
     registry: dict[str, Any],
     name: str,

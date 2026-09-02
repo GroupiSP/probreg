@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import jax
 import jax.numpy as jnp
 import optax
@@ -9,9 +11,18 @@ from flax import nnx
 from probreg.core.checkpoints import Checkpoint
 from probreg.core.early_stopping import EarlyStopper, MetricSource
 from probreg.core.losses import GammaResidualNLLLoss
-from probreg.core.types import Batch, ParameterRole, StageState, TrainingState
+from probreg.core.protocols import LoaderFactory
+from probreg.core.types import (
+    Batch,
+    ParameterRole,
+    StageState,
+    TrainingState,
+    ValidationResult,
+)
+from probreg.jax.distributions import GammaHead
 from probreg.jax.state import create_optimizer
 from probreg.jax.two_step import (
+    GammaVarianceStage,
     MeanStage,
     SupervisedStageOptions,
     make_gamma_residual_loss,
@@ -389,3 +400,157 @@ def test_mean_stage_rejects_missing_checkpoint() -> None:
 
     with pytest.raises(ValueError, match="not available"):
         stage.select_checkpoint(state)
+
+
+def make_two_step_loader(
+    inputs: jax.Array,
+    targets: jax.Array,
+) -> LoaderFactory:
+    def loader(*, split: str, epoch: int) -> list[Batch]:
+        del split, epoch
+        return [Batch(inputs=inputs, targets=targets)]
+
+    return loader
+
+
+def test_gamma_variance_stage_updates_variance_and_preserves_mean() -> None:
+    data_key, mean_key, variance_key, rng_key = jax.random.split(
+        jax.random.key(20),
+        4,
+    )
+    inputs = jax.random.uniform(data_key, (256, 1), minval=-2.0, maxval=2.0)
+    noise_scale = 0.1 + 0.3 * (inputs + 2.0)
+    targets = 2.0 * inputs + noise_scale * jax.random.normal(
+        jax.random.fold_in(data_key, 1),
+        inputs.shape,
+    )
+    source_loader = make_two_step_loader(inputs, targets)
+
+    mean_model = LinearModel(rngs=nnx.Rngs(mean_key))
+    mean_optimizer = create_optimizer(mean_model, optax.adam(0.05))
+    state = TrainingState(rng_state=rng_key)
+    mean_stage = MeanStage(
+        model=mean_model,
+        optimizer=mean_optimizer,
+        train_loader=source_loader,
+        options=SupervisedStageOptions(epochs=100),
+    )
+    mean_stage.prepare(state)
+    mean_stage.train(state)
+    mean_state_before = jax.tree.map(lambda value: value.copy(), nnx.state(mean_model))
+
+    variance_model = GammaHead(1, 1, rngs=nnx.Rngs(variance_key))
+    variance_optimizer = create_optimizer(variance_model, optax.adam(0.03))
+    variance_state_before = jax.tree.map(
+        lambda value: value.copy(),
+        nnx.state(variance_model),
+    )
+    variance_stage = GammaVarianceStage(
+        model=variance_model,
+        optimizer=variance_optimizer,
+        source_loader=source_loader,
+        options=SupervisedStageOptions(epochs=150),
+        splits=("train",),
+    )
+
+    variance_stage.prepare(state)
+    result = variance_stage.train(state)
+
+    assert result.loss is not None and math.isfinite(result.loss)
+    assert state.lifecycle_state is StageState.VARIANCE_READY
+    assert state.parameter_roles["variance_model"] is ParameterRole.VARIANCE
+    assert "mean_model" in state.frozen_components
+    assert variance_stage.validate(state).passed
+    assert all(
+        jnp.array_equal(before, after)
+        for before, after in zip(
+            jax.tree.leaves(mean_state_before),
+            jax.tree.leaves(nnx.state(mean_model)),
+            strict=True,
+        )
+    )
+    assert any(
+        not jnp.array_equal(before, after)
+        for before, after in zip(
+            jax.tree.leaves(variance_state_before),
+            jax.tree.leaves(nnx.state(variance_model)),
+            strict=True,
+        )
+    )
+    low_variance = variance_model(jnp.array([[-2.0]])).mean()
+    high_variance = variance_model(jnp.array([[2.0]])).mean()
+    assert bool(jnp.all(high_variance > low_variance))
+
+
+def test_gamma_variance_stage_requires_ready_mean() -> None:
+    model = GammaHead(1, 1, rngs=nnx.Rngs(0))
+    stage = GammaVarianceStage(
+        model=model,
+        optimizer=create_optimizer(model, optax.sgd(0.1)),
+        source_loader=mean_loader,
+        options=SupervisedStageOptions(epochs=1),
+        splits=("train",),
+    )
+    state = TrainingState(rng_state=jax.random.key(0))
+
+    with pytest.raises(ValueError, match="MEAN_READY"):
+        stage.prepare(state)
+
+    assert state.lifecycle_state is StageState.NEW
+
+
+def test_gamma_variance_stage_requires_mean_role() -> None:
+    mean_model = LinearModel(rngs=nnx.Rngs(0))
+    variance_model = GammaHead(1, 1, rngs=nnx.Rngs(1))
+    state = TrainingState(
+        model_components={"mean_model": mean_model},
+        parameter_roles={"mean_model": ParameterRole.AUXILIARY},
+        lifecycle_state=StageState.MEAN_READY,
+        rng_state=jax.random.key(0),
+    )
+    stage = GammaVarianceStage(
+        model=variance_model,
+        optimizer=create_optimizer(variance_model, optax.sgd(0.1)),
+        source_loader=mean_loader,
+        options=SupervisedStageOptions(epochs=1),
+        splits=("train",),
+    )
+
+    with pytest.raises(ValueError, match="MEAN parameter role"):
+        stage.prepare(state)
+
+    assert "variance_model" not in state.model_components
+
+
+def test_gamma_variance_stage_builds_validation_from_residual_loader() -> None:
+    mean_stage, state = make_mean_stage()
+    mean_stage.prepare(state)
+    mean_stage.train(state)
+    variance_model = GammaHead(1, 1, rngs=nnx.Rngs(2))
+    observed_targets: list[jax.Array] = []
+
+    def validation_factory(loader: LoaderFactory):
+        def validation(
+            current_state: TrainingState,
+            *,
+            epoch: int,
+        ) -> ValidationResult:
+            del current_state
+            observed_targets.append(loader(split="validation", epoch=epoch)[0].targets)
+            return ValidationResult(passed=True, metrics={"validation_loss": 0.0})
+
+        return validation
+
+    stage = GammaVarianceStage(
+        model=variance_model,
+        optimizer=create_optimizer(variance_model, optax.sgd(0.01)),
+        source_loader=mean_loader,
+        options=SupervisedStageOptions(epochs=1),
+        validation_factory=validation_factory,
+    )
+
+    stage.prepare(state)
+    stage.train(state)
+
+    assert len(observed_targets) == 1
+    assert bool(jnp.all(observed_targets[0] >= 0.0))
