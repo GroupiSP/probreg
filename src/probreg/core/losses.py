@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -30,6 +31,48 @@ class GaussianNLLLoss:
             An array of per-example negative log-likelihood values.
         """
         return -prediction.log_prob(batch.targets)
+
+
+@dataclass(frozen=True)
+class GammaResidualNLLLoss:
+    """Negative log-likelihood for non-negative squared residual targets.
+
+    Gamma densities contain a logarithm of the observed value, so an exact
+    zero residual is shifted by ``epsilon`` before evaluation. The shift is
+    part of the objective's numerical policy rather than the Gamma
+    distribution's public semantics.
+
+    Attributes:
+        epsilon: Positive finite offset added to residual targets.
+    """
+
+    epsilon: float = 1e-12
+
+    def __post_init__(self) -> None:
+        """Validate the residual stabilization offset.
+
+        Raises:
+            ValueError: If ``epsilon`` is not positive and finite.
+        """
+        if not math.isfinite(self.epsilon) or self.epsilon <= 0.0:
+            raise ValueError("epsilon must be positive and finite.")
+
+    def per_example(self, prediction: PredictiveDistribution, batch: Batch) -> Array:
+        """Compute stabilized per-example Gamma negative log-likelihood.
+
+        Args:
+            prediction: Gamma prediction produced for ``batch``.
+            batch: Batch containing non-negative squared residual targets.
+
+        Returns:
+            Per-example negative log-likelihood values.
+
+        Raises:
+            ValueError: If ``batch.targets`` is missing.
+        """
+        if batch.targets is None:
+            raise ValueError("batch.targets must be provided.")
+        return -prediction.log_prob(batch.targets + self.epsilon)
 
 
 @dataclass(frozen=True)
