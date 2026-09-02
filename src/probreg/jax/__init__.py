@@ -30,6 +30,7 @@ from probreg.jax.supervised import make_train_step, run_supervised
 from probreg.jax.two_step import (
     make_gamma_residual_loss,
     make_mean_squared_error_loss,
+    materialize_residual_loader,
 )
 from probreg.jax.validation import HeldOutValidation
 
@@ -58,6 +59,7 @@ __all__ = [
     "make_mean_squared_error_loss",
     "make_mve_loss",
     "make_train_step",
+    "materialize_residual_loader",
     "merge_epoch_prediction_data",
     "run_supervised",
     "snapshot",
