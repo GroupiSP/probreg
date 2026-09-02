@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import pytest
 from flax import nnx
 
-from probreg.jax.distributions import Gaussian, GaussianHead
+from probreg.jax.distributions import Gamma, GammaHead, Gaussian, GaussianHead
 
 
 def test_gaussian_log_prob_matches_analytic_normal_density() -> None:
@@ -73,3 +73,78 @@ def test_gaussian_head_produces_positive_scale_under_extreme_inputs() -> None:
 def test_gaussian_head_rejects_non_positive_out_features() -> None:
     with pytest.raises(ValueError, match="out_features"):
         GaussianHead(1, 0, rngs=nnx.Rngs(0))
+
+
+def test_gamma_log_prob_matches_analytic_shape_rate_density() -> None:
+    concentration = jnp.array([2.0, 3.0])
+    rate = jnp.array([4.0, 0.5])
+    targets = jnp.array([0.5, 2.0])
+    distribution = Gamma(concentration=concentration, rate=rate)
+
+    expected = (
+        concentration * jnp.log(rate)
+        - jax.scipy.special.gammaln(concentration)
+        + (concentration - 1.0) * jnp.log(targets)
+        - rate * targets
+    )
+
+    assert jnp.allclose(distribution.log_prob(targets), expected)
+
+
+def test_gamma_mean_and_variance_use_shape_rate_parameterization() -> None:
+    concentration = jnp.array([2.0, 8.0])
+    rate = jnp.array([4.0, 2.0])
+    distribution = Gamma(concentration=concentration, rate=rate)
+
+    assert jnp.allclose(distribution.mean(), concentration / rate)
+    assert jnp.allclose(distribution.variance(), concentration / rate**2)
+
+
+def test_gamma_batch_and_event_shape() -> None:
+    distribution = Gamma(
+        concentration=jnp.ones((4, 1)),
+        rate=jnp.ones((1, 2)),
+    )
+
+    assert distribution.batch_shape == (4, 2)
+    assert distribution.event_shape == ()
+
+
+def test_gamma_sample_shape_and_key_are_reproducible() -> None:
+    distribution = Gamma(
+        concentration=jnp.array([2.0, 3.0]),
+        rate=jnp.array([1.0, 2.0]),
+    )
+    key = jax.random.key(0)
+
+    samples = distribution.sample(key, sample_shape=(5,))
+    duplicate = distribution.sample(key, sample_shape=(5,))
+
+    assert samples.shape == (5, 2)
+    assert jnp.array_equal(samples, duplicate)
+    assert bool(jnp.all(samples > 0.0))
+
+
+def test_gamma_head_produces_positive_parameters_under_extreme_inputs() -> None:
+    head = GammaHead(1, 2, rngs=nnx.Rngs(0))
+
+    prediction = head(jnp.array([[1e6], [-1e6]]))
+
+    assert prediction.concentration.shape == (2, 2)
+    assert prediction.rate.shape == (2, 2)
+    assert bool(jnp.all(prediction.concentration > 0.0))
+    assert bool(jnp.all(prediction.rate > 0.0))
+    assert bool(jnp.all(jnp.isfinite(prediction.concentration)))
+    assert bool(jnp.all(jnp.isfinite(prediction.rate)))
+
+
+@pytest.mark.parametrize(
+    ("out_features", "eps"),
+    [(0, 1e-6), (1, 0.0), (1, -1.0), (1, float("inf"))],
+)
+def test_gamma_head_rejects_invalid_configuration(
+    out_features: int,
+    eps: float,
+) -> None:
+    with pytest.raises(ValueError):
+        GammaHead(1, out_features, rngs=nnx.Rngs(0), eps=eps)

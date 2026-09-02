@@ -1,6 +1,6 @@
 """Optional JAX/Flax NNX training backend."""
 
-from probreg.jax.distributions import Gaussian, GaussianHead
+from probreg.jax.distributions import Gamma, GammaHead, Gaussian, GaussianHead
 from probreg.jax.evaluation import (
     SupervisedLoss,
     evaluate_loader,
@@ -37,6 +37,8 @@ __all__ = [
     "BatchMetric",
     "BatchMetricSpec",
     "CoordinateExtractor",
+    "Gamma",
+    "GammaHead",
     "Gaussian",
     "GaussianHead",
     "GaussianPredictor",
