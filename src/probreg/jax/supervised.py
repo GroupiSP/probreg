@@ -25,8 +25,6 @@ from probreg.jax.metrics import (
 from probreg.jax.rng import split_key
 from probreg.jax.state import freeze_training_state, snapshot
 
-_EMPTY_METRIC_SUITE = MetricSuite()
-
 
 def make_train_step(
     loss: SupervisedLoss,
@@ -102,7 +100,7 @@ def run_supervised(
     stage: str = "supervised",
     model_name: str = "model",
     optimizer_name: str = "optimizer",
-    metrics: MetricSuite = _EMPTY_METRIC_SUITE,
+    metrics: MetricSuite | None = None,
 ) -> StageResult:
     """Train a single NNX model for a fixed or early-stopped number of epochs.
 
@@ -134,7 +132,8 @@ def run_supervised(
             Defaults to ``"model"``.
         optimizer_name: Name under which ``optimizer`` is registered in
             ``state``. Defaults to ``"optimizer"``.
-        metrics: Registered batch/epoch metrics for training.
+        metrics: Optional registered batch/epoch metrics for training. When
+            omitted, only loss is collected.
 
     Returns:
         A :class:`StageResult` with the final ``state``, the last
@@ -162,7 +161,7 @@ def run_supervised(
         model_name=model_name,
         optimizer_name=optimizer_name,
     )
-    metric_suite = metrics
+    metric_suite = metrics if metrics is not None else MetricSuite()
     train_step = make_train_step(loss, metrics=metric_suite.batch)
     latest_metrics: Mapping[str, float] = {}
 

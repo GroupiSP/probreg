@@ -29,9 +29,6 @@ from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.metrics import MetricSuite
 from probreg.jax.supervised import run_supervised
 
-_DEFAULT_GAMMA_RESIDUAL_LOSS = GammaResidualNLLLoss()
-_EMPTY_METRIC_SUITE = MetricSuite()
-
 
 def make_mean_squared_error_loss(
     *,
@@ -65,20 +62,23 @@ def make_mean_squared_error_loss(
 
 
 def make_gamma_residual_loss(
-    loss: GammaResidualNLLLoss = _DEFAULT_GAMMA_RESIDUAL_LOSS,
+    loss: GammaResidualNLLLoss | None = None,
     *,
     reduction: Callable[[jax.Array], jax.Array] = jnp.mean,
 ) -> SupervisedLoss:
     """Build a supervised Gamma NLL objective for squared residual targets.
 
     Args:
-        loss: Backend-neutral Gamma residual objective.
+        loss: Optional backend-neutral Gamma residual objective. Defaults to a
+            standard :class:`GammaResidualNLLLoss`.
         reduction: Callable reducing the optionally weighted per-example
             losses to a scalar. Defaults to ``jnp.mean``.
 
     Returns:
         A supervised loss for models returning Gamma predictions.
     """
+
+    residual_loss = loss if loss is not None else GammaResidualNLLLoss()
 
     def gamma_residual_loss(
         model: nnx.Module,
@@ -91,7 +91,7 @@ def make_gamma_residual_loss(
         del key, training
         prediction = model(inputs)
         batch = Batch(inputs=inputs, targets=targets, sample_weight=sample_weight)
-        per_example = loss.per_example(prediction, batch)
+        per_example = residual_loss.per_example(prediction, batch)
         if sample_weight is not None:
             per_example = per_example * sample_weight
         return reduction(per_example)
@@ -194,7 +194,7 @@ class SupervisedStageOptions:
     event_sinks: Sequence[EventSink] = ()
     checkpoint_store: CheckpointStore | None = None
     checkpoint_key: str = "best"
-    metrics: MetricSuite = _EMPTY_METRIC_SUITE
+    metrics: MetricSuite = field(default_factory=MetricSuite)
 
 
 @dataclass
