@@ -61,29 +61,29 @@ class TrainingState:
     posterior_state: Any | None = None
     rng_state: Any | None = None
     lifecycle_state: StageState = StageState.NEW
-    active_stage: str | None = None
+    stage: str | None = None
     outer_iteration: int = 0
     data_fingerprint: str | None = None
     checkpoint_registry: dict[str, CheckpointRef] = field(default_factory=dict)
     metric_history: dict[str, list[float]] = field(default_factory=dict)
 
     @property
-    def stage(self) -> str | None:
-        """Return the active stage label kept for compatibility.
+    def active_stage(self) -> str | None:
+        """Return the explicit active training-stage label.
 
         Returns:
             The active training-stage label, or ``None`` outside a runner.
         """
-        return self.active_stage
+        return self.stage
 
-    @stage.setter
-    def stage(self, value: str | None) -> None:
-        """Set the active stage label kept for compatibility.
+    @active_stage.setter
+    def active_stage(self, value: str | None) -> None:
+        """Set the explicit active training-stage label.
 
         Args:
             value: The active training-stage label, or ``None``.
         """
-        self.active_stage = value
+        self.stage = value
 
     def register_component(self, name: str, component: Any) -> None:
         """Register a model component under ``name``.
