@@ -1,4 +1,4 @@
-"""JAX objectives for explicit mean and Gamma variance training stages."""
+"""Explicit supervised stages for mean and Gamma variance training."""
 
 from __future__ import annotations
 
@@ -135,7 +135,17 @@ class SupervisedStageOptions:
 
 @dataclass
 class MeanStage:
-    """Concrete Step 1 stage training a deterministic mean model with MSE."""
+    """Concrete Step 1 stage training a deterministic mean model with MSE.
+
+    Attributes:
+        model: NNX model producing deterministic mean predictions.
+        optimizer: NNX optimizer bound to ``model``.
+        train_loader: Factory producing original regression batches.
+        options: Shared supervised-runner options.
+        model_name: State registry name for the mean model.
+        optimizer_name: State registry name for the mean optimizer.
+        loss: Scalar supervised loss used to train the mean model.
+    """
 
     model: nnx.Module
     optimizer: nnx.Optimizer
@@ -261,7 +271,22 @@ class MeanStage:
 
 @dataclass
 class GammaVarianceStage:
-    """Concrete Step 2 stage fitting Gamma-distributed squared residuals."""
+    """Concrete Step 2 stage fitting Gamma-distributed squared residuals.
+
+    Attributes:
+        model: NNX model producing Gamma residual predictions.
+        optimizer: NNX optimizer bound to ``model``.
+        source_loader: Factory producing original regression batches.
+        options: Shared supervised-runner options.
+        mean_model_name: Registry name of the prepared mean model.
+        model_name: State registry name for the variance model.
+        optimizer_name: State registry name for the variance optimizer.
+        splits: Source split names materialized as residual batches.
+        source_epoch: Source-loader epoch used for residual materialization.
+        validation_factory: Optional factory adapting the residual loader into
+            a validation strategy.
+        loss: Scalar supervised loss used to train the variance model.
+    """
 
     model: nnx.Module
     optimizer: nnx.Optimizer

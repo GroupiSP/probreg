@@ -28,7 +28,7 @@ from probreg.jax.state import (
     snapshot,
 )
 from probreg.jax.supervised import make_train_step, run_supervised
-from probreg.jax.two_step import (
+from probreg.jax.supervised_staged import (
     GammaVarianceStage,
     MeanStage,
     SupervisedStageOptions,

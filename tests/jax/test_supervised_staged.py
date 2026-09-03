@@ -26,7 +26,7 @@ from probreg.core.types import (
 from probreg.jax.distributions import GammaHead
 from probreg.jax.losses import make_supervised_loss
 from probreg.jax.state import create_optimizer
-from probreg.jax.two_step import (
+from probreg.jax.supervised_staged import (
     GammaVarianceStage,
     MeanStage,
     SupervisedStageOptions,

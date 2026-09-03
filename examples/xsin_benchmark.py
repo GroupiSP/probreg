@@ -27,7 +27,19 @@ from probreg.jax import (
 
 @dataclass(frozen=True)
 class XSinConfig:
-    """Configuration shared by the MVE and two-step XSin runs."""
+    """Configuration shared by the MVE and two-step XSin runs.
+
+    Attributes:
+        train_size: Number of noisy training observations.
+        evaluation_size: Number of points in the noiseless evaluation grid.
+        batch_size: Number of training observations per mini-batch.
+        hidden_features: Width of each benchmark model's hidden layers.
+        mve_epochs: Training epochs for the joint Gaussian MVE model.
+        mean_epochs: Training epochs for the deterministic mean stage.
+        variance_epochs: Training epochs for the Gamma variance stage.
+        learning_rate: Adam learning rate used by all benchmark models.
+        seed: Base JAX random seed for data, model, and training keys.
+    """
 
     train_size: int = 512
     evaluation_size: int = 301
@@ -42,7 +54,15 @@ class XSinConfig:
 
 @dataclass(frozen=True)
 class XSinData:
-    """Training observations and a noiseless evaluation grid."""
+    """Training observations and a noiseless evaluation grid.
+
+    Attributes:
+        train_inputs: Inputs used to fit the benchmark models.
+        train_targets: Noisy observations used to fit the benchmark models.
+        evaluation_inputs: Grid used to compare predictions with truth.
+        true_mean: Exact mean function on ``evaluation_inputs``.
+        true_variance: Exact aleatoric variance on ``evaluation_inputs``.
+    """
 
     train_inputs: jax.Array
     train_targets: jax.Array
@@ -53,7 +73,14 @@ class XSinData:
 
 @dataclass(frozen=True)
 class XSinResult:
-    """Predictions and comparable error metrics for one benchmark method."""
+    """Predictions and comparable error metrics for one benchmark method.
+
+    Attributes:
+        mean: Predicted mean on the evaluation grid.
+        variance: Predicted aleatoric variance on the evaluation grid.
+        mean_rmse: Root mean squared error of ``mean`` against truth.
+        variance_rmse: Root mean squared error of ``variance`` against truth.
+    """
 
     mean: jax.Array
     variance: jax.Array

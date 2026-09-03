@@ -119,7 +119,7 @@ training on the same nonlinear XSin-inspired heteroscedastic dataset:
 
 ```bash
 uv run --extra jax --extra plot python examples/xsin_mve_jax.py
-uv run --extra jax --extra plot python examples/xsin_mve_two_steps_jax.py
+uv run --extra jax --extra plot python examples/xsin_two_steps_jax.py
 ```
 
 Both scripts print `mean_rmse` and `aleatoric_variance_rmse` against the known
