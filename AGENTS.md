@@ -9,6 +9,12 @@ This document contains information for the agents about general coding guideline
 - Where possible, provide examples to illustrate your points.
 - Where possible, provide schematics, diagrams, code snippets, tables or other visual aids to illustrate your points.
 
+## Planning and contributing
+
+- Substantial contributions that come from a planning session should be broken down in self-contained phases of development.
+- During development, each phase realization should be followed by a commit with a meaningful, conventional-style message.
+- For the remaining contributions guidelines, refer to `CONTRIBUTING.md`
+
 ## Coding style
 
 - Favour functions and data container classes over wrapping everything in a single class.
