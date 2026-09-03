@@ -3,8 +3,10 @@
 from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.distributions import (
     DistributionHead,
+    DistributionLoss,
     Likelihood,
     Loss,
+    PredictionLoss,
     PredictiveDistribution,
 )
 from probreg.core.early_stopping import (
@@ -14,7 +16,11 @@ from probreg.core.early_stopping import (
     MetricSource,
     OptimizationMode,
 )
-from probreg.core.losses import BetaNLLLoss, GammaResidualNLLLoss, GaussianNLLLoss
+from probreg.core.losses import (
+    NegativeLogLikelihoodLoss,
+    SquaredErrorLoss,
+    add_epsilon,
+)
 from probreg.core.metric_registry import (
     ContinuousRankedProbabilityScore,
     EpochMetric,
@@ -51,13 +57,13 @@ from probreg.core.types import (
 __all__ = [
     "Array",
     "Batch",
-    "BetaNLLLoss",
     "Checkpoint",
     "CheckpointRef",
     "CheckpointStore",
     "ContinuousRankedProbabilityScore",
     "Dataset",
     "DistributionHead",
+    "DistributionLoss",
     "EarlyStopper",
     "EarlyStoppingDecision",
     "EarlyStoppingState",
@@ -66,22 +72,23 @@ __all__ = [
     "EvaluationGrid",
     "EventSink",
     "ExperimentTracker",
-    "GammaResidualNLLLoss",
-    "GaussianNLLLoss",
     "IntervalCoverage",
     "Likelihood",
     "LoaderFactory",
     "Loss",
     "MetricRequirements",
     "MetricSource",
+    "NegativeLogLikelihoodLoss",
     "OptimizationMode",
     "Optimizer",
     "ParameterRole",
     "PointContinuousRankedProbabilityScore",
     "PredictionInterval",
+    "PredictionLoss",
     "PredictiveDistribution",
     "PyTree",
     "RootMeanSquaredError",
+    "SquaredErrorLoss",
     "StageResult",
     "StageState",
     "Step",
@@ -91,6 +98,7 @@ __all__ = [
     "ValidationResult",
     "ValidationStrategy",
     "WeightedSpread",
+    "add_epsilon",
     "cdf",
     "coverage",
     "crps",
