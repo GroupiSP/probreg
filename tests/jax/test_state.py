@@ -122,3 +122,35 @@ def test_restore_checkpoint_validates_optimizer_before_mutating_model() -> None:
         )
 
     assert live_model.value[...] == 5.0
+
+
+def test_restore_checkpoint_restores_optimizer_static_transform() -> None:
+    saved_model = ScalarModel(1.0)
+    saved_optimizer = create_optimizer(saved_model, optax.sgd(0.1))
+    saved_state = TrainingState(rng_state=jax.random.key(0))
+    checkpoint = Checkpoint(
+        state=freeze_training_state(saved_state),
+        epoch=0,
+        parameters=snapshot(saved_model),
+        optimizer_state=snapshot(saved_optimizer),
+        rng_state=saved_state.rng_state,
+    )
+    live_model = ScalarModel(5.0)
+    live_optimizer = create_optimizer(live_model, optax.sgd(0.2))
+    live_state = TrainingState(rng_state=jax.random.key(1))
+
+    restore_checkpoint(
+        checkpoint,
+        state=live_state,
+        model=live_model,
+        optimizer=live_optimizer,
+    )
+
+    def loss_fn(current_model: ScalarModel) -> jax.Array:
+        return 0.5 * current_model.value[...] ** 2
+
+    _, gradients = nnx.value_and_grad(loss_fn)(live_model)
+    live_optimizer.update(live_model, gradients)
+
+    assert live_model.value[...] == pytest.approx(0.9)
+    assert int(live_optimizer.step.get_value()) == 1

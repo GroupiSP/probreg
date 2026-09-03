@@ -168,13 +168,18 @@ def restore_checkpoint(
     if not isinstance(checkpoint.rng_state, jax.Array):
         raise TypeError("checkpoint.rng_state must be a JAX random key.")
 
-    _validate_model_graph(model, checkpoint.parameters)
+    _validate_graph(model, checkpoint.parameters, kind="model")
     _validate_state_structure(
         optimizer,
         checkpoint.optimizer_state,
         kind="optimizer",
     )
+    restored_optimizer = nnx.merge(
+        checkpoint.optimizer_state.graphdef,
+        checkpoint.optimizer_state.state,
+    )
     nnx.update(model, checkpoint.parameters.state)
+    _restore_optimizer_static_fields(optimizer, restored_optimizer)
     nnx.update(optimizer, checkpoint.optimizer_state.state)
     _restore_training_state(state, checkpoint.state)
     state.rng_state = checkpoint.rng_state
@@ -207,11 +212,26 @@ def _copy_snapshot_leaf(value: object) -> object:
     return copy.deepcopy(value)
 
 
-def _validate_model_graph(model: nnx.Module, restored: NnxSnapshot) -> None:
-    """Reject a model whose static NNX graph differs from the snapshot."""
-    graphdef, _ = nnx.split(model)
+def _validate_graph(
+    module: nnx.Module,
+    restored: NnxSnapshot,
+    *,
+    kind: str,
+) -> None:
+    """Reject a module whose static NNX graph differs from the snapshot."""
+    graphdef, _ = nnx.split(module)
     if graphdef != restored.graphdef:
-        raise ValueError("model graph is incompatible with checkpoint parameters.")
+        raise ValueError(f"{kind} graph is incompatible with checkpoint state.")
+
+
+def _restore_optimizer_static_fields(
+    optimizer: nnx.Optimizer,
+    restored: nnx.Optimizer,
+) -> None:
+    """Copy checkpointed optimizer static fields into an existing optimizer."""
+    optimizer.graph = restored.graph
+    optimizer.tx = restored.tx
+    optimizer.wrt = restored.wrt
 
 
 def _validate_state_structure(
