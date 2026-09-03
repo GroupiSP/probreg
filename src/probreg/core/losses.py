@@ -105,21 +105,3 @@ def add_epsilon(epsilon: float = 1e-12) -> Callable[[Array], Array]:
         return targets + epsilon
 
     return transform
-
-
-# Temporary compatibility names retained while JAX callers migrate to the
-# consolidated objective in the next refactor phase.
-GaussianNLLLoss = NegativeLogLikelihoodLoss
-BetaNLLLoss = NegativeLogLikelihoodLoss
-
-
-def GammaResidualNLLLoss(epsilon: float = 1e-12) -> NegativeLogLikelihoodLoss:
-    """Build the former Gamma residual objective through target transformation.
-
-    Args:
-        epsilon: Positive finite target stabilization offset.
-
-    Returns:
-        A negative-log-likelihood objective adding ``epsilon`` to targets.
-    """
-    return NegativeLogLikelihoodLoss(target_transform=add_epsilon(epsilon))

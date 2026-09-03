@@ -11,7 +11,7 @@ from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint
 from probreg.core.early_stopping import EarlyStopper, MetricSource
-from probreg.core.losses import GaussianNLLLoss
+from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EpochPredictionData,
     EvaluationGrid,
@@ -31,11 +31,11 @@ from probreg.jax import (
     evaluate_loader,
     initialize_training_state,
     make_evaluation_step,
+    make_supervised_loss,
     make_train_step,
     run_supervised,
     split_key,
 )
-from probreg.jax.mve import make_mve_loss
 
 
 class LinearModel(nnx.Module):
@@ -512,7 +512,7 @@ def test_sampled_epoch_metrics_preserve_loss_batch_metric_and_rng_trajectory() -
             model=model,
             optimizer=optimizer,
             train_loader=loader,
-            loss=make_mve_loss(GaussianNLLLoss()),
+            loss=make_supervised_loss(NegativeLogLikelihoodLoss()),
             state=state,
             epochs=2,
             metrics=metrics,

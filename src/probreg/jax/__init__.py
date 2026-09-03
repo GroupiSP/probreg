@@ -6,6 +6,7 @@ from probreg.jax.evaluation import (
     evaluate_loader,
     make_evaluation_step,
 )
+from probreg.jax.losses import make_supervised_loss
 from probreg.jax.metrics import (
     BatchMetric,
     BatchMetricSpec,
@@ -31,8 +32,6 @@ from probreg.jax.two_step import (
     GammaVarianceStage,
     MeanStage,
     SupervisedStageOptions,
-    make_gamma_residual_loss,
-    make_mean_squared_error_loss,
     materialize_residual_loader,
 )
 from probreg.jax.validation import HeldOutValidation
@@ -61,9 +60,8 @@ __all__ = [
     "freeze_training_state",
     "initialize_training_state",
     "make_evaluation_step",
-    "make_gamma_residual_loss",
-    "make_mean_squared_error_loss",
     "make_mve_loss",
+    "make_supervised_loss",
     "make_train_step",
     "materialize_residual_loader",
     "merge_epoch_prediction_data",

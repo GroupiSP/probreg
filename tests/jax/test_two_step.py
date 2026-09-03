@@ -10,7 +10,11 @@ from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint
 from probreg.core.early_stopping import EarlyStopper, MetricSource
-from probreg.core.losses import GammaResidualNLLLoss
+from probreg.core.losses import (
+    NegativeLogLikelihoodLoss,
+    SquaredErrorLoss,
+    add_epsilon,
+)
 from probreg.core.protocols import LoaderFactory
 from probreg.core.types import (
     Batch,
@@ -20,13 +24,12 @@ from probreg.core.types import (
     ValidationResult,
 )
 from probreg.jax.distributions import GammaHead
+from probreg.jax.losses import make_supervised_loss
 from probreg.jax.state import create_optimizer
 from probreg.jax.two_step import (
     GammaVarianceStage,
     MeanStage,
     SupervisedStageOptions,
-    make_gamma_residual_loss,
-    make_mean_squared_error_loss,
     materialize_residual_loader,
 )
 
@@ -91,7 +94,7 @@ def test_mean_squared_error_loss_supports_weights_and_reduction() -> None:
     model = LinearModel(rngs=nnx.Rngs(0))
     model.linear.kernel[...] = 2.0
     model.linear.bias[...] = 0.0
-    loss = make_mean_squared_error_loss(reduction=jnp.sum)
+    loss = make_supervised_loss(SquaredErrorLoss(), reduction=jnp.sum)
 
     value = loss(
         model,
@@ -106,8 +109,8 @@ def test_mean_squared_error_loss_supports_weights_and_reduction() -> None:
 
 
 def test_gamma_residual_loss_supports_weights_and_reduction() -> None:
-    loss = make_gamma_residual_loss(
-        GammaResidualNLLLoss(epsilon=1e-6),
+    loss = make_supervised_loss(
+        NegativeLogLikelihoodLoss(target_transform=add_epsilon(1e-6)),
         reduction=jnp.sum,
     )
 
@@ -125,7 +128,9 @@ def test_gamma_residual_loss_supports_weights_and_reduction() -> None:
 
 
 def test_gamma_residual_loss_has_finite_gradient_at_zero() -> None:
-    loss = make_gamma_residual_loss(GammaResidualNLLLoss(epsilon=1e-6))
+    loss = make_supervised_loss(
+        NegativeLogLikelihoodLoss(target_transform=add_epsilon(1e-6))
+    )
 
     def evaluate(target: jax.Array) -> jax.Array:
         return loss(

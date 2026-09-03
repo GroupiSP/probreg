@@ -8,12 +8,12 @@ on it without either depending on the other.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Any, Protocol
+from typing import Protocol
 
 import jax
 from flax import nnx
 
-from probreg.core.types import Batch
+from probreg.core.types import Batch, PyTree
 from probreg.jax.metrics import (
     BatchMetricSpec,
     MetricSuite,
@@ -36,9 +36,9 @@ class SupervisedLoss(Protocol):
     def __call__(
         self,
         model: nnx.Module,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
+        inputs: PyTree,
+        targets: jax.Array,
+        sample_weight: jax.Array | None,
         key: jax.Array,
         training: bool,
         /,
@@ -82,9 +82,9 @@ def make_evaluation_step(
     @nnx.jit
     def evaluate_step(
         model: nnx.Module,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
+        inputs: PyTree,
+        targets: jax.Array,
+        sample_weight: jax.Array | None,
         key: jax.Array,
     ) -> Mapping[str, jax.Array]:
         loss_value = loss(model, inputs, targets, sample_weight, key, False)

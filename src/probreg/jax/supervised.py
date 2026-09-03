@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
 
 import jax
 from flax import nnx
@@ -12,7 +11,7 @@ from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink, TrainingEvent
-from probreg.core.types import StageResult, TrainingState
+from probreg.core.types import PyTree, StageResult, TrainingState
 from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.metrics import (
     BatchMetricSpec,
@@ -52,9 +51,9 @@ def make_train_step(
     def train_step(
         model: nnx.Module,
         optimizer: nnx.Optimizer,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
+        inputs: PyTree,
+        targets: jax.Array,
+        sample_weight: jax.Array | None,
         key: jax.Array,
     ) -> Mapping[str, jax.Array]:
         def loss_fn(current_model: nnx.Module) -> jax.Array:

@@ -5,28 +5,25 @@ probability distribution") trains a single distribution-valued model — most
 commonly a :class:`~probreg.jax.distributions.GaussianHead`, or any NNX
 module composing a backbone with such a head — to predict both a mean and an
 aleatoric scale under a Gaussian negative log-likelihood loss, optionally
-beta-weighted (Seitzer et al., 2022). This module adapts that composition
-into the :class:`~probreg.jax.evaluation.SupervisedLoss` protocol so it can
-be passed directly to :func:`probreg.jax.supervised.run_supervised` without
-any change to the runner itself.
+beta-weighted (Seitzer et al., 2022). This compatibility module forwards the
+historical ``make_mve_loss`` API to the generic
+:func:`probreg.jax.losses.make_supervised_loss` adapter.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
 import jax
 import jax.numpy as jnp
-from flax import nnx
 
-from probreg.core.losses import BetaNLLLoss, GaussianNLLLoss
-from probreg.core.types import Batch
+from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.jax.evaluation import SupervisedLoss
+from probreg.jax.losses import make_supervised_loss
 
 
 def make_mve_loss(
-    loss: GaussianNLLLoss | BetaNLLLoss,
+    loss: NegativeLogLikelihoodLoss,
     *,
     reduction: Callable[[jax.Array], jax.Array] = jnp.mean,
 ) -> SupervisedLoss:
@@ -44,12 +41,9 @@ def make_mve_loss(
     training-time behavior of its own.
 
     Args:
-        loss: The MVE objective, either plain Gaussian NLL
-            (:class:`~probreg.core.losses.GaussianNLLLoss`, Nix & Weigend,
-            1994) or its beta-weighted variant
-            (:class:`~probreg.core.losses.BetaNLLLoss`, Seitzer et al.,
-            2022), computing an unreduced per-example loss from a
-            prediction and a batch.
+        loss: Gaussian negative-log-likelihood objective, optionally
+            beta-weighted, computing unreduced values from a prediction and
+            batch.
         reduction: A callable reducing the (optionally sample-weighted)
             per-example loss array to a scalar. Defaults to ``jnp.mean``.
 
@@ -58,20 +52,4 @@ def make_mve_loss(
         training)`` returning the scalar reduced MVE loss for a batch.
     """
 
-    def mve_loss(
-        model: nnx.Module,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
-        key: jax.Array,
-        training: bool,
-    ) -> jax.Array:
-        del key, training
-        prediction = model(inputs)
-        batch = Batch(inputs=inputs, targets=targets, sample_weight=sample_weight)
-        per_example = loss.per_example(prediction, batch)
-        if sample_weight is not None:
-            per_example = per_example * sample_weight
-        return reduction(per_example)
-
-    return mve_loss
+    return make_supervised_loss(loss, reduction=reduction)

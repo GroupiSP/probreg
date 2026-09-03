@@ -5,11 +5,15 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.losses import GaussianNLLLoss
+from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.types import Batch
-from probreg.jax import create_optimizer, initialize_training_state, run_supervised
+from probreg.jax import (
+    create_optimizer,
+    initialize_training_state,
+    make_supervised_loss,
+    run_supervised,
+)
 from probreg.jax.distributions import GaussianHead
-from probreg.jax.mve import make_mve_loss
 
 
 def make_heteroscedastic_dataset(
@@ -49,7 +53,7 @@ def test_mve_training_decreases_loss_and_tracks_heteroscedastic_noise() -> None:
     optimizer = create_optimizer(model, optax.adam(learning_rate=0.05))
     state = initialize_training_state(model, optimizer, rng_key=rng_key)
 
-    mve_loss = make_mve_loss(GaussianNLLLoss())
+    mve_loss = make_supervised_loss(NegativeLogLikelihoodLoss())
 
     result = run_supervised(
         model=model,

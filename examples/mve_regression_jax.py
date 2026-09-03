@@ -9,10 +9,10 @@ loss:
 * a :class:`~probreg.jax.distributions.GaussianHead` predicting both a mean
   and a positive aleatoric scale for each input, trained with an Optax Adam
   optimizer;
-* a Gaussian negative log-likelihood loss
-  (:class:`~probreg.core.losses.GaussianNLLLoss`), adapted into a
+* a Gaussian negative log-likelihood objective
+  (:class:`~probreg.core.losses.NegativeLogLikelihoodLoss`), adapted into a
   :class:`~probreg.jax.evaluation.SupervisedLoss` by
-  :func:`~probreg.jax.mve.make_mve_loss`;
+  :func:`~probreg.jax.losses.make_supervised_loss`;
 * composable RMSE and sample/grid-based point-CRPS metrics for both training
   and held-out validation;
 * a :class:`~probreg.jax.HeldOutValidation` strategy evaluated after every
@@ -37,7 +37,7 @@ from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper, MetricSource, OptimizationMode
-from probreg.core.losses import GaussianNLLLoss
+from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EvaluationGrid,
     PointContinuousRankedProbabilityScore,
@@ -53,9 +53,9 @@ from probreg.jax import (
     MetricSuite,
     create_optimizer,
     initialize_training_state,
+    make_supervised_loss,
     run_supervised,
 )
-from probreg.jax.mve import make_mve_loss
 
 
 def make_dataset(*, num_samples: int, key: jax.Array) -> tuple[jax.Array, jax.Array]:
@@ -227,7 +227,7 @@ def main() -> None:
     optimizer = create_optimizer(model, optax.adam(learning_rate=0.05))
     state = initialize_training_state(model, optimizer, rng_key=rng_key)
 
-    mve_loss = make_mve_loss(GaussianNLLLoss())
+    mve_loss = make_supervised_loss(NegativeLogLikelihoodLoss())
     metric_suite = MetricSuite(
         epoch=(
             RootMeanSquaredError(),

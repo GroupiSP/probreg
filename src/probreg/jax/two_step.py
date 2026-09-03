@@ -13,7 +13,11 @@ from flax import nnx
 
 from probreg.core.checkpoints import CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
-from probreg.core.losses import GammaResidualNLLLoss
+from probreg.core.losses import (
+    NegativeLogLikelihoodLoss,
+    SquaredErrorLoss,
+    add_epsilon,
+)
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink
 from probreg.core.types import (
@@ -26,77 +30,9 @@ from probreg.core.types import (
     ValidationResult,
 )
 from probreg.jax.evaluation import SupervisedLoss
+from probreg.jax.losses import make_supervised_loss
 from probreg.jax.metrics import MetricSuite
 from probreg.jax.supervised import run_supervised
-
-
-def make_mean_squared_error_loss(
-    *,
-    reduction: Callable[[jax.Array], jax.Array] = jnp.mean,
-) -> SupervisedLoss:
-    """Build a supervised mean-squared-error objective.
-
-    Args:
-        reduction: Callable reducing the optionally weighted squared errors
-            to a scalar. Defaults to ``jnp.mean``.
-
-    Returns:
-        A supervised loss for deterministic mean models.
-    """
-
-    def mean_squared_error(
-        model: nnx.Module,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
-        key: jax.Array,
-        training: bool,
-    ) -> jax.Array:
-        del key, training
-        errors = jnp.square(model(inputs) - targets)
-        if sample_weight is not None:
-            errors = errors * sample_weight
-        return reduction(errors)
-
-    return mean_squared_error
-
-
-def make_gamma_residual_loss(
-    loss: GammaResidualNLLLoss | None = None,
-    *,
-    reduction: Callable[[jax.Array], jax.Array] = jnp.mean,
-) -> SupervisedLoss:
-    """Build a supervised Gamma NLL objective for squared residual targets.
-
-    Args:
-        loss: Optional backend-neutral Gamma residual objective. Defaults to a
-            standard :class:`GammaResidualNLLLoss`.
-        reduction: Callable reducing the optionally weighted per-example
-            losses to a scalar. Defaults to ``jnp.mean``.
-
-    Returns:
-        A supervised loss for models returning Gamma predictions.
-    """
-
-    residual_loss = loss if loss is not None else GammaResidualNLLLoss()
-
-    def gamma_residual_loss(
-        model: nnx.Module,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
-        key: jax.Array,
-        training: bool,
-    ) -> jax.Array:
-        del key, training
-        prediction = model(inputs)
-        batch = Batch(inputs=inputs, targets=targets, sample_weight=sample_weight)
-        per_example = residual_loss.per_example(prediction, batch)
-        if sample_weight is not None:
-            per_example = per_example * sample_weight
-        return reduction(per_example)
-
-    return gamma_residual_loss
 
 
 def materialize_residual_loader(
@@ -207,7 +143,9 @@ class MeanStage:
     options: SupervisedStageOptions
     model_name: str = "mean_model"
     optimizer_name: str = "mean_optimizer"
-    loss: SupervisedLoss = field(default_factory=make_mean_squared_error_loss)
+    loss: SupervisedLoss = field(
+        default_factory=lambda: make_supervised_loss(SquaredErrorLoss())
+    )
     name: str = field(default="mean", init=False)
     requires: frozenset[str] = field(default_factory=frozenset, init=False)
     produces: frozenset[str] = field(
@@ -335,7 +273,11 @@ class GammaVarianceStage:
     splits: Sequence[str] = ("train", "validation")
     source_epoch: int = 0
     validation_factory: Callable[[LoaderFactory], ValidationStrategy] | None = None
-    loss: SupervisedLoss = field(default_factory=make_gamma_residual_loss)
+    loss: SupervisedLoss = field(
+        default_factory=lambda: make_supervised_loss(
+            NegativeLogLikelihoodLoss(target_transform=add_epsilon())
+        )
+    )
     name: str = field(default="variance", init=False)
     requires: frozenset[str] = field(
         default_factory=lambda: frozenset({"mean"}),

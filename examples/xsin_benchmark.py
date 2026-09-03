@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.losses import GaussianNLLLoss
+from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.protocols import LoaderFactory
 from probreg.core.types import Batch, TrainingState
 from probreg.jax import (
@@ -20,7 +20,7 @@ from probreg.jax import (
     SupervisedStageOptions,
     create_optimizer,
     initialize_training_state,
-    make_mve_loss,
+    make_supervised_loss,
     run_supervised,
 )
 
@@ -203,7 +203,7 @@ def run_xsin_mve(data: XSinData, config: XSinConfig) -> XSinResult:
         model=model,
         optimizer=optimizer,
         train_loader=make_xsin_loader(data, config),
-        loss=make_mve_loss(GaussianNLLLoss()),
+        loss=make_supervised_loss(NegativeLogLikelihoodLoss()),
         state=state,
         epochs=config.mve_epochs,
         stage="xsin_mve",
