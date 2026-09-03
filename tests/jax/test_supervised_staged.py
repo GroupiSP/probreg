@@ -15,7 +15,7 @@ from probreg.core.losses import (
     SquaredErrorLoss,
     add_epsilon,
 )
-from probreg.core.protocols import LoaderFactory
+from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import (
     Batch,
@@ -26,7 +26,7 @@ from probreg.core.types import (
 )
 from probreg.jax.distributions import GammaHead
 from probreg.jax.losses import make_supervised_loss
-from probreg.jax.state import create_optimizer
+from probreg.jax.state import create_optimizer, restore_checkpoint
 from probreg.jax.supervised_staged import (
     GammaVarianceStage,
     MeanStage,
@@ -362,6 +362,7 @@ def make_mean_stage(
     learning_rate: float = 0.1,
     checkpoint_store: MemoryCheckpointStore | None = None,
     early_stopper: EarlyStopper | None = None,
+    validation: ValidationStrategy | None = None,
 ) -> tuple[MeanStage, TrainingState]:
     model = LinearModel(rngs=nnx.Rngs(0))
     optimizer = create_optimizer(model, optax.sgd(learning_rate))
@@ -374,6 +375,7 @@ def make_mean_stage(
             checkpoint_store=checkpoint_store,
             checkpoint_key="mean-best",
             early_stopper=early_stopper,
+            validation=validation,
         ),
     )
     return stage, TrainingState(rng_state=jax.random.key(1))
@@ -447,6 +449,94 @@ def test_mean_stage_selects_existing_checkpoint() -> None:
     assert reference.key == "mean-best"
     assert reference.metadata == {"stage": "mean"}
     assert "mean_training_loss" in store.load("mean-best").state.metric_history
+
+
+def test_mean_stage_restores_and_finalizes_best_checkpoint() -> None:
+    store = MemoryCheckpointStore()
+    stopper = EarlyStopper(metric="validation_loss", mode="min", patience=0)
+
+    def validation(
+        current_state: TrainingState,
+        *,
+        epoch: int,
+    ) -> ValidationResult:
+        del current_state
+        return ValidationResult(
+            passed=True,
+            metrics={"validation_loss": float(epoch)},
+        )
+
+    stage, state = make_mean_stage(
+        checkpoint_store=store,
+        early_stopper=stopper,
+        validation=validation,
+    )
+    expected_stage, expected_state = make_mean_stage()
+    expected_stage.options = SupervisedStageOptions(epochs=1)
+
+    stage.prepare(state)
+    result = stage.train(state)
+    expected_stage.prepare(expected_state)
+    expected_stage.train(expected_state)
+
+    checkpoint = store.load("mean-best")
+    assert checkpoint.epoch == 0
+    assert checkpoint.state.lifecycle_state is StageState.MEAN_READY
+    assert checkpoint.metadata == {"stage": "mean", "stage_complete": True}
+    assert int(stage.optimizer.step.get_value()) == 1
+    assert len(state.metric_history["mean_training_loss"]) == 1
+    assert result.loss == state.metric_history["mean_training_loss"][-1]
+    assert all(
+        jnp.array_equal(actual, expected)
+        for actual, expected in zip(
+            jax.tree.leaves(nnx.state(stage.model)),
+            jax.tree.leaves(nnx.state(expected_stage.model)),
+            strict=True,
+        )
+    )
+
+
+def test_finalized_mean_checkpoint_can_resume_variance_preparation() -> None:
+    store = MemoryCheckpointStore()
+    stopper = EarlyStopper(
+        metric="loss",
+        mode="min",
+        patience=0,
+        source=MetricSource.TRAINING,
+    )
+    trained_stage, trained_state = make_mean_stage(
+        learning_rate=0.0,
+        checkpoint_store=store,
+        early_stopper=stopper,
+    )
+    trained_stage.prepare(trained_state)
+    trained_stage.train(trained_state)
+
+    resumed_model = LinearModel(rngs=nnx.Rngs(8))
+    resumed_optimizer = create_optimizer(resumed_model, optax.sgd(0.0))
+    resumed_state = TrainingState(rng_state=jax.random.key(9))
+    restore_checkpoint(
+        store.load("mean-best"),
+        state=resumed_state,
+        model=resumed_model,
+        optimizer=resumed_optimizer,
+        model_name="mean_model",
+        optimizer_name="mean_optimizer",
+    )
+    variance_model = GammaHead(1, 1, rngs=nnx.Rngs(10))
+    variance_stage = GammaVarianceStage(
+        model=variance_model,
+        optimizer=create_optimizer(variance_model, optax.sgd(0.01)),
+        source_loader=mean_loader,
+        options=SupervisedStageOptions(epochs=1),
+        splits=("train",),
+    )
+
+    variance_stage.prepare(resumed_state)
+
+    assert resumed_state.lifecycle_state is StageState.MEAN_READY
+    assert resumed_state.model_components["mean_model"] is resumed_model
+    assert "mean_model" in resumed_state.frozen_components
 
 
 def test_mean_stage_rejects_missing_checkpoint() -> None:

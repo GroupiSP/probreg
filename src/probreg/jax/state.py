@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, replace
 
 import jax
+import jax.numpy as jnp
 import optax
 from flax import nnx
 
+from probreg.core.checkpoints import Checkpoint
 from probreg.core.types import TrainingState
 
 
@@ -122,4 +125,109 @@ def snapshot(module: nnx.Module) -> NnxSnapshot:
         and variable state at the time of the call.
     """
     graphdef, state = nnx.split(module)
-    return NnxSnapshot(graphdef=graphdef, state=state)
+    copied_state = jax.tree.map(_copy_snapshot_leaf, state)
+    return NnxSnapshot(graphdef=graphdef, state=copied_state)
+
+
+def restore_checkpoint(
+    checkpoint: Checkpoint,
+    *,
+    state: TrainingState,
+    model: nnx.Module,
+    optimizer: nnx.Optimizer,
+    model_name: str = "model",
+    optimizer_name: str = "optimizer",
+) -> None:
+    """Restore a JAX checkpoint into existing live training objects.
+
+    The model and optimizer are updated in place so callers retaining their
+    identities, including stage registries, continue to reference the restored
+    objects. Checkpoint-safe training states omit mutable model and optimizer
+    objects, so this helper re-registers the supplied live objects after
+    restoring the backend-neutral state fields.
+
+    Args:
+        checkpoint: Checkpoint containing NNX model and optimizer snapshots.
+        state: Existing shared training state to restore in place.
+        model: Live model object updated from ``checkpoint.parameters``.
+        optimizer: Live optimizer updated from ``checkpoint.optimizer_state``.
+        model_name: Registry name for ``model``. Defaults to ``"model"``.
+        optimizer_name: Registry name for ``optimizer``. Defaults to
+            ``"optimizer"``.
+
+    Raises:
+        TypeError: If the checkpoint does not contain NNX snapshots or a JAX
+            random key.
+        ValueError: If the live model or optimizer is incompatible with the
+            checkpoint snapshot.
+    """
+    if not isinstance(checkpoint.parameters, NnxSnapshot):
+        raise TypeError("checkpoint.parameters must be an NnxSnapshot.")
+    if not isinstance(checkpoint.optimizer_state, NnxSnapshot):
+        raise TypeError("checkpoint.optimizer_state must be an NnxSnapshot.")
+    if not isinstance(checkpoint.rng_state, jax.Array):
+        raise TypeError("checkpoint.rng_state must be a JAX random key.")
+
+    _validate_model_graph(model, checkpoint.parameters)
+    _validate_state_structure(
+        optimizer,
+        checkpoint.optimizer_state,
+        kind="optimizer",
+    )
+    nnx.update(model, checkpoint.parameters.state)
+    nnx.update(optimizer, checkpoint.optimizer_state.state)
+    _restore_training_state(state, checkpoint.state)
+    state.rng_state = checkpoint.rng_state
+    state.register_component(model_name, model)
+    state.register_optimizer(optimizer_name, optimizer)
+
+
+def _restore_training_state(state: TrainingState, restored: TrainingState) -> None:
+    """Copy checkpointed workflow fields into an existing state object."""
+    state.model_components = {}
+    state.parameter_roles = dict(restored.parameter_roles)
+    state.frozen_components = frozenset(restored.frozen_components)
+    state.optimizer_states = {}
+    state.posterior_state = restored.posterior_state
+    state.rng_state = restored.rng_state
+    state.lifecycle_state = restored.lifecycle_state
+    state.stage = restored.stage
+    state.outer_iteration = restored.outer_iteration
+    state.data_fingerprint = restored.data_fingerprint
+    state.checkpoint_registry = dict(restored.checkpoint_registry)
+    state.metric_history = {
+        name: list(values) for name, values in restored.metric_history.items()
+    }
+
+
+def _copy_snapshot_leaf(value: object) -> object:
+    """Return a storage-independent copy of one NNX state leaf."""
+    if isinstance(value, jax.Array):
+        return jnp.array(value, copy=True)
+    return copy.deepcopy(value)
+
+
+def _validate_model_graph(model: nnx.Module, restored: NnxSnapshot) -> None:
+    """Reject a model whose static NNX graph differs from the snapshot."""
+    graphdef, _ = nnx.split(model)
+    if graphdef != restored.graphdef:
+        raise ValueError("model graph is incompatible with checkpoint parameters.")
+
+
+def _validate_state_structure(
+    module: nnx.Module,
+    restored: NnxSnapshot,
+    *,
+    kind: str,
+) -> None:
+    """Reject incompatible variable paths, shapes, or dtypes before mutation."""
+    _, current_state = nnx.split(module)
+    if jax.tree.structure(current_state) != jax.tree.structure(restored.state):
+        raise ValueError(f"{kind} state is incompatible with checkpoint state.")
+    current_leaves = jax.tree.leaves(current_state)
+    restored_leaves = jax.tree.leaves(restored.state)
+    if any(
+        current.shape != saved.shape or current.dtype != saved.dtype
+        for current, saved in zip(current_leaves, restored_leaves, strict=True)
+    ):
+        raise ValueError(f"{kind} state is incompatible with checkpoint state.")

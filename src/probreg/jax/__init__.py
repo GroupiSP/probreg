@@ -24,6 +24,7 @@ from probreg.jax.state import (
     create_optimizer,
     freeze_training_state,
     initialize_training_state,
+    restore_checkpoint,
     snapshot,
 )
 from probreg.jax.supervised import make_train_step, run_supervised
@@ -64,6 +65,7 @@ __all__ = [
     "materialize_residual_loader",
     "merge_epoch_prediction_data",
     "run_supervised",
+    "restore_checkpoint",
     "snapshot",
     "split_key",
 ]

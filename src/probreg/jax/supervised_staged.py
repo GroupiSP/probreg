@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from probreg.core.checkpoints import CheckpointStore
+from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.losses import (
     NegativeLogLikelihoodLoss,
@@ -32,6 +32,7 @@ from probreg.core.types import (
 from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.losses import make_supervised_loss
 from probreg.jax.metrics import MetricSuite
+from probreg.jax.state import freeze_training_state, restore_checkpoint, snapshot
 from probreg.jax.supervised import run_supervised
 
 
@@ -228,7 +229,46 @@ class MeanStage:
         if result.loss is None or not math.isfinite(result.loss):
             raise ValueError("mean stage produced a non-finite final loss.")
         state.lifecycle_state = StageState.MEAN_READY
-        return result
+        return self._restore_and_finalize_checkpoint(state, result)
+
+    def _restore_and_finalize_checkpoint(
+        self,
+        state: TrainingState,
+        result: StageResult,
+    ) -> StageResult:
+        """Restore and finalize the selected best checkpoint when available."""
+        store = self.options.checkpoint_store
+        key = self.options.checkpoint_key
+        if self.options.early_stopper is None or store is None or not store.exists(key):
+            return result
+
+        checkpoint = store.load(key)
+        restore_checkpoint(
+            checkpoint,
+            state=state,
+            model=self.model,
+            optimizer=self.optimizer,
+            model_name=self.model_name,
+            optimizer_name=self.optimizer_name,
+        )
+        state.lifecycle_state = StageState.MEAN_READY
+        state.active_stage = self.name
+        finalized = Checkpoint(
+            state=freeze_training_state(state),
+            epoch=checkpoint.epoch,
+            parameters=snapshot(self.model),
+            optimizer_state=snapshot(self.optimizer),
+            rng_state=state.rng_state,
+            early_stopping_state=checkpoint.early_stopping_state,
+            metadata={
+                **checkpoint.metadata,
+                "stage": self.name,
+                "stage_complete": True,
+            },
+        )
+        store.save(key, finalized)
+        metrics = _latest_training_metrics(state, self.name)
+        return StageResult(state=state, metrics=metrics, loss=metrics["loss"])
 
     def validate(self, state: TrainingState) -> ValidationResult:
         """Validate mean-stage lifecycle and ownership invariants.
@@ -474,3 +514,19 @@ def _validate_parameter_role(
         raise ValueError(
             f"model component {component_name!r} already has role {registered.value!r}."
         )
+
+
+def _latest_training_metrics(
+    state: TrainingState,
+    stage_name: str,
+) -> dict[str, float]:
+    """Return the latest stage training metrics from persisted history."""
+    prefix = f"{stage_name}_training_"
+    metrics = {
+        name.removeprefix(prefix): values[-1]
+        for name, values in state.metric_history.items()
+        if name.startswith(prefix) and values
+    }
+    if "loss" not in metrics:
+        raise ValueError("selected checkpoint does not contain a training loss.")
+    return metrics

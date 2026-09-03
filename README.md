@@ -20,8 +20,10 @@ mean estimate from input-dependent aleatoric variance:
 NEW -> INITIALIZED -> MEAN_READY -> VARIANCE_READY
 ```
 
-`MeanStage` trains a mean-only model with MSE. `GammaVarianceStage` then clones
-the selected mean model in inference mode, materializes detached squared
+`MeanStage` trains a mean-only model with MSE and restores its selected best
+checkpoint after early stopping. The completed checkpoint is marked
+`MEAN_READY` so it can resume directly into `GammaVarianceStage`, which clones
+the restored mean model in inference mode, materializes detached squared
 residual targets once, and trains a separate Gamma shape/rate model. The mean
 model is recorded as frozen and is never passed to the variance optimizer. The
 aleatoric variance estimate is the Gamma mean,
