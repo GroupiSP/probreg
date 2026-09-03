@@ -99,6 +99,7 @@ def run_supervised(
     stage: str = "supervised",
     model_name: str = "model",
     optimizer_name: str = "optimizer",
+    metric_history_prefix: str | None = None,
     metrics: MetricSuite | None = None,
 ) -> StageResult:
     """Train a single NNX model for a fixed or early-stopped number of epochs.
@@ -131,6 +132,9 @@ def run_supervised(
             Defaults to ``"model"``.
         optimizer_name: Name under which ``optimizer`` is registered in
             ``state``. Defaults to ``"optimizer"``.
+        metric_history_prefix: Optional namespace prepended only to metrics
+            persisted in ``state.metric_history``. Event and early-stopping
+            metric names remain unchanged.
         metrics: Optional registered batch/epoch metrics for training. When
             omitted, only loss is collected.
 
@@ -175,13 +179,21 @@ def run_supervised(
             metrics=metric_suite,
         )
         latest_metrics = epoch_metrics
-        _record_metrics(state, "training", epoch_metrics)
+        training_history_metrics = {
+            f"training_{name}": value for name, value in epoch_metrics.items()
+        }
+        _record_metrics(
+            state,
+            metric_history_prefix,
+            training_history_metrics,
+        )
         _emit(event_sinks, "epoch_end", stage, epoch, epoch_metrics, state)
 
         validation_metrics = _run_validation_epoch(
             validation=validation,
             state=state,
             stage=stage,
+            metric_history_prefix=metric_history_prefix,
             epoch=epoch,
             event_sinks=event_sinks,
         )
@@ -293,6 +305,7 @@ def _run_validation_epoch(
     validation: ValidationStrategy | None,
     state: TrainingState,
     stage: str,
+    metric_history_prefix: str | None,
     epoch: int,
     event_sinks: Sequence[EventSink],
 ) -> Mapping[str, float]:
@@ -302,6 +315,7 @@ def _run_validation_epoch(
         validation: Optional validation strategy.
         state: The live training state.
         stage: Stage name used in emitted events.
+        metric_history_prefix: Optional persisted-history namespace.
         epoch: Epoch index being validated.
         event_sinks: Event sinks notified on validation completion.
 
@@ -313,7 +327,7 @@ def _run_validation_epoch(
 
     validation_result = validation(state, epoch=epoch)
     validation_metrics = validation_result.metrics
-    _record_metrics(state, "", validation_metrics)
+    _record_metrics(state, metric_history_prefix, validation_metrics)
     _emit(event_sinks, "validation_end", stage, epoch, validation_metrics, state)
     return validation_metrics
 
@@ -405,19 +419,20 @@ def _should_stop_early(
 
 
 def _record_metrics(
-    state: TrainingState, prefix: str, metrics: Mapping[str, float]
+    state: TrainingState,
+    prefix: str | None,
+    metrics: Mapping[str, float],
 ) -> None:
     """Append metric values to ``state.metric_history`` in place.
 
     Args:
         state: The training state whose ``metric_history`` is updated.
-        prefix: A prefix joined to each metric name with an underscore,
-            or an empty string to leave names unprefixed.
+        prefix: Optional prefix joined to each metric name with an underscore.
         metrics: Mapping of metric name to the value observed this
             epoch.
     """
     for name, value in metrics.items():
-        metric_name = f"{prefix}_{name}" if prefix else name
+        metric_name = f"{prefix}_{name}" if prefix is not None else name
         state.record_metric(metric_name, value)
 
 

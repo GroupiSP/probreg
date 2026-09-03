@@ -222,6 +222,7 @@ class MeanStage:
             stage=self.name,
             model_name=self.model_name,
             optimizer_name=self.optimizer_name,
+            metric_history_prefix=self.name,
             metrics=self.options.metrics,
         )
         if result.loss is None or not math.isfinite(result.loss):
@@ -401,6 +402,7 @@ class GammaVarianceStage:
             stage=self.name,
             model_name=self.model_name,
             optimizer_name=self.optimizer_name,
+            metric_history_prefix=self.name,
             metrics=self.options.metrics,
         )
         if result.loss is None or not math.isfinite(result.loss):

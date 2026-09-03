@@ -198,6 +198,32 @@ def test_run_supervised_default_registration_names_remain_compatible() -> None:
     assert result.state.optimizer_states == {"optimizer": optimizer}
 
 
+def test_run_supervised_optionally_namespaces_persisted_history_only() -> None:
+    model, optimizer, state = make_components(learning_rate=0.0)
+    events = EventCollector()
+    validation = HeldOutValidation(model=model, loader=loader, loss=squared_error)
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=loader,
+        loss=squared_error,
+        state=state,
+        epochs=1,
+        validation=validation,
+        event_sinks=[events],
+        metric_history_prefix="mean",
+    )
+
+    assert set(result.state.metric_history) == {
+        "mean_training_loss",
+        "mean_validation_loss",
+    }
+    assert result.metrics == {"loss": result.loss}
+    assert events.events[0].metrics.keys() == {"loss"}
+    assert events.events[1].metrics.keys() == {"validation_loss"}
+
+
 def test_make_train_step_without_registered_metrics_returns_loss_mapping() -> None:
     model, optimizer, _ = make_components()
     train_step = make_train_step(squared_error)

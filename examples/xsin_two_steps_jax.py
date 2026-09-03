@@ -10,6 +10,7 @@ Run with:
 """
 
 from xsin_benchmark import (
+    StagePrintingEventSink,
     XSinConfig,
     make_xsin_data,
     plot_xsin_result,
@@ -22,7 +23,11 @@ def main() -> None:
     """Train both stages, print errors, and show their predictions."""
     config = XSinConfig()
     data = make_xsin_data(config)
-    result = run_xsin_two_step(data, config)
+    result = run_xsin_two_step(
+        data,
+        config,
+        event_sinks=(StagePrintingEventSink(),),
+    )
     print_xsin_metrics("mean plus Gamma variance", result)
     plot_xsin_result("Mean plus Gamma variance", data, result)
 

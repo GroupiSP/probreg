@@ -16,6 +16,7 @@ from probreg.core.losses import (
     add_epsilon,
 )
 from probreg.core.protocols import LoaderFactory
+from probreg.core.tracking import TrainingEvent
 from probreg.core.types import (
     Batch,
     ParameterRole,
@@ -88,6 +89,14 @@ class MemoryCheckpointStore:
 
     def exists(self, key: str) -> bool:
         return key in self.values
+
+
+class EventCollector:
+    def __init__(self) -> None:
+        self.events: list[TrainingEvent] = []
+
+    def on_event(self, event: TrainingEvent) -> None:
+        self.events.append(event)
 
 
 def test_mean_squared_error_loss_supports_weights_and_reduction() -> None:
@@ -355,6 +364,8 @@ def test_mean_stage_prepares_trains_and_validates_lifecycle() -> None:
     assert state.optimizer_states["mean_optimizer"] is stage.optimizer
     assert state.parameter_roles["mean_model"] is ParameterRole.MEAN
     assert result.loss is not None and result.loss < initial_loss
+    assert len(state.metric_history["mean_training_loss"]) == 10
+    assert "training_loss" not in state.metric_history
     assert stage.validate(state).passed
 
 
@@ -398,6 +409,7 @@ def test_mean_stage_selects_existing_checkpoint() -> None:
 
     assert reference.key == "mean-best"
     assert reference.metadata == {"stage": "mean"}
+    assert "mean_training_loss" in store.load("mean-best").state.metric_history
 
 
 def test_mean_stage_rejects_missing_checkpoint() -> None:
@@ -430,6 +442,7 @@ def test_gamma_variance_stage_updates_variance_and_preserves_mean() -> None:
         inputs.shape,
     )
     source_loader = make_two_step_loader(inputs, targets)
+    events = EventCollector()
 
     mean_model = LinearModel(rngs=nnx.Rngs(mean_key))
     mean_optimizer = create_optimizer(mean_model, optax.adam(0.05))
@@ -438,7 +451,7 @@ def test_gamma_variance_stage_updates_variance_and_preserves_mean() -> None:
         model=mean_model,
         optimizer=mean_optimizer,
         train_loader=source_loader,
-        options=SupervisedStageOptions(epochs=100),
+        options=SupervisedStageOptions(epochs=100, event_sinks=(events,)),
     )
     mean_stage.prepare(state)
     mean_stage.train(state)
@@ -454,7 +467,7 @@ def test_gamma_variance_stage_updates_variance_and_preserves_mean() -> None:
         model=variance_model,
         optimizer=variance_optimizer,
         source_loader=source_loader,
-        options=SupervisedStageOptions(epochs=150),
+        options=SupervisedStageOptions(epochs=150, event_sinks=(events,)),
         splits=("train",),
     )
 
@@ -465,6 +478,10 @@ def test_gamma_variance_stage_updates_variance_and_preserves_mean() -> None:
     assert state.lifecycle_state is StageState.VARIANCE_READY
     assert state.parameter_roles["variance_model"] is ParameterRole.VARIANCE
     assert "mean_model" in state.frozen_components
+    assert len(state.metric_history["mean_training_loss"]) == 100
+    assert len(state.metric_history["variance_training_loss"]) == 150
+    assert "training_loss" not in state.metric_history
+    assert {event.stage for event in events.events} == {"mean", "variance"}
     assert variance_stage.validate(state).passed
     assert all(
         jnp.array_equal(before, after)

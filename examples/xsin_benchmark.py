@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import jax
@@ -11,6 +12,7 @@ from flax import nnx
 
 from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.protocols import LoaderFactory
+from probreg.core.tracking import EventSink, TrainingEvent
 from probreg.core.types import Batch, TrainingState
 from probreg.jax import (
     GammaHead,
@@ -86,6 +88,38 @@ class XSinResult:
     variance: jax.Array
     mean_rmse: float
     variance_rmse: float
+
+
+@dataclass(frozen=True)
+class StagePrintingEventSink:
+    """Print periodic epoch losses from multiple supervised stages.
+
+    Attributes:
+        every: Positive epoch interval between printed events.
+    """
+
+    every: int = 50
+
+    def __post_init__(self) -> None:
+        """Validate the reporting interval.
+
+        Raises:
+            ValueError: If ``every`` is not positive.
+        """
+        if self.every <= 0:
+            raise ValueError("every must be positive.")
+
+    def on_event(self, event: TrainingEvent) -> None:
+        """Print one stage-qualified epoch loss when reporting is due.
+
+        Args:
+            event: Training event emitted by either supervised stage.
+        """
+        if event.name != "epoch_end" or event.step % self.every != 0:
+            return
+        print(
+            f"stage={event.stage} epoch={event.step} loss={event.metrics['loss']:.6f}"
+        )
 
 
 class XSinBackbone(nnx.Module):
@@ -243,12 +277,18 @@ def run_xsin_mve(data: XSinData, config: XSinConfig) -> XSinResult:
     )
 
 
-def run_xsin_two_step(data: XSinData, config: XSinConfig) -> XSinResult:
+def run_xsin_two_step(
+    data: XSinData,
+    config: XSinConfig,
+    *,
+    event_sinks: Sequence[EventSink] = (),
+) -> XSinResult:
     """Train and evaluate separate mean and Gamma variance stages.
 
     Args:
         data: Shared XSin data.
         config: Benchmark configuration.
+        event_sinks: Sinks shared by the mean and variance stages.
 
     Returns:
         Two-step predictions and comparison metrics.
@@ -271,7 +311,10 @@ def run_xsin_two_step(data: XSinData, config: XSinConfig) -> XSinResult:
             optax.adam(config.learning_rate),
         ),
         train_loader=loader,
-        options=SupervisedStageOptions(epochs=config.mean_epochs),
+        options=SupervisedStageOptions(
+            epochs=config.mean_epochs,
+            event_sinks=event_sinks,
+        ),
     )
     mean_stage.prepare(state)
     mean_stage.train(state)
@@ -287,7 +330,10 @@ def run_xsin_two_step(data: XSinData, config: XSinConfig) -> XSinResult:
             optax.adam(config.learning_rate),
         ),
         source_loader=loader,
-        options=SupervisedStageOptions(epochs=config.variance_epochs),
+        options=SupervisedStageOptions(
+            epochs=config.variance_epochs,
+            event_sinks=event_sinks,
+        ),
         splits=("train",),
     )
     variance_stage.prepare(state)
