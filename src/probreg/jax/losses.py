@@ -28,7 +28,9 @@ def make_supervised_loss(
 
     Returns:
         A supervised loss that invokes the model, applies the objective and
-        optional sample weights, then reduces to a scalar.
+        optional sample weights, then reduces to a scalar. Training calls use
+        the live model in training mode. Evaluation calls use an isolated
+        inference-mode clone so validation cannot mutate the live model.
     """
 
     def supervised_loss(
@@ -39,8 +41,14 @@ def make_supervised_loss(
         key: jax.Array,
         training: bool,
     ) -> jax.Array:
-        del key, training
-        prediction = model(inputs)
+        del key
+        prediction_model = model
+        if training:
+            prediction_model.train()
+        else:
+            prediction_model = nnx.clone(model)
+            prediction_model.eval()
+        prediction = prediction_model(inputs)
         batch = Batch(inputs=inputs, targets=targets, sample_weight=sample_weight)
         per_example = objective.per_example(prediction, batch)
         if sample_weight is not None:
