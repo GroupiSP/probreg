@@ -29,12 +29,14 @@ negative log-likelihood (Nix and Weigend, 1994) and beta-NLL (Seitzer et al.,
   numerical metrics, and typed epoch-metric registration.
 - `src/probreg/jax/` contains the optional JAX backend, built with JAX, Flax NNX,
   and Optax. It provides model and optimizer state adapters, RNG management,
-  Gaussian distributions and heads, supervised training and evaluation,
-  validation strategies, supervised loss adapters, and metric collection.
+  Gaussian and Gamma distributions and heads, supervised training and
+  evaluation, explicit mean and variance stages, validation strategies,
+  supervised loss adapters, checkpoint restoration, and metric collection.
 - `tests/core/` and `tests/jax/` mirror the source layout with pytest tests for
   the backend-neutral foundation and optional JAX integration, respectively.
 - `examples/` contains runnable synthetic-regression examples for deterministic
-  supervised training and heteroscedastic Gaussian MVE training.
+  supervised training, heteroscedastic Gaussian MVE training, and paired
+  XSin-inspired joint-MVE versus staged mean/Gamma training.
 - `.github/` contains CI, issue templates, contributor instructions, custom
   agents, and project skills. Repository-wide development conventions are also
   documented in `AGENTS.md` and `CONTRIBUTING.md`.
@@ -49,20 +51,22 @@ negative log-likelihood (Nix and Weigend, 1994) and beta-NLL (Seitzer et al.,
 (`Dataset`, `LoaderFactory`, `Optimizer`, `Step`), `distributions.py`,
 `losses.py`, `stages.py`, `checkpoints.py`, `tracking.py`, `metrics.py`,
 `metric_registry.py`, and `early_stopping.py`. These modules define the stage
-lifecycle, Gaussian NLL and beta-NLL objectives, persistence and event
-interfaces, early-stopping state machines, NumPy metric functions, and typed
-host-side epoch metrics without importing JAX, Flax, or another training
-backend.
+lifecycle, generic distribution NLL with optional beta weighting and target
+transforms, deterministic squared error, persistence and event interfaces,
+early-stopping state machines, NumPy metric functions, and typed host-side
+epoch metrics without importing JAX, Flax, or another training backend.
 
 `src/probreg/jax/` is an optional JAX/Flax NNX training backend (installed
 via the `jax` extra) implementing a single-model supervised training runner,
 `run_supervised`, on top of the core contracts: NNX/Optax state adapters
-(`state.py`), RNG splitting (`rng.py`), shared evaluation primitives
-(`evaluation.py`), a held-out `ValidationStrategy` (`validation.py`), and the
-runner itself (`supervised.py`). The runner supports fixed-epoch training,
-caller-injected validation strategies, early stopping on training or validation
-metrics, best-model checkpointing, event-sink notifications, and composable
-batch and epoch metric registration.
+and checkpoint restoration (`state.py`), RNG splitting (`rng.py`), shared
+evaluation primitives (`evaluation.py`), a held-out `ValidationStrategy`
+(`validation.py`), generic core-loss adaptation (`losses.py`), the runner
+itself (`supervised.py`), and explicit staged orchestration
+(`supervised_staged.py`). The runner supports fixed-epoch training,
+caller-injected validation strategies, early stopping on training or
+validation metrics, best-model checkpointing, event-sink notifications, and
+composable batch and epoch metric registration.
 
 The metric stack spans `core/metric_registry.py` and `jax/metrics.py`.
 Backend-neutral `EpochPredictionData` materializes scalar targets, moments,
@@ -74,21 +78,33 @@ uses a dedicated metric RNG namespace, and evaluates an inference-mode model
 clone so metric collection does not mutate training state or alter the loss RNG
 trajectory.
 
-For MVE, `jax/distributions.py` implements the concrete JAX-backed `Gaussian`
-and `GaussianHead`, with an explicit positive scale, while
-`jax/losses.py` provides `make_supervised_loss` to adapt core per-example
-objectives to `SupervisedLoss`. This lets distribution-valued MVE models reuse
-`run_supervised` without coupling the core loss definitions to JAX.
+For probabilistic regression, `jax/distributions.py` implements concrete
+JAX-backed `Gaussian`/`GaussianHead` and `Gamma`/`GammaHead` pairs with
+positive scale or shape/rate parameters. `jax/losses.py` provides the canonical
+`make_supervised_loss` adapter for core per-example objectives. Training
+evaluates the live model in training mode; evaluation uses an isolated
+inference-mode clone so validation cannot mutate the live model.
 
 `examples/simple_regression_jax.py` demonstrates the supervised JAX stack on a
 synthetic linear-regression dataset.
 `examples/mve_regression_jax.py` demonstrates MVE end to end on synthetic
 heteroscedastic data, including a `plot_predictions` helper (behind the
 optional `plot` extra) and registered probabilistic epoch metrics.
+`examples/xsin_mve_jax.py` and `examples/xsin_two_steps_jax.py` provide a
+paired nonlinear benchmark on shared XSin-inspired data.
 
-The backend-neutral stage states, transition validation, shared training state,
-and `TrainingStage` protocol are implemented, but concrete orchestration for
-the staged mean-training, variance-training, and VeBNN posterior-training
-workflow is not yet implemented. There is also no ensemble or BNN backend yet.
-Any qmodem integration adapter remains intentionally out of scope for this
-repository; it belongs downstream in `qmodem`, which depends on `probreg`.
+`jax/supervised_staged.py` implements the first two concrete training stages.
+`MeanStage` trains a deterministic MSE predictor and, when early stopping is
+configured, restores and finalizes the selected checkpoint as `MEAN_READY`.
+`GammaVarianceStage` clones that selected mean model in inference mode,
+materializes detached squared residuals once, freezes the mean role, and trains
+a separate Gamma variance predictor before producing `VARIANCE_READY`. Metric
+histories are namespaced by stage. NNX snapshots are storage-independent, and
+checkpoint restoration validates model and optimizer compatibility before
+mutating live objects while restoring optimizer transformation state.
+
+Concrete VeBNN posterior training, ensemble/BNN backends, cooperative
+outer-loop scheduling, and optional Orbax/MLflow/Grain/quantum adapters remain
+unimplemented. Any qmodem integration adapter remains intentionally out of
+scope for this repository; it belongs downstream in `qmodem`, which depends
+on `probreg`.
