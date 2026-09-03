@@ -30,7 +30,7 @@ negative log-likelihood (Nix and Weigend, 1994) and beta-NLL (Seitzer et al.,
 - `src/probreg/jax/` contains the optional JAX backend, built with JAX, Flax NNX,
   and Optax. It provides model and optimizer state adapters, RNG management,
   Gaussian distributions and heads, supervised training and evaluation,
-  validation strategies, MVE loss adapters, and metric collection.
+  validation strategies, supervised loss adapters, and metric collection.
 - `tests/core/` and `tests/jax/` mirror the source layout with pytest tests for
   the backend-neutral foundation and optional JAX integration, respectively.
 - `examples/` contains runnable synthetic-regression examples for deterministic
@@ -75,9 +75,9 @@ clone so metric collection does not mutate training state or alter the loss RNG
 trajectory.
 
 For MVE, `jax/distributions.py` implements the concrete JAX-backed `Gaussian`
-and `GaussianHead`, with an explicit positive scale, while `jax/mve.py`
-provides `make_mve_loss` to adapt the core Gaussian NLL and beta-NLL objectives
-to `SupervisedLoss`. This lets distribution-valued MVE models reuse
+and `GaussianHead`, with an explicit positive scale, while
+`jax/losses.py` provides `make_supervised_loss` to adapt core per-example
+objectives to `SupervisedLoss`. This lets distribution-valued MVE models reuse
 `run_supervised` without coupling the core loss definitions to JAX.
 
 `examples/simple_regression_jax.py` demonstrates the supervised JAX stack on a

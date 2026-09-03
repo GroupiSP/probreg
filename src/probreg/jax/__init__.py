@@ -18,7 +18,6 @@ from probreg.jax.metrics import (
     ReferenceSamplesExtractor,
     merge_epoch_prediction_data,
 )
-from probreg.jax.mve import make_mve_loss
 from probreg.jax.rng import split_key
 from probreg.jax.state import (
     NnxSnapshot,
@@ -60,7 +59,6 @@ __all__ = [
     "freeze_training_state",
     "initialize_training_state",
     "make_evaluation_step",
-    "make_mve_loss",
     "make_supervised_loss",
     "make_train_step",
     "materialize_residual_loader",
