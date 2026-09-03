@@ -83,6 +83,8 @@ class SquaredErrorLoss:
         """
         if batch.targets is None:
             raise ValueError("batch.targets must be provided.")
+        if prediction.shape != batch.targets.shape:
+            raise ValueError("prediction and batch.targets must have matching shapes.")
         return (prediction - batch.targets) ** 2
 
 
