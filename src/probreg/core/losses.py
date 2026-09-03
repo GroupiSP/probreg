@@ -105,3 +105,10 @@ def add_epsilon(epsilon: float = 1e-12) -> Callable[[Array], Array]:
         return targets + epsilon
 
     return transform
+
+
+# Compatibility aliases for the public pre-consolidation names. Both preserve
+# their original constructor behavior while the canonical API uses
+# NegativeLogLikelihoodLoss.
+GaussianNLLLoss = NegativeLogLikelihoodLoss
+BetaNLLLoss = NegativeLogLikelihoodLoss

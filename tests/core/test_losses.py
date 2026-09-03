@@ -7,6 +7,8 @@ import pytest
 
 from probreg.core.distributions import PredictiveDistribution
 from probreg.core.losses import (
+    BetaNLLLoss,
+    GaussianNLLLoss,
     NegativeLogLikelihoodLoss,
     SquaredErrorLoss,
     add_epsilon,
@@ -124,3 +126,8 @@ def test_squared_error_loss_returns_per_example_errors() -> None:
 def test_squared_error_loss_requires_targets() -> None:
     with pytest.raises(ValueError, match="targets"):
         SquaredErrorLoss().per_example(np.array([1.0]), Batch(inputs=[]))
+
+
+def test_pre_consolidation_nll_names_remain_compatible() -> None:
+    assert isinstance(GaussianNLLLoss(), NegativeLogLikelihoodLoss)
+    assert BetaNLLLoss(beta=0.5).beta == 0.5

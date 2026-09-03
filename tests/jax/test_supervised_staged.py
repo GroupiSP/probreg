@@ -109,7 +109,7 @@ def test_mean_squared_error_loss_supports_weights_and_reduction() -> None:
         model,
         jnp.array([[1.0], [2.0]]),
         jnp.array([[1.0], [5.0]]),
-        jnp.array([[2.0], [3.0]]),
+        jnp.array([2.0, 3.0]),
         jax.random.key(0),
         True,
     )
@@ -127,13 +127,27 @@ def test_gamma_residual_loss_supports_weights_and_reduction() -> None:
         LogPredictionModel(),
         jnp.ones((2, 1)),
         jnp.array([[0.0], [1.0]]),
-        jnp.array([[2.0], [3.0]]),
+        jnp.array([2.0, 3.0]),
         jax.random.key(0),
         True,
     )
 
     expected = -2.0 * jnp.log(1e-6) - 3.0 * jnp.log(1.000001)
     assert value == pytest.approx(float(expected))
+
+
+def test_supervised_loss_rejects_mismatched_sample_weight_batch() -> None:
+    loss = make_supervised_loss(SquaredErrorLoss())
+
+    with pytest.raises(ValueError, match="matching batch sizes"):
+        loss(
+            LinearModel(rngs=nnx.Rngs(0)),
+            jnp.ones((2, 1)),
+            jnp.ones((2, 1)),
+            jnp.ones((3,)),
+            jax.random.key(0),
+            True,
+        )
 
 
 def test_gamma_residual_loss_has_finite_gradient_at_zero() -> None:

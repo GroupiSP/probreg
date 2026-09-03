@@ -17,6 +17,8 @@ from probreg.core.early_stopping import (
     OptimizationMode,
 )
 from probreg.core.losses import (
+    BetaNLLLoss,
+    GaussianNLLLoss,
     NegativeLogLikelihoodLoss,
     SquaredErrorLoss,
     add_epsilon,
@@ -57,6 +59,7 @@ from probreg.core.types import (
 __all__ = [
     "Array",
     "Batch",
+    "BetaNLLLoss",
     "Checkpoint",
     "CheckpointRef",
     "CheckpointStore",
@@ -72,6 +75,7 @@ __all__ = [
     "EvaluationGrid",
     "EventSink",
     "ExperimentTracker",
+    "GaussianNLLLoss",
     "IntervalCoverage",
     "Likelihood",
     "LoaderFactory",
