@@ -8,10 +8,12 @@ NNX linear head, following the same Tier 2 (JAX backend) placement as
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.special as jsp
 import jax.scipy.stats as jstats
 from flax import nnx
 
@@ -77,6 +79,70 @@ class Gaussian:
         return jnp.square(self.scale)
 
 
+@dataclass(frozen=True)
+class Gamma:
+    """A JAX-backed Gamma distribution parametrized by shape and rate.
+
+    Attributes:
+        concentration: Positive Gamma shape parameter.
+        rate: Positive Gamma rate parameter, i.e. the inverse scale.
+    """
+
+    concentration: jax.Array
+    rate: jax.Array
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        """Return the broadcast shape of independent Gamma components."""
+        return jnp.broadcast_shapes(self.concentration.shape, self.rate.shape)
+
+    @property
+    def event_shape(self) -> tuple[int, ...]:
+        """Return the shape of a single Gamma event, always scalar."""
+        return ()
+
+    def log_prob(self, targets: jax.Array) -> jax.Array:
+        """Compute the elementwise Gamma log-density of ``targets``.
+
+        Args:
+            targets: Positive target values broadcastable against the
+                concentration and rate.
+
+        Returns:
+            Elementwise log-density values.
+        """
+        return (
+            self.concentration * jnp.log(self.rate)
+            - jsp.gammaln(self.concentration)
+            + (self.concentration - 1.0) * jnp.log(targets)
+            - self.rate * targets
+        )
+
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> jax.Array:
+        """Draw keyed samples from the Gamma distribution.
+
+        Args:
+            key: A JAX PRNG key.
+            sample_shape: Leading sample dimensions prepended to
+                ``batch_shape``.
+
+        Returns:
+            Samples shaped ``sample_shape + batch_shape``.
+        """
+        shape = sample_shape + self.batch_shape
+        concentration = jnp.broadcast_to(self.concentration, self.batch_shape)
+        rate = jnp.broadcast_to(self.rate, self.batch_shape)
+        return jax.random.gamma(key, concentration, shape=shape) / rate
+
+    def mean(self) -> jax.Array:
+        """Return the Gamma mean, i.e. ``concentration / rate``."""
+        return self.concentration / self.rate
+
+    def variance(self) -> jax.Array:
+        """Return the Gamma variance, i.e. ``concentration / rate ** 2``."""
+        return self.concentration / jnp.square(self.rate)
+
+
 class GaussianHead(nnx.Module):
     """An NNX head producing a :class:`Gaussian` from model features.
 
@@ -125,3 +191,53 @@ class GaussianHead(nnx.Module):
         raw_loc, raw_scale = jnp.split(self.linear(features), 2, axis=-1)
         scale = jax.nn.softplus(raw_scale) + self.eps
         return Gaussian(loc=raw_loc, scale=scale)
+
+
+class GammaHead(nnx.Module):
+    """An NNX head producing a shape/rate :class:`Gamma` distribution."""
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        *,
+        rngs: nnx.Rngs,
+        eps: float = 1e-6,
+    ) -> None:
+        """Initialize the Gamma parameter projection.
+
+        Args:
+            in_features: Number of input feature dimensions.
+            out_features: Number of predicted target dimensions.
+            rngs: NNX RNG collection used to initialize parameters.
+            eps: Positive finite offset added after ``softplus``.
+
+        Raises:
+            ValueError: If ``out_features`` or ``eps`` is invalid.
+        """
+        if out_features <= 0:
+            raise ValueError("out_features must be positive.")
+        if not math.isfinite(eps) or eps <= 0.0:
+            raise ValueError("eps must be positive and finite.")
+        self.out_features = out_features
+        self.eps = eps
+        self.linear = nnx.Linear(in_features, 2 * out_features, rngs=rngs)
+
+    def __call__(self, features: jax.Array) -> Gamma:
+        """Produce a Gamma prediction from model features.
+
+        Args:
+            features: Model features shaped ``(..., in_features)``.
+
+        Returns:
+            A Gamma distribution with positive concentration and rate shaped
+            ``(..., out_features)``.
+        """
+        raw_concentration, raw_rate = jnp.split(
+            self.linear(features),
+            2,
+            axis=-1,
+        )
+        concentration = jax.nn.softplus(raw_concentration) + self.eps
+        rate = jax.nn.softplus(raw_rate) + self.eps
+        return Gamma(concentration=concentration, rate=rate)

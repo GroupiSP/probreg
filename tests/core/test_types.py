@@ -4,7 +4,13 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from probreg.core.types import Batch, CheckpointRef, ParameterRole, TrainingState
+from probreg.core.types import (
+    Batch,
+    CheckpointRef,
+    ParameterRole,
+    StageState,
+    TrainingState,
+)
 
 
 def test_batch_is_immutable() -> None:
@@ -24,3 +30,47 @@ def test_training_states_do_not_share_mutable_defaults() -> None:
 
     assert second.parameter_roles == {}
     assert second.checkpoint_registry == {}
+
+
+def test_training_state_separates_lifecycle_from_active_stage() -> None:
+    state = TrainingState()
+
+    state.lifecycle_state = StageState.INITIALIZED
+    state.active_stage = "mean"
+
+    assert state.lifecycle_state is StageState.INITIALIZED
+    assert state.active_stage == "mean"
+
+
+def test_training_state_stage_alias_preserves_active_stage_compatibility() -> None:
+    state = TrainingState()
+
+    state.stage = "supervised"
+
+    assert state.active_stage == "supervised"
+    assert state.stage == "supervised"
+
+
+def test_training_state_allows_idempotent_component_registration() -> None:
+    state = TrainingState()
+    component = object()
+    optimizer = object()
+
+    state.register_component("mean", component)
+    state.register_component("mean", component)
+    state.register_optimizer("mean", optimizer)
+    state.register_optimizer("mean", optimizer)
+
+    assert state.model_components == {"mean": component}
+    assert state.optimizer_states == {"mean": optimizer}
+
+
+def test_training_state_rejects_conflicting_component_registration() -> None:
+    state = TrainingState()
+    state.register_component("mean", object())
+    state.register_optimizer("mean", object())
+
+    with pytest.raises(ValueError, match="model component 'mean'"):
+        state.register_component("mean", object())
+    with pytest.raises(ValueError, match="optimizer state 'mean'"):
+        state.register_optimizer("mean", object())

@@ -42,9 +42,19 @@ class Likelihood(Protocol):
     def log_prob(self, prediction: PredictiveDistribution, targets: Array) -> Array: ...
 
 
-class Loss(Protocol):
-    """Computes an unreduced loss for each example in a batch."""
+class DistributionLoss(Protocol):
+    """Computes an unreduced loss from a predictive distribution."""
 
     def per_example(
         self, prediction: PredictiveDistribution, batch: Batch
     ) -> Array: ...
+
+
+class PredictionLoss(Protocol):
+    """Computes an unreduced loss from deterministic array predictions."""
+
+    def per_example(self, prediction: Array, batch: Batch) -> Array: ...
+
+
+# Backward-compatible alias for the original distribution-loss protocol.
+Loss = DistributionLoss

@@ -17,13 +17,13 @@ class ExampleStage:
     produces = frozenset({"mean"})
 
     def prepare(self, state: TrainingState) -> None:
-        state.stage = self.name
+        state.active_stage = self.name
 
     def train(self, state: TrainingState) -> StageResult:
         return StageResult(state=state, loss=0.0)
 
     def validate(self, state: TrainingState) -> ValidationResult:
-        return ValidationResult(passed=state.stage == self.name)
+        return ValidationResult(passed=state.active_stage == self.name)
 
     def select_checkpoint(self, state: TrainingState) -> CheckpointRef:
         del state

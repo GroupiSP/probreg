@@ -21,6 +21,17 @@ class ParameterRole(StrEnum):
     AUXILIARY = "auxiliary"
 
 
+class StageState(StrEnum):
+    """The ordered lifecycle of a staged probabilistic-regression workflow."""
+
+    NEW = "new"
+    INITIALIZED = "initialized"
+    MEAN_READY = "mean_ready"
+    VARIANCE_READY = "variance_ready"
+    POSTERIOR_READY = "posterior_ready"
+    COMPLETED = "completed"
+
+
 @dataclass(frozen=True)
 class Batch:
     """A batch of model inputs, optional targets, weights, and metadata."""
@@ -49,31 +60,62 @@ class TrainingState:
     optimizer_states: dict[str, Any] = field(default_factory=dict)
     posterior_state: Any | None = None
     rng_state: Any | None = None
+    lifecycle_state: StageState = StageState.NEW
     stage: str | None = None
     outer_iteration: int = 0
     data_fingerprint: str | None = None
     checkpoint_registry: dict[str, CheckpointRef] = field(default_factory=dict)
     metric_history: dict[str, list[float]] = field(default_factory=dict)
 
+    @property
+    def active_stage(self) -> str | None:
+        """Return the explicit active training-stage label.
+
+        Returns:
+            The active training-stage label, or ``None`` outside a runner.
+        """
+        return self.stage
+
+    @active_stage.setter
+    def active_stage(self, value: str | None) -> None:
+        """Set the explicit active training-stage label.
+
+        Args:
+            value: The active training-stage label, or ``None``.
+        """
+        self.stage = value
+
     def register_component(self, name: str, component: Any) -> None:
-        """Register a model component under ``name`` if none is registered yet.
+        """Register a model component under ``name``.
 
         Args:
             name: The key under which ``component`` is stored in
                 ``model_components``.
             component: The model component to register.
+
+        Raises:
+            ValueError: If ``name`` is already bound to a different object.
         """
-        self.model_components.setdefault(name, component)
+        registered = self.model_components.get(name)
+        if name in self.model_components and registered is not component:
+            raise ValueError(f"model component {name!r} is already registered.")
+        self.model_components[name] = component
 
     def register_optimizer(self, name: str, optimizer: Any) -> None:
-        """Register an optimizer state under ``name`` if none is registered yet.
+        """Register an optimizer state under ``name``.
 
         Args:
             name: The key under which ``optimizer`` is stored in
                 ``optimizer_states``.
             optimizer: The optimizer state to register.
+
+        Raises:
+            ValueError: If ``name`` is already bound to a different object.
         """
-        self.optimizer_states.setdefault(name, optimizer)
+        registered = self.optimizer_states.get(name)
+        if name in self.optimizer_states and registered is not optimizer:
+            raise ValueError(f"optimizer state {name!r} is already registered.")
+        self.optimizer_states[name] = optimizer
 
     def record_metric(self, name: str, value: float) -> None:
         """Append ``value`` to the metric history recorded under ``name``.

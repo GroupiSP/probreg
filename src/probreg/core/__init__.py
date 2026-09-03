@@ -3,8 +3,10 @@
 from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.distributions import (
     DistributionHead,
+    DistributionLoss,
     Likelihood,
     Loss,
+    PredictionLoss,
     PredictiveDistribution,
 )
 from probreg.core.early_stopping import (
@@ -14,7 +16,13 @@ from probreg.core.early_stopping import (
     MetricSource,
     OptimizationMode,
 )
-from probreg.core.metrics import cdf, coverage, crps, point_crps, rmse, wsu
+from probreg.core.losses import (
+    BetaNLLLoss,
+    GaussianNLLLoss,
+    NegativeLogLikelihoodLoss,
+    SquaredErrorLoss,
+    add_epsilon,
+)
 from probreg.core.metric_registry import (
     ContinuousRankedProbabilityScore,
     EpochMetric,
@@ -27,6 +35,7 @@ from probreg.core.metric_registry import (
     RootMeanSquaredError,
     WeightedSpread,
 )
+from probreg.core.metrics import cdf, coverage, crps, point_crps, rmse, wsu
 from probreg.core.protocols import (
     Dataset,
     LoaderFactory,
@@ -50,25 +59,40 @@ from probreg.core.types import (
 __all__ = [
     "Array",
     "Batch",
+    "BetaNLLLoss",
     "Checkpoint",
     "CheckpointRef",
     "CheckpointStore",
+    "ContinuousRankedProbabilityScore",
     "Dataset",
     "DistributionHead",
+    "DistributionLoss",
     "EarlyStopper",
     "EarlyStoppingDecision",
     "EarlyStoppingState",
+    "EpochMetric",
+    "EpochPredictionData",
+    "EvaluationGrid",
     "EventSink",
     "ExperimentTracker",
+    "GaussianNLLLoss",
+    "IntervalCoverage",
     "Likelihood",
     "LoaderFactory",
     "Loss",
+    "MetricRequirements",
     "MetricSource",
+    "NegativeLogLikelihoodLoss",
     "OptimizationMode",
     "Optimizer",
     "ParameterRole",
+    "PointContinuousRankedProbabilityScore",
+    "PredictionInterval",
+    "PredictionLoss",
     "PredictiveDistribution",
     "PyTree",
+    "RootMeanSquaredError",
+    "SquaredErrorLoss",
     "StageResult",
     "StageState",
     "Step",
@@ -77,16 +101,8 @@ __all__ = [
     "TrainingState",
     "ValidationResult",
     "ValidationStrategy",
-    "ContinuousRankedProbabilityScore",
-    "EpochMetric",
-    "EpochPredictionData",
-    "EvaluationGrid",
-    "IntervalCoverage",
-    "MetricRequirements",
-    "PointContinuousRankedProbabilityScore",
-    "PredictionInterval",
-    "RootMeanSquaredError",
     "WeightedSpread",
+    "add_epsilon",
     "cdf",
     "coverage",
     "crps",

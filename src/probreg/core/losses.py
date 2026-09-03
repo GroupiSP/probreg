@@ -1,7 +1,8 @@
-"""Backend-neutral losses operating on predictive distributions."""
+"""Backend-neutral per-example objectives for probabilistic regression."""
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -15,73 +16,101 @@ def _identity(value: Array) -> Array:
 
 
 @dataclass(frozen=True)
-class GaussianNLLLoss:
-    """Per-example negative log-likelihood under a predictive distribution."""
-
-    def per_example(self, prediction: PredictiveDistribution, batch: Batch) -> Array:
-        """Compute the per-example negative log-likelihood.
-
-        Args:
-            prediction: The predictive distribution produced for ``batch``.
-            batch: The batch whose ``targets`` are scored under
-                ``prediction``.
-
-        Returns:
-            An array of per-example negative log-likelihood values.
-        """
-        return -prediction.log_prob(batch.targets)
-
-
-@dataclass(frozen=True)
-class BetaNLLLoss:
-    """Beta-weighted negative log-likelihood (Seitzer et al., 2022).
-
-    Reweights the negative log-likelihood by
-    ``stop_gradient(variance) ** beta`` so that low-uncertainty examples
-    contribute less to the mean-parameter gradient than under plain NLL,
-    while ``beta == 0`` recovers plain NLL exactly.
-
-    Because gradient-stopping is backend-specific, callers integrating an
-    autodiff backend (e.g. JAX) should supply that backend's
-    gradient-stopping primitive as ``stop_gradient`` (e.g.
-    ``jax.lax.stop_gradient``) so the reweighting factor is excluded from
-    backpropagation, matching the reference beta-NLL definition. The default
-    no-op is appropriate for backends without autodiff, e.g. plain NumPy
-    evaluation and tests.
+class NegativeLogLikelihoodLoss:
+    """Configurable negative log-likelihood for predictive distributions.
 
     Attributes:
-        beta: The reweighting exponent, constrained to ``[0, 1]``.
-        stop_gradient: A callable applied to ``prediction.variance()``
-            before exponentiation, to detach it from backpropagation.
-            Defaults to the identity function.
+        beta: Variance-reweighting exponent in ``[0, 1]``. Zero recovers
+            ordinary negative log-likelihood.
+        stop_gradient: Callable excluding the variance weight from gradient
+            propagation when required by an autodiff backend.
+        target_transform: Callable applied to targets before evaluating the
+            predictive distribution. Defaults to the identity transform.
     """
 
-    beta: float
+    beta: float = 0.0
     stop_gradient: Callable[[Array], Array] = field(default=_identity)
+    target_transform: Callable[[Array], Array] = field(default=_identity)
 
     def __post_init__(self) -> None:
-        """Validate that ``beta`` lies within its supported range.
+        """Validate the variance-reweighting exponent.
 
         Raises:
-            ValueError: If ``beta`` is not within ``[0, 1]``.
+            ValueError: If ``beta`` is outside ``[0, 1]``.
         """
         if not 0.0 <= self.beta <= 1.0:
             raise ValueError("beta must be within [0, 1].")
 
     def per_example(self, prediction: PredictiveDistribution, batch: Batch) -> Array:
-        """Compute the per-example beta-weighted negative log-likelihood.
+        """Compute the optionally transformed and beta-weighted NLL.
 
         Args:
             prediction: The predictive distribution produced for ``batch``.
-            batch: The batch whose ``targets`` are scored under
-                ``prediction``.
+            batch: Batch whose targets are scored under ``prediction``.
 
         Returns:
-            An array of per-example beta-weighted negative log-likelihood
-            values, equal to plain NLL when ``beta == 0``.
+            An array of per-example negative log-likelihood values.
+
+        Raises:
+            ValueError: If ``batch.targets`` is missing.
         """
-        nll = -prediction.log_prob(batch.targets)
+        if batch.targets is None:
+            raise ValueError("batch.targets must be provided.")
+        targets = self.target_transform(batch.targets)
+        nll = -prediction.log_prob(targets)
         if self.beta == 0.0:
             return nll
         weight = self.stop_gradient(prediction.variance()) ** self.beta
         return nll * weight
+
+
+@dataclass(frozen=True)
+class SquaredErrorLoss:
+    """Per-example squared error for deterministic predictions."""
+
+    def per_example(self, prediction: Array, batch: Batch) -> Array:
+        """Compute squared prediction errors.
+
+        Args:
+            prediction: Deterministic model predictions.
+            batch: Batch containing regression targets.
+
+        Returns:
+            Elementwise squared prediction errors.
+
+        Raises:
+            ValueError: If ``batch.targets`` is missing.
+        """
+        if batch.targets is None:
+            raise ValueError("batch.targets must be provided.")
+        if prediction.shape != batch.targets.shape:
+            raise ValueError("prediction and batch.targets must have matching shapes.")
+        return (prediction - batch.targets) ** 2
+
+
+def add_epsilon(epsilon: float = 1e-12) -> Callable[[Array], Array]:
+    """Create a target transform that adds a positive stabilization offset.
+
+    Args:
+        epsilon: Positive finite offset added to each target.
+
+    Returns:
+        A callable adding ``epsilon`` to an array.
+
+    Raises:
+        ValueError: If ``epsilon`` is not positive and finite.
+    """
+    if not math.isfinite(epsilon) or epsilon <= 0.0:
+        raise ValueError("epsilon must be positive and finite.")
+
+    def transform(targets: Array) -> Array:
+        return targets + epsilon
+
+    return transform
+
+
+# Compatibility aliases for the public pre-consolidation names. Both preserve
+# their original constructor behavior while the canonical API uses
+# NegativeLogLikelihoodLoss.
+GaussianNLLLoss = NegativeLogLikelihoodLoss
+BetaNLLLoss = NegativeLogLikelihoodLoss

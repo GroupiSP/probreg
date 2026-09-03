@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
 
 import jax
 from flax import nnx
@@ -12,7 +11,7 @@ from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink, TrainingEvent
-from probreg.core.types import StageResult, TrainingState
+from probreg.core.types import PyTree, StageResult, TrainingState
 from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.metrics import (
     BatchMetricSpec,
@@ -52,9 +51,9 @@ def make_train_step(
     def train_step(
         model: nnx.Module,
         optimizer: nnx.Optimizer,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
+        inputs: PyTree,
+        targets: jax.Array,
+        sample_weight: jax.Array | None,
         key: jax.Array,
     ) -> Mapping[str, jax.Array]:
         def loss_fn(current_model: nnx.Module) -> jax.Array:
@@ -98,7 +97,10 @@ def run_supervised(
     checkpoint_store: CheckpointStore | None = None,
     checkpoint_key: str = "best",
     stage: str = "supervised",
-    metrics: MetricSuite = MetricSuite(),
+    model_name: str = "model",
+    optimizer_name: str = "optimizer",
+    metric_history_prefix: str | None = None,
+    metrics: MetricSuite | None = None,
 ) -> StageResult:
     """Train a single NNX model for a fixed or early-stopped number of epochs.
 
@@ -126,7 +128,15 @@ def run_supervised(
             saved. Defaults to ``"best"``.
         stage: The stage name recorded on ``state`` and emitted events.
             Defaults to ``"supervised"``.
-        metrics: Registered batch/epoch metrics for training.
+        model_name: Name under which ``model`` is registered in ``state``.
+            Defaults to ``"model"``.
+        optimizer_name: Name under which ``optimizer`` is registered in
+            ``state``. Defaults to ``"optimizer"``.
+        metric_history_prefix: Optional namespace prepended only to metrics
+            persisted in ``state.metric_history``. Event and early-stopping
+            metric names remain unchanged.
+        metrics: Optional registered batch/epoch metrics for training. When
+            omitted, only loss is collected.
 
     Returns:
         A :class:`StageResult` with the final ``state``, the last
@@ -146,8 +156,15 @@ def run_supervised(
     if early_stopper and early_stopper.expects_validation() and validation is None:
         raise ValueError("validation metric monitoring requires a validation strategy.")
 
-    _initialize_run_state(state, stage=stage, model=model, optimizer=optimizer)
-    metric_suite = metrics
+    _initialize_run_state(
+        state,
+        stage=stage,
+        model=model,
+        optimizer=optimizer,
+        model_name=model_name,
+        optimizer_name=optimizer_name,
+    )
+    metric_suite = metrics if metrics is not None else MetricSuite()
     train_step = make_train_step(loss, metrics=metric_suite.batch)
     latest_metrics: Mapping[str, float] = {}
 
@@ -162,13 +179,21 @@ def run_supervised(
             metrics=metric_suite,
         )
         latest_metrics = epoch_metrics
-        _record_metrics(state, "training", epoch_metrics)
+        training_history_metrics = {
+            f"training_{name}": value for name, value in epoch_metrics.items()
+        }
+        _record_metrics(
+            state,
+            metric_history_prefix,
+            training_history_metrics,
+        )
         _emit(event_sinks, "epoch_end", stage, epoch, epoch_metrics, state)
 
         validation_metrics = _run_validation_epoch(
             validation=validation,
             state=state,
             stage=stage,
+            metric_history_prefix=metric_history_prefix,
             epoch=epoch,
             event_sinks=event_sinks,
         )
@@ -196,6 +221,8 @@ def _initialize_run_state(
     stage: str,
     model: nnx.Module,
     optimizer: nnx.Optimizer,
+    model_name: str,
+    optimizer_name: str,
 ) -> None:
     """Register mutable training components on the live state.
 
@@ -204,10 +231,12 @@ def _initialize_run_state(
         stage: Stage name to record on ``state``.
         model: Model trained by the runner.
         optimizer: Optimizer updating ``model``.
+        model_name: Name under which ``model`` is registered.
+        optimizer_name: Name under which ``optimizer`` is registered.
     """
-    state.register_component("model", model)
-    state.register_optimizer("optimizer", optimizer)
-    state.stage = stage
+    state.register_component(model_name, model)
+    state.register_optimizer(optimizer_name, optimizer)
+    state.active_stage = stage
 
 
 def _run_training_epoch(
@@ -276,6 +305,7 @@ def _run_validation_epoch(
     validation: ValidationStrategy | None,
     state: TrainingState,
     stage: str,
+    metric_history_prefix: str | None,
     epoch: int,
     event_sinks: Sequence[EventSink],
 ) -> Mapping[str, float]:
@@ -285,6 +315,7 @@ def _run_validation_epoch(
         validation: Optional validation strategy.
         state: The live training state.
         stage: Stage name used in emitted events.
+        metric_history_prefix: Optional persisted-history namespace.
         epoch: Epoch index being validated.
         event_sinks: Event sinks notified on validation completion.
 
@@ -296,7 +327,7 @@ def _run_validation_epoch(
 
     validation_result = validation(state, epoch=epoch)
     validation_metrics = validation_result.metrics
-    _record_metrics(state, "", validation_metrics)
+    _record_metrics(state, metric_history_prefix, validation_metrics)
     _emit(event_sinks, "validation_end", stage, epoch, validation_metrics, state)
     return validation_metrics
 
@@ -388,19 +419,20 @@ def _should_stop_early(
 
 
 def _record_metrics(
-    state: TrainingState, prefix: str, metrics: Mapping[str, float]
+    state: TrainingState,
+    prefix: str | None,
+    metrics: Mapping[str, float],
 ) -> None:
     """Append metric values to ``state.metric_history`` in place.
 
     Args:
         state: The training state whose ``metric_history`` is updated.
-        prefix: A prefix joined to each metric name with an underscore,
-            or an empty string to leave names unprefixed.
+        prefix: Optional prefix joined to each metric name with an underscore.
         metrics: Mapping of metric name to the value observed this
             epoch.
     """
     for name, value in metrics.items():
-        metric_name = f"{prefix}_{name}" if prefix else name
+        metric_name = f"{prefix}_{name}" if prefix is not None else name
         state.record_metric(metric_name, value)
 
 

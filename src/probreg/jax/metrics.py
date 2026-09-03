@@ -21,7 +21,7 @@ from probreg.core.metric_registry import (
     MetricRequirements,
     PredictionInterval,
 )
-from probreg.core.types import Batch
+from probreg.core.types import Batch, PyTree
 from probreg.jax.distributions import Gaussian
 
 _METRIC_RNG_NAMESPACE = 0x4D455452  # "METR" in ASCII
@@ -69,9 +69,9 @@ class BatchMetric(Protocol):
     def __call__(
         self,
         model: nnx.Module,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
+        inputs: PyTree,
+        targets: jax.Array,
+        sample_weight: jax.Array | None,
         key: jax.Array,
         training: bool,
         /,

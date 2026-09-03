@@ -13,6 +13,28 @@ validation strategies. `HeldOutValidation` is provided for the conventional
 validation-loader case; callers can inject fold, rolling, grouped, bootstrap,
 or external validation without embedding its control flow in the runner.
 
+It also supplies explicit two-step training for disentangling a deterministic
+mean estimate from input-dependent aleatoric variance:
+
+```text
+NEW -> INITIALIZED -> MEAN_READY -> VARIANCE_READY
+```
+
+`MeanStage` trains a mean-only model with MSE and restores its selected best
+checkpoint after early stopping. The completed checkpoint is marked
+`MEAN_READY` so it can resume directly into `GammaVarianceStage`, which clones
+the restored mean model in inference mode, materializes detached squared
+residual targets once, and trains a separate Gamma shape/rate model. The mean
+model is recorded as frozen and is never passed to the variance optimizer. The
+aleatoric variance estimate is the Gamma mean,
+`concentration / rate`; the Gamma distribution's own variance is
+`concentration / rate**2`.
+
+Residual materialization is intentionally an in-memory snapshot: configured
+loader splits are consumed once at a caller-selected source epoch and replayed
+unchanged during variance training. Dynamic residuals for cooperative outer
+iterations are outside this initial two-step implementation.
+
 ## Development
 
 Install the development dependencies and run the core tests:
@@ -91,3 +113,29 @@ predictions, e.g. `examples/mve_regression_jax.py`:
 uv sync --extra jax --extra plot --group dev
 uv run python examples/mve_regression_jax.py
 ```
+
+### XSin-inspired comparison
+
+Two paired examples compare joint Gaussian MVE with explicit mean-then-Gamma
+training on the same nonlinear XSin-inspired heteroscedastic dataset. Following
+the paper's qualitative setup, models train only on `x in (0, 10)` and are
+evaluated on the wider `x in (-5, 15)` range to expose both interpolation and
+extrapolation behavior:
+
+```bash
+uv run --extra jax --extra plot python examples/xsin_mve_jax.py
+uv run --extra jax --extra plot python examples/xsin_two_steps_jax.py
+```
+
+Both scripts print overall, interpolation, and extrapolation errors against the
+known data-generating functions and use the same interactive plot layout.
+Training-domain boundaries and extrapolation regions are marked explicitly.
+Under the seeded example configuration, the two-step method improves both
+interpolation estimates by preventing the variance objective from distorting
+the already-trained mean; extrapolation metrics are reported rather than
+assumed to improve.
+
+The examples reproduce the qualitative XSin comparison motivated by Yi and
+Bessa (2025), with compact settings suitable for a library demonstration. They
+do not claim exact reproduction of the paper's architectures, runtime, or
+reported numerical values.

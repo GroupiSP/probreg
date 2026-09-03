@@ -2,26 +2,15 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Protocol
 
 from probreg.core.types import (
     CheckpointRef,
     StageResult,
+    StageState,
     TrainingState,
     ValidationResult,
 )
-
-
-class StageState(StrEnum):
-    """The ordered lifecycle of a staged probabilistic-regression workflow."""
-
-    NEW = "new"
-    INITIALIZED = "initialized"
-    MEAN_READY = "mean_ready"
-    VARIANCE_READY = "variance_ready"
-    POSTERIOR_READY = "posterior_ready"
-    COMPLETED = "completed"
 
 
 def validate_transition(current: StageState, next_state: StageState) -> None:

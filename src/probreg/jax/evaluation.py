@@ -8,12 +8,12 @@ on it without either depending on the other.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Any, Protocol
+from typing import Protocol
 
 import jax
 from flax import nnx
 
-from probreg.core.types import Batch
+from probreg.core.types import Batch, PyTree
 from probreg.jax.metrics import (
     BatchMetricSpec,
     MetricSuite,
@@ -36,9 +36,9 @@ class SupervisedLoss(Protocol):
     def __call__(
         self,
         model: nnx.Module,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
+        inputs: PyTree,
+        targets: jax.Array,
+        sample_weight: jax.Array | None,
         key: jax.Array,
         training: bool,
         /,
@@ -82,9 +82,9 @@ def make_evaluation_step(
     @nnx.jit
     def evaluate_step(
         model: nnx.Module,
-        inputs: Any,
-        targets: Any,
-        sample_weight: Any,
+        inputs: PyTree,
+        targets: jax.Array,
+        sample_weight: jax.Array | None,
         key: jax.Array,
     ) -> Mapping[str, jax.Array]:
         loss_value = loss(model, inputs, targets, sample_weight, key, False)
@@ -109,7 +109,7 @@ def evaluate_loader(
     *,
     key: jax.Array,
     evaluation_step: Callable[..., Mapping[str, jax.Array]],
-    metrics: MetricSuite = MetricSuite(),
+    metrics: MetricSuite | None = None,
 ) -> tuple[dict[str, float], jax.Array]:
     """Evaluate a loader and return reduced metrics and the advanced random key.
 
@@ -119,16 +119,18 @@ def evaluate_loader(
         key: The JAX PRNG key to use, advanced once per batch.
         evaluation_step: The JIT-compiled evaluation step, e.g. one
             created by :func:`make_evaluation_step`.
-        metrics: Registered batch/epoch metrics for evaluation.
+        metrics: Optional registered batch/epoch metrics for evaluation. When
+            omitted, only loss is collected.
 
     Returns:
         A tuple ``(metrics, key)`` where ``metrics`` contains ``"loss"``
         plus any registered metrics, and ``key`` is advanced past all
         consumed batches.
     """
+    metric_suite = metrics if metrics is not None else MetricSuite()
     losses: list[float] = []
-    batch_metric_values = initialize_batch_metric_values(metrics.batch)
-    epoch_metric_parts = [] if metrics.epoch else None
+    batch_metric_values = initialize_batch_metric_values(metric_suite.batch)
+    epoch_metric_parts = [] if metric_suite.epoch else None
 
     for batch in loader:
         key, batch_key = split_key(key)
@@ -141,14 +143,14 @@ def evaluate_loader(
         )
         collect_step_metrics(
             step_output,
-            metrics=metrics.batch,
+            metrics=metric_suite.batch,
             losses=losses,
             batch_metric_values=batch_metric_values,
             context="evaluation step",
         )
         maybe_collect_epoch_prediction_data(
             epoch_metric_parts,
-            suite=metrics,
+            suite=metric_suite,
             model=model,
             batch=batch,
             batch_key=batch_key,
@@ -156,7 +158,7 @@ def evaluate_loader(
 
     return (
         reduce_metric_suite(
-            suite=metrics,
+            suite=metric_suite,
             losses=losses,
             batch_metric_values=batch_metric_values,
             epoch_metric_parts=epoch_metric_parts,

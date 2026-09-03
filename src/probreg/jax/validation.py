@@ -36,7 +36,7 @@ class HeldOutValidation:
     model: nnx.Module
     loader: LoaderFactory
     loss: SupervisedLoss
-    metrics: MetricSuite = MetricSuite()
+    metrics: MetricSuite = field(default_factory=MetricSuite)
     metric_prefix: str = "validation_"
     metadata: dict[str, object] = field(default_factory=dict)
 

@@ -11,7 +11,7 @@ from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint
 from probreg.core.early_stopping import EarlyStopper, MetricSource
-from probreg.core.losses import GaussianNLLLoss
+from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EpochPredictionData,
     EvaluationGrid,
@@ -31,11 +31,11 @@ from probreg.jax import (
     evaluate_loader,
     initialize_training_state,
     make_evaluation_step,
+    make_supervised_loss,
     make_train_step,
     run_supervised,
     split_key,
 )
-from probreg.jax.mve import make_mve_loss
 
 
 class LinearModel(nnx.Module):
@@ -158,6 +158,70 @@ def test_fixed_epoch_training_without_validation_updates_parameters_and_rng() ->
     assert result.loss is not None
     assert not bool(jnp.array_equal(initial_key, result.state.rng_state))
     assert int(optimizer.step.get_value()) == 3
+
+
+def test_run_supervised_registers_named_model_and_optimizer() -> None:
+    model, optimizer, state = make_components()
+    state.model_components.clear()
+    state.optimizer_states.clear()
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=loader,
+        loss=squared_error,
+        state=state,
+        epochs=1,
+        stage="mean",
+        model_name="mean_model",
+        optimizer_name="mean_optimizer",
+    )
+
+    assert result.state.model_components == {"mean_model": model}
+    assert result.state.optimizer_states == {"mean_optimizer": optimizer}
+    assert result.state.active_stage == "mean"
+
+
+def test_run_supervised_default_registration_names_remain_compatible() -> None:
+    model, optimizer, state = make_components()
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=loader,
+        loss=squared_error,
+        state=state,
+        epochs=1,
+    )
+
+    assert result.state.model_components == {"model": model}
+    assert result.state.optimizer_states == {"optimizer": optimizer}
+
+
+def test_run_supervised_optionally_namespaces_persisted_history_only() -> None:
+    model, optimizer, state = make_components(learning_rate=0.0)
+    events = EventCollector()
+    validation = HeldOutValidation(model=model, loader=loader, loss=squared_error)
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=loader,
+        loss=squared_error,
+        state=state,
+        epochs=1,
+        validation=validation,
+        event_sinks=[events],
+        metric_history_prefix="mean",
+    )
+
+    assert set(result.state.metric_history) == {
+        "mean_training_loss",
+        "mean_validation_loss",
+    }
+    assert result.metrics == {"loss": result.loss}
+    assert events.events[0].metrics.keys() == {"loss"}
+    assert events.events[1].metrics.keys() == {"validation_loss"}
 
 
 def test_make_train_step_without_registered_metrics_returns_loss_mapping() -> None:
@@ -474,7 +538,7 @@ def test_sampled_epoch_metrics_preserve_loss_batch_metric_and_rng_trajectory() -
             model=model,
             optimizer=optimizer,
             train_loader=loader,
-            loss=make_mve_loss(GaussianNLLLoss()),
+            loss=make_supervised_loss(NegativeLogLikelihoodLoss()),
             state=state,
             epochs=2,
             metrics=metrics,
