@@ -4,6 +4,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 from flax import nnx
+from hypothesis import example, given
+from hypothesis import strategies as st
 
 from probreg.jax.distributions import Gamma, GammaHead, Gaussian, GaussianHead
 
@@ -73,6 +75,22 @@ def test_gaussian_head_produces_positive_scale_under_extreme_inputs() -> None:
 def test_gaussian_head_rejects_non_positive_out_features() -> None:
     with pytest.raises(ValueError, match="out_features"):
         GaussianHead(1, 0, rngs=nnx.Rngs(0))
+
+
+@given(
+    eps=st.one_of(
+        st.floats(
+            max_value=0.0,
+            allow_nan=False,
+            allow_infinity=False,
+        ),
+        st.sampled_from([float("nan"), float("inf"), float("-inf")]),
+    )
+)
+@example(eps=float("nan"))
+def test_gaussian_head_rejects_invalid_epsilon(eps: float) -> None:
+    with pytest.raises(ValueError, match="eps"):
+        GaussianHead(1, 1, rngs=nnx.Rngs(0), eps=eps)
 
 
 def test_gamma_log_prob_matches_analytic_shape_rate_density() -> None:

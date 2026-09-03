@@ -3,9 +3,12 @@ from __future__ import annotations
 import math
 
 import pytest
+from hypothesis import example, given
+from hypothesis import strategies as st
 
 from probreg.core.early_stopping import (
     EarlyStopper,
+    EarlyStoppingState,
     MetricSource,
     OptimizationMode,
 )
@@ -98,3 +101,65 @@ def test_stopper_rejects_invalid_observations_and_observations_after_stop() -> N
     assert stopper.observe(1.0, epoch=1).should_stop
     with pytest.raises(RuntimeError, match="after early stopping"):
         stopper.observe(1.0, epoch=2)
+
+
+@given(
+    patience=st.integers(min_value=0),
+    extra_epochs=st.integers(min_value=1),
+)
+@example(patience=1, extra_epochs=98)
+def test_state_rejects_unstopped_exhausted_patience(
+    patience: int,
+    extra_epochs: int,
+) -> None:
+    with pytest.raises(ValueError, match="stopped"):
+        EarlyStoppingState(
+            metric="loss",
+            mode=OptimizationMode.MIN,
+            min_delta=0.0,
+            patience=patience,
+            best_score=1.0,
+            best_epoch=0,
+            non_improving_epochs=patience + extra_epochs,
+            stopped=False,
+        )
+
+
+@given(
+    mode=st.sampled_from(tuple(OptimizationMode)),
+    patience=st.integers(min_value=0, max_value=20),
+    min_delta=st.floats(
+        min_value=0.0,
+        max_value=100.0,
+        allow_nan=False,
+        allow_infinity=False,
+    ),
+    initial=st.floats(
+        min_value=-1e6,
+        max_value=1e6,
+        allow_nan=False,
+        allow_infinity=False,
+    ),
+)
+def test_constant_observations_stop_exactly_after_patience(
+    mode: OptimizationMode,
+    patience: int,
+    min_delta: float,
+    initial: float,
+) -> None:
+    stopper = EarlyStopper(
+        metric="metric",
+        mode=mode,
+        patience=patience,
+        min_delta=min_delta,
+    )
+
+    assert stopper.observe(initial, epoch=0).improved
+    for epoch in range(1, patience + 1):
+        assert not stopper.observe(initial, epoch=epoch).should_stop
+
+    decision = stopper.observe(initial, epoch=patience + 1)
+
+    assert decision.should_stop
+    assert decision.state.best_score == initial
+    assert decision.state.best_epoch == 0
