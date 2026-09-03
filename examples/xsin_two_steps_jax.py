@@ -29,7 +29,7 @@ def main() -> None:
         event_sinks=(StagePrintingEventSink(),),
     )
     print_xsin_metrics("mean plus Gamma variance", result)
-    plot_xsin_result("Mean plus Gamma variance", data, result)
+    plot_xsin_result("Mean plus Gamma variance", data, result, config)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ def main() -> None:
     data = make_xsin_data(config)
     result = run_xsin_mve(data, config)
     print_xsin_metrics("joint Gaussian MVE", result)
-    plot_xsin_result("Joint Gaussian MVE", data, result)
+    plot_xsin_result("Joint Gaussian MVE", data, result, config)
 
 
 if __name__ == "__main__":

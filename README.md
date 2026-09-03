@@ -115,17 +115,23 @@ uv run python examples/mve_regression_jax.py
 ### XSin-inspired comparison
 
 Two paired examples compare joint Gaussian MVE with explicit mean-then-Gamma
-training on the same nonlinear XSin-inspired heteroscedastic dataset:
+training on the same nonlinear XSin-inspired heteroscedastic dataset. Following
+the paper's qualitative setup, models train only on `x in (0, 10)` and are
+evaluated on the wider `x in (-5, 15)` range to expose both interpolation and
+extrapolation behavior:
 
 ```bash
 uv run --extra jax --extra plot python examples/xsin_mve_jax.py
 uv run --extra jax --extra plot python examples/xsin_two_steps_jax.py
 ```
 
-Both scripts print `mean_rmse` and `aleatoric_variance_rmse` against the known
-data-generating functions and use the same interactive plot layout. Under the
-seeded example configuration, the two-step method improves both estimates by
-preventing the variance objective from distorting the already-trained mean.
+Both scripts print overall, interpolation, and extrapolation errors against the
+known data-generating functions and use the same interactive plot layout.
+Training-domain boundaries and extrapolation regions are marked explicitly.
+Under the seeded example configuration, the two-step method improves both
+interpolation estimates by preventing the variance objective from distorting
+the already-trained mean; extrapolation metrics are reported rather than
+assumed to improve.
 
 The examples reproduce the qualitative XSin comparison motivated by Yi and
 Bessa (2025), with compact settings suitable for a library demonstration. They

@@ -41,6 +41,10 @@ class XSinConfig:
         variance_epochs: Training epochs for the Gamma variance stage.
         learning_rate: Adam learning rate used by all benchmark models.
         seed: Base JAX random seed for data, model, and training keys.
+        train_min: Exclusive lower bound of the training-input domain.
+        train_max: Exclusive upper bound of the training-input domain.
+        evaluation_min: Lower endpoint of the evaluation grid.
+        evaluation_max: Upper endpoint of the evaluation grid.
     """
 
     train_size: int = 512
@@ -52,6 +56,35 @@ class XSinConfig:
     variance_epochs: int = 300
     learning_rate: float = 0.01
     seed: int = 0
+    train_min: float = 0.0
+    train_max: float = 10.0
+    evaluation_min: float = -5.0
+    evaluation_max: float = 15.0
+
+    def __post_init__(self) -> None:
+        """Validate benchmark sizes and interpolation/extrapolation domains.
+
+        Raises:
+            ValueError: If sizes are not positive or domain bounds are not
+                strictly ordered around the training interval.
+        """
+        sizes = (
+            self.train_size,
+            self.evaluation_size,
+            self.batch_size,
+            self.hidden_features,
+            self.mve_epochs,
+            self.mean_epochs,
+            self.variance_epochs,
+        )
+        if any(value <= 0 for value in sizes):
+            raise ValueError("benchmark sizes and epoch counts must be positive.")
+        if not (
+            self.evaluation_min < self.train_min < self.train_max < self.evaluation_max
+        ):
+            raise ValueError(
+                "evaluation bounds must strictly contain the training interval."
+            )
 
 
 @dataclass(frozen=True)
@@ -82,12 +115,20 @@ class XSinResult:
         variance: Predicted aleatoric variance on the evaluation grid.
         mean_rmse: Root mean squared error of ``mean`` against truth.
         variance_rmse: Root mean squared error of ``variance`` against truth.
+        interpolation_mean_rmse: Mean RMSE inside the training domain.
+        interpolation_variance_rmse: Variance RMSE inside the training domain.
+        extrapolation_mean_rmse: Mean RMSE outside the training domain.
+        extrapolation_variance_rmse: Variance RMSE outside the training domain.
     """
 
     mean: jax.Array
     variance: jax.Array
     mean_rmse: float
     variance_rmse: float
+    interpolation_mean_rmse: float
+    interpolation_variance_rmse: float
+    extrapolation_mean_rmse: float
+    extrapolation_variance_rmse: float
 
 
 @dataclass(frozen=True)
@@ -192,15 +233,15 @@ def make_xsin_data(config: XSinConfig) -> XSinData:
     train_inputs = jax.random.uniform(
         inputs_key,
         (config.train_size, 1),
-        minval=-6.0,
-        maxval=6.0,
+        minval=config.train_min,
+        maxval=config.train_max,
     )
     train_targets = xsin_mean(train_inputs) + jnp.sqrt(
         xsin_variance(train_inputs)
     ) * jax.random.normal(noise_key, train_inputs.shape)
     evaluation_inputs = jnp.linspace(
-        -6.0,
-        6.0,
+        config.evaluation_min,
+        config.evaluation_max,
         config.evaluation_size,
     ).reshape(-1, 1)
     return XSinData(
@@ -274,6 +315,7 @@ def run_xsin_mve(data: XSinData, config: XSinConfig) -> XSinResult:
         prediction.mean(),
         prediction.variance(),
         data,
+        config,
     )
 
 
@@ -343,6 +385,7 @@ def run_xsin_two_step(
         mean_model(data.evaluation_inputs),
         variance_model(data.evaluation_inputs).mean(),
         data,
+        config,
     )
 
 
@@ -356,15 +399,31 @@ def print_xsin_metrics(method: str, result: XSinResult) -> None:
     print(f"method={method}")
     print(f"mean_rmse={result.mean_rmse:.6f}")
     print(f"aleatoric_variance_rmse={result.variance_rmse:.6f}")
+    print(f"interpolation_mean_rmse={result.interpolation_mean_rmse:.6f}")
+    print(
+        "interpolation_aleatoric_variance_rmse="
+        f"{result.interpolation_variance_rmse:.6f}"
+    )
+    print(f"extrapolation_mean_rmse={result.extrapolation_mean_rmse:.6f}")
+    print(
+        "extrapolation_aleatoric_variance_rmse="
+        f"{result.extrapolation_variance_rmse:.6f}"
+    )
 
 
-def plot_xsin_result(method: str, data: XSinData, result: XSinResult) -> None:
+def plot_xsin_result(
+    method: str,
+    data: XSinData,
+    result: XSinResult,
+    config: XSinConfig,
+) -> None:
     """Show a common interactive mean/aleatoric comparison plot.
 
     Args:
         method: Human-readable method label used in the figure title.
         data: Shared observations and exact benchmark functions.
         result: Predicted mean and aleatoric variance.
+        config: Benchmark domains used to mark extrapolation regions.
     """
     import matplotlib.pyplot as plt
 
@@ -426,6 +485,22 @@ def plot_xsin_result(method: str, data: XSinData, result: XSinResult) -> None:
     variance_axis.set_ylabel("variance")
     variance_axis.legend()
 
+    for axis in (mean_axis, variance_axis):
+        axis.axvline(config.train_min, color="C3", linestyle="--")
+        axis.axvline(config.train_max, color="C3", linestyle="--")
+        axis.axvspan(
+            config.evaluation_min,
+            config.train_min,
+            color="C3",
+            alpha=0.05,
+        )
+        axis.axvspan(
+            config.train_max,
+            config.evaluation_max,
+            color="C3",
+            alpha=0.05,
+        )
+
     figure.suptitle(
         f"{method}: mean RMSE={result.mean_rmse:.4f}, "
         f"variance RMSE={result.variance_rmse:.4f}"
@@ -438,13 +513,32 @@ def _summarize(
     mean: jax.Array,
     variance: jax.Array,
     data: XSinData,
+    config: XSinConfig,
 ) -> XSinResult:
     """Build common RMSE summaries for mean and aleatoric variance."""
-    mean_rmse = float(jnp.sqrt(jnp.mean(jnp.square(mean - data.true_mean))))
-    variance_rmse = float(jnp.sqrt(jnp.mean(jnp.square(variance - data.true_variance))))
+    mean_errors = jnp.square(mean - data.true_mean)
+    variance_errors = jnp.square(variance - data.true_variance)
+    interpolation = (
+        (data.evaluation_inputs > config.train_min)
+        & (data.evaluation_inputs < config.train_max)
+    ).reshape(-1)
+    extrapolation = ~interpolation
     return XSinResult(
         mean=mean,
         variance=variance,
-        mean_rmse=mean_rmse,
-        variance_rmse=variance_rmse,
+        mean_rmse=_masked_rmse(mean_errors, jnp.ones_like(interpolation, dtype=bool)),
+        variance_rmse=_masked_rmse(
+            variance_errors,
+            jnp.ones_like(interpolation, dtype=bool),
+        ),
+        interpolation_mean_rmse=_masked_rmse(mean_errors, interpolation),
+        interpolation_variance_rmse=_masked_rmse(variance_errors, interpolation),
+        extrapolation_mean_rmse=_masked_rmse(mean_errors, extrapolation),
+        extrapolation_variance_rmse=_masked_rmse(variance_errors, extrapolation),
     )
+
+
+def _masked_rmse(errors: jax.Array, mask: jax.Array) -> float:
+    """Return root mean squared error over a one-dimensional boolean mask."""
+    flattened_errors = errors.reshape(-1)
+    return float(jnp.sqrt(jnp.mean(flattened_errors[mask])))
