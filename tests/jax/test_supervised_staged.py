@@ -43,6 +43,11 @@ class LinearModel(nnx.Module):
         return self.linear(inputs)
 
 
+class SqueezedLinearModel(LinearModel):
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        return self.linear(inputs).squeeze(-1)
+
+
 class LogPrediction:
     batch_shape = (2, 1)
     event_shape = ()
@@ -148,6 +153,24 @@ def test_supervised_loss_rejects_mismatched_sample_weight_batch() -> None:
             jax.random.key(0),
             True,
         )
+
+
+def test_supervised_loss_squeezes_column_weights_for_vector_losses() -> None:
+    model = SqueezedLinearModel(rngs=nnx.Rngs(0))
+    model.linear.kernel[...] = 2.0
+    model.linear.bias[...] = 0.0
+    loss = make_supervised_loss(SquaredErrorLoss(), reduction=jnp.sum)
+
+    value = loss(
+        model,
+        jnp.array([[1.0], [2.0]]),
+        jnp.array([1.0, 5.0]),
+        jnp.array([[2.0], [3.0]]),
+        jax.random.key(0),
+        True,
+    )
+
+    assert value == pytest.approx(5.0)
 
 
 def test_gamma_residual_loss_has_finite_gradient_at_zero() -> None:

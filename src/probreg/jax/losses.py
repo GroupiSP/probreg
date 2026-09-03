@@ -76,14 +76,23 @@ def _align_sample_weight(
         raise ValueError(
             "sample_weight and per-example loss must have matching batch sizes."
         )
+    while sample_weight.ndim > per_example.ndim and sample_weight.shape[-1] == 1:
+        sample_weight = jnp.squeeze(sample_weight, axis=-1)
     if sample_weight.ndim == 1 and per_example.ndim > 1:
-        return sample_weight.reshape(
+        sample_weight = sample_weight.reshape(
             (sample_weight.shape[0],) + (1,) * (per_example.ndim - 1)
         )
     try:
-        jax.lax.broadcast_shapes(sample_weight.shape, per_example.shape)
+        broadcast_shape = jax.lax.broadcast_shapes(
+            sample_weight.shape,
+            per_example.shape,
+        )
     except ValueError as error:
         raise ValueError(
             "sample_weight must be broadcastable to the per-example loss shape."
         ) from error
+    if broadcast_shape != per_example.shape:
+        raise ValueError(
+            "sample_weight must not introduce dimensions into per-example losses."
+        )
     return sample_weight
