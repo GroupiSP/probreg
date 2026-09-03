@@ -22,6 +22,7 @@ This document contains information for the agents about general coding guideline
 ## Documentation
 
 - Always add docstrings following the Google style guide (include `Args`, `Returns`, and `Raises` sections).
+- For dataclasses, document the attributes, except those for which `init=False`.
 
 ## Testing
 
