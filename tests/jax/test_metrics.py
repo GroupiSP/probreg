@@ -323,8 +323,10 @@ def test_merge_is_associative_across_batch_partitions(
     first_end: int,
     second_end: int,
 ) -> None:
-    first_end = min(first_end, len(values) - 2)
-    second_end = min(max(second_end, first_end + 1), len(values) - 1)
+max_first_end = len(values) - 2
+first_end = 1 + (first_end - 1) % max_first_end
+max_second_span = len(values) - first_end - 1
+second_end = first_end + 1 + (second_end - 2) % max_second_span
     parts = [
         _part(values[:first_end]),
         _part(values[first_end:second_end]),
