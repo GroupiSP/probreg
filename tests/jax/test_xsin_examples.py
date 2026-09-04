@@ -7,8 +7,10 @@ from pathlib import Path
 
 import jax.numpy as jnp
 
-_BENCHMARK_PATH = Path(__file__).parents[2] / "examples" / "xsin_benchmark.py"
-_SPEC = importlib.util.spec_from_file_location("xsin_benchmark", _BENCHMARK_PATH)
+_BENCHMARK_PATH = (
+    Path(__file__).parents[2] / "examples" / "jax" / "xsin" / "benchmark.py"
+)
+_SPEC = importlib.util.spec_from_file_location("benchmark", _BENCHMARK_PATH)
 if _SPEC is None or _SPEC.loader is None:
     raise RuntimeError("could not load the XSin benchmark module.")
 _BENCHMARK = importlib.util.module_from_spec(_SPEC)

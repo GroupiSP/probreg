@@ -6,10 +6,10 @@ claiming exact reproduction of the paper's reported numerical results.
 
 Run with:
 
-    uv run --extra jax --extra plot python examples/xsin_mve_jax.py
+    uv run --extra jax --extra plot python examples/jax/xsin/mve.py
 """
 
-from xsin_benchmark import (
+from benchmark import (
     XSinConfig,
     make_xsin_data,
     plot_xsin_result,

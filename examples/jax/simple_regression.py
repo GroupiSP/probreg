@@ -16,7 +16,7 @@ This example wires together the pieces exposed by :mod:`probreg.jax` and
 
 Run it with:
 
-    uv run --extra jax python examples/simple_regression_jax.py
+    uv run --extra jax python examples/jax/simple_regression.py
 """
 
 from __future__ import annotations

@@ -23,7 +23,7 @@ loss:
 
 Run it with:
 
-    uv run --extra jax --extra plot python examples/mve_regression_jax.py
+    uv run --extra jax --extra plot python examples/jax/mve_regression.py
 """
 
 from __future__ import annotations
