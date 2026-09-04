@@ -5,6 +5,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from flax import nnx
+from hypothesis import given
+from hypothesis import strategies as st
 
 from probreg.core.metric_registry import (
     ContinuousRankedProbabilityScore,
@@ -300,6 +302,55 @@ def test_merge_handles_unequal_batch_sizes_by_scoring_axis() -> None:
     assert merged.predictive_samples.shape == (3, 3)
     assert merged.interval(0.9).lower.shape == (3,)
     assert merged.evaluation_grid is grid
+
+
+@given(
+    values=st.lists(
+        st.floats(
+            min_value=-1e6,
+            max_value=1e6,
+            allow_nan=False,
+            allow_infinity=False,
+        ),
+        min_size=3,
+        max_size=30,
+    ),
+    first_end=st.integers(min_value=1),
+    second_end=st.integers(min_value=2),
+)
+def test_merge_is_associative_across_batch_partitions(
+    values: list[float],
+    first_end: int,
+    second_end: int,
+) -> None:
+    max_first_end = len(values) - 2
+    first_end = 1 + (first_end - 1) % max_first_end
+    max_second_span = len(values) - first_end - 1
+    second_end = first_end + 1 + (second_end - 2) % max_second_span
+    parts = [
+        _part(values[:first_end]),
+        _part(values[first_end:second_end]),
+        _part(values[second_end:]),
+    ]
+
+    direct = merge_epoch_prediction_data(parts)
+    regrouped = merge_epoch_prediction_data(
+        [merge_epoch_prediction_data(parts[:2]), parts[2]]
+    )
+
+    assert np.array_equal(direct.targets, regrouped.targets)
+    assert np.array_equal(direct.mean, regrouped.mean)
+    assert np.array_equal(direct.variance, regrouped.variance)
+    assert np.array_equal(direct.predictive_samples, regrouped.predictive_samples)
+    assert np.array_equal(direct.coordinate, regrouped.coordinate)
+    assert np.array_equal(
+        direct.interval(0.9).lower,
+        regrouped.interval(0.9).lower,
+    )
+    assert np.array_equal(
+        direct.interval(0.9).upper,
+        regrouped.interval(0.9).upper,
+    )
 
 
 def test_merge_rejects_conflicting_draw_counts_and_grids() -> None:

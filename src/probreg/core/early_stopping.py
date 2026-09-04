@@ -53,6 +53,37 @@ class EarlyStoppingState:
     non_improving_epochs: int = 0
     stopped: bool = False
 
+    def __post_init__(self) -> None:
+        """Validate checkpointable early-stopping state.
+
+        Raises:
+            ValueError: If configuration or observation fields cannot represent
+                a state produced by :class:`EarlyStopper`.
+        """
+        if not self.metric:
+            raise ValueError("metric must be a non-empty string.")
+        if self.patience < 0:
+            raise ValueError("patience must be non-negative.")
+        if not isfinite(self.min_delta) or self.min_delta < 0:
+            raise ValueError("min_delta must be finite and non-negative.")
+        if self.best_score is not None and not isfinite(self.best_score):
+            raise ValueError("best_score must be finite when provided.")
+        if self.best_epoch is not None and self.best_epoch < 0:
+            raise ValueError("best_epoch must be non-negative when provided.")
+        if (self.best_score is None) != (self.best_epoch is None):
+            raise ValueError("best_score and best_epoch must be provided together.")
+        if self.non_improving_epochs < 0:
+            raise ValueError("non_improving_epochs must be non-negative.")
+        if self.best_score is None and self.non_improving_epochs != 0:
+            raise ValueError(
+                "non_improving_epochs must be zero before the first observation."
+            )
+        expected_stopped = self.non_improving_epochs > self.patience
+        if self.stopped is not expected_stopped:
+            raise ValueError(
+                "stopped must indicate whether non-improving epochs exceed patience."
+            )
+
 
 @dataclass(frozen=True)
 class EarlyStoppingDecision:

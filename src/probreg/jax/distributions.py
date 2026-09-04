@@ -170,10 +170,12 @@ class GaussianHead(nnx.Module):
                 scale to keep it strictly positive.
 
         Raises:
-            ValueError: If ``out_features`` is not positive.
+            ValueError: If ``out_features`` or ``eps`` is invalid.
         """
         if out_features <= 0:
             raise ValueError("out_features must be positive.")
+        if not math.isfinite(eps) or eps <= 0.0:
+            raise ValueError("eps must be positive and finite.")
         self.out_features = out_features
         self.eps = eps
         self.linear = nnx.Linear(in_features, 2 * out_features, rngs=rngs)
