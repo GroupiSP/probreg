@@ -6,7 +6,7 @@ gradient coupling present in joint MVE training.
 
 Run with:
 
-    uv run --extra jax --extra plot python examples/xsin_two_steps_jax.py
+    uv run --extra jax --extra plot python examples/jax/xsin/two_steps.py
 """
 
 from benchmark import (

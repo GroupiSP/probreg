@@ -15,8 +15,10 @@ from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import EventSink, TrainingEvent
 from probreg.core.types import Batch, TrainingState
 from probreg.jax import (
+    Gamma,
     GammaHead,
     GammaVarianceStage,
+    Gaussian,
     GaussianHead,
     MeanStage,
     SupervisedStageOptions,
@@ -193,7 +195,7 @@ class XSinGaussianModel(nnx.Module):
         self.backbone = XSinBackbone(hidden_features, rngs=rngs)
         self.head = GaussianHead(hidden_features, 1, rngs=rngs)
 
-    def __call__(self, inputs: jax.Array):
+    def __call__(self, inputs: jax.Array) -> Gaussian:
         return self.head(self.backbone(inputs))
 
 
@@ -204,7 +206,7 @@ class XSinGammaModel(nnx.Module):
         self.backbone = XSinBackbone(hidden_features, rngs=rngs)
         self.head = GammaHead(hidden_features, 1, rngs=rngs)
 
-    def __call__(self, inputs: jax.Array):
+    def __call__(self, inputs: jax.Array) -> Gamma:
         return self.head(self.backbone(inputs))
 
 
