@@ -8,11 +8,14 @@ import zipfile
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
 _CMAPSS_URL = "https://data.nasa.gov/docs/legacy/CMAPSSData.zip"
 _TRAIN_MEMBER = "train_FD001.txt"
+_TEST_MEMBER = "test_FD001.txt"
+_RUL_MEMBER = "RUL_FD001.txt"
 _COLUMN_NAMES = [
     "unit_id",
     "time_cycles",
@@ -33,6 +36,28 @@ def _download_archive(url: str, destination: Path) -> None:
     urllib.request.urlretrieve(url, destination)
 
 
+def _load_member(archive: zipfile.ZipFile, member: str) -> pd.DataFrame:
+    """Read one CMAPSS trajectories member into the selected-column shape.
+
+    Args:
+        archive: Open CMAPSS ZIP archive.
+        member: Name of the whitespace-separated trajectories file to read
+            from the archive.
+
+    Returns:
+        The trajectories with unit ID, time cycle, and the selected sensor
+        columns.
+    """
+    with archive.open(member) as member_data:
+        return pd.read_csv(
+            member_data,
+            sep=r"\s+",
+            header=None,
+            names=_COLUMN_NAMES,
+            usecols=_SELECTED_COLUMNS,
+        )[_SELECTED_COLUMNS]
+
+
 def load_fd001_data() -> pd.DataFrame:
     """Load selected sensor columns from the CMAPSS FD001 training split.
 
@@ -48,17 +73,52 @@ def load_fd001_data() -> pd.DataFrame:
         archive_path = Path(temporary_dir) / "CMAPSSData.zip"
         _download_archive(_CMAPSS_URL, archive_path)
 
+        with zipfile.ZipFile(archive_path) as archive:
+            return _load_member(archive, _TRAIN_MEMBER)
+
+
+def load_fd001_test_data() -> pd.DataFrame:
+    """Load selected sensor columns from the CMAPSS FD001 test split.
+
+    The downloaded archive is stored only for the duration of this function.
+    The returned DataFrame remains available in memory after the temporary
+    directory and archive have been removed.
+
+    Returns:
+        The FD001 truncated test trajectories with unit ID, time cycle, and
+        the selected sensor columns.
+    """
+    with tempfile.TemporaryDirectory(prefix="probreg-cmapss-") as temporary_dir:
+        archive_path = Path(temporary_dir) / "CMAPSSData.zip"
+        _download_archive(_CMAPSS_URL, archive_path)
+
+        with zipfile.ZipFile(archive_path) as archive:
+            return _load_member(archive, _TEST_MEMBER)
+
+
+def load_fd001_test_rul() -> np.ndarray:
+    """Load the ground-truth remaining RUL for each FD001 test unit.
+
+    The downloaded archive is stored only for the duration of this function.
+    Values are returned in the same order as the RUL file's lines, which
+    matches the order in which unit IDs first appear in the FD001 test
+    trajectories.
+
+    Returns:
+        A 1D array of ground-truth remaining useful life values, one per
+        test unit.
+    """
+    with tempfile.TemporaryDirectory(prefix="probreg-cmapss-") as temporary_dir:
+        archive_path = Path(temporary_dir) / "CMAPSSData.zip"
+        _download_archive(_CMAPSS_URL, archive_path)
+
         with (
             zipfile.ZipFile(archive_path) as archive,
-            archive.open(_TRAIN_MEMBER) as training_data,
+            archive.open(_RUL_MEMBER) as rul_data,
         ):
-            return pd.read_csv(
-                training_data,
-                sep=r"\s+",
-                header=None,
-                names=_COLUMN_NAMES,
-                usecols=_SELECTED_COLUMNS,
-            )[_SELECTED_COLUMNS]
+            return pd.read_csv(rul_data, sep=r"\s+", header=None, names=["rul"])[
+                "rul"
+            ].to_numpy(dtype=float)
 
 
 def plot_sensor_data(data: pd.DataFrame) -> None:

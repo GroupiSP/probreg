@@ -35,27 +35,54 @@ def _cmapss_row(unit_id: int, time_cycles: int, sensor_offset: int) -> str:
     return " ".join(str(value) for value in values)
 
 
+def _fake_download_writing_members(
+    monkeypatch: pytest.MonkeyPatch, members: dict[str, str]
+) -> list[Path | None]:
+    """Patch `_DATA._download_archive` to write an in-memory zip.
+
+    Args:
+        monkeypatch: The active monkeypatch fixture.
+        members: Mapping of archive member name to its file contents.
+
+    Returns:
+        A single-element list that receives the downloaded archive's path
+        once the patched function has been called, so callers can assert on
+        cleanup after the archive-consuming call returns.
+    """
+    downloaded_archive: list[Path | None] = [None]
+
+    def fake_download(url: str, destination: Path) -> None:
+        assert url == _DATA._CMAPSS_URL
+        downloaded_archive[0] = destination
+        with zipfile.ZipFile(destination, mode="w") as archive:
+            for member, contents in members.items():
+                archive.writestr(member, contents)
+
+    monkeypatch.setattr(_DATA, "_download_archive", fake_download)
+    return downloaded_archive
+
+
+def _assert_archive_cleaned_up(downloaded_archive: list[Path | None]) -> None:
+    archive_path = downloaded_archive[0]
+    assert archive_path is not None
+    assert not archive_path.exists()
+    assert not archive_path.parent.exists()
+
+
 def test_load_fd001_data_selects_columns_and_removes_temporary_files(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    downloaded_archive: Path | None = None
-
-    def fake_download(url: str, destination: Path) -> None:
-        nonlocal downloaded_archive
-        assert url == _DATA._CMAPSS_URL
-        downloaded_archive = destination
-        with zipfile.ZipFile(destination, mode="w") as archive:
-            archive.writestr(
-                _DATA._TRAIN_MEMBER,
-                "\n".join(
-                    [
-                        _cmapss_row(unit_id=1, time_cycles=1, sensor_offset=100),
-                        _cmapss_row(unit_id=2, time_cycles=3, sensor_offset=200),
-                    ]
-                ),
+    downloaded_archive = _fake_download_writing_members(
+        monkeypatch,
+        {
+            _DATA._TRAIN_MEMBER: "\n".join(
+                [
+                    _cmapss_row(unit_id=1, time_cycles=1, sensor_offset=100),
+                    _cmapss_row(unit_id=2, time_cycles=3, sensor_offset=200),
+                ]
             )
-
-    monkeypatch.setattr(_DATA, "_download_archive", fake_download)
+        },
+    )
 
     data = _DATA.load_fd001_data()
 
@@ -64,9 +91,46 @@ def test_load_fd001_data_selects_columns_and_removes_temporary_files(
     assert data["time_cycles"].tolist() == [1, 3]
     assert data["sensor_11"].tolist() == [111, 211]
     assert data["sensor_17"].tolist() == [117, 217]
-    assert downloaded_archive is not None
-    assert not downloaded_archive.exists()
-    assert not downloaded_archive.parent.exists()
+    _assert_archive_cleaned_up(downloaded_archive)
+
+
+def test_load_fd001_test_data_selects_columns_and_removes_temporary_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloaded_archive = _fake_download_writing_members(
+        monkeypatch,
+        {
+            _DATA._TEST_MEMBER: "\n".join(
+                [
+                    _cmapss_row(unit_id=1, time_cycles=1, sensor_offset=100),
+                    _cmapss_row(unit_id=2, time_cycles=3, sensor_offset=200),
+                ]
+            )
+        },
+    )
+
+    data = _DATA.load_fd001_test_data()
+
+    assert data.columns.tolist() == _DATA._SELECTED_COLUMNS
+    assert data["unit_id"].tolist() == [1, 2]
+    assert data["time_cycles"].tolist() == [1, 3]
+    assert data["sensor_11"].tolist() == [111, 211]
+    assert data["sensor_17"].tolist() == [117, 217]
+    _assert_archive_cleaned_up(downloaded_archive)
+
+
+def test_load_fd001_test_rul_returns_values_in_unit_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloaded_archive = _fake_download_writing_members(
+        monkeypatch, {_DATA._RUL_MEMBER: "112\n98\n45\n"}
+    )
+
+    rul = _DATA.load_fd001_test_rul()
+
+    assert isinstance(rul, _DATA.np.ndarray)
+    assert rul.tolist() == [112.0, 98.0, 45.0]
+    _assert_archive_cleaned_up(downloaded_archive)
 
 
 def test_plot_sensor_data_facets_raw_trajectories(
