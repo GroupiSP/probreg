@@ -204,3 +204,41 @@ def build_windows(
     windows = np.stack(window_arrays, axis=0)
     targets = np.asarray(target_arrays, dtype=float)
     return windows, targets
+
+
+def build_last_windows(
+    data: pd.DataFrame,
+    feature_columns: Sequence[str],
+    *,
+    window_length: int = 30,
+) -> np.ndarray:
+    """Build one trailing window per unit, ending at its last observed cycle.
+
+    Intended for the single-window-per-trajectory test protocol: each
+    (possibly truncated) test trajectory contributes exactly one window,
+    covering its most recent `window_length` cycles, meant to be paired
+    with an externally supplied ground-truth RUL for that unit (e.g. from
+    `RUL_FD001.txt`). Units with fewer than `window_length` cycles are
+    left-padded the same way as `build_windows`.
+
+    Args:
+        data: A DataFrame with `unit_id`, `time_cycles`, and
+            `feature_columns` columns.
+        feature_columns: Names of the columns to use as window channels.
+        window_length: Number of cycles per window.
+
+    Returns:
+        Array of shape `(n_units, window_length, len(feature_columns))`,
+        one window per unit in ascending `unit_id` order.
+    """
+    feature_columns = list(feature_columns)
+    window_arrays: list[np.ndarray] = []
+
+    for unit_id in sorted(data["unit_id"].unique()):
+        unit_data = data[data["unit_id"] == unit_id].sort_values("time_cycles")
+        features = unit_data[feature_columns].to_numpy(dtype=float)
+        if features.shape[0] < window_length:
+            features = _pad_unit_features(unit_id, features, window_length)
+        window_arrays.append(features[-window_length:])
+
+    return np.stack(window_arrays, axis=0)

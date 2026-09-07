@@ -193,3 +193,39 @@ def test_build_windows_concatenates_multiple_units_deterministically() -> None:
     # unit 3: 6 cycles -> 4 windows.
     assert windows.shape == (9, 3, 2)
     assert targets.shape == (9,)
+
+
+def test_build_last_windows_takes_trailing_cycles_per_unit() -> None:
+    data = _synthetic_data()
+    feature_columns = ["sensor_a", "sensor_b"]
+
+    windows = _PREPROCESSING.build_last_windows(data, feature_columns, window_length=3)
+
+    # 3 units -> one trailing window each.
+    assert windows.shape == (3, 3, 2)
+    # unit 1 has cycles 1-5; the trailing window covers cycles 3-5.
+    np.testing.assert_allclose(
+        windows[0], [[103.0, 11.5], [104.0, 12.0], [105.0, 12.5]]
+    )
+    # unit 3 has cycles 1-6; the trailing window covers cycles 4-6.
+    np.testing.assert_allclose(
+        windows[2], [[304.0, 32.0], [305.0, 32.5], [306.0, 33.0]]
+    )
+
+
+def test_build_last_windows_pads_short_trajectory(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    data = pd.DataFrame(
+        {
+            "unit_id": [7, 7],
+            "time_cycles": [1, 2],
+            "sensor_a": [50.0, 60.0],
+        }
+    )
+
+    with caplog.at_level(logging.INFO):
+        windows = _PREPROCESSING.build_last_windows(data, ["sensor_a"], window_length=3)
+
+    assert windows.shape == (1, 3, 1)
+    np.testing.assert_allclose(windows[0], [[50.0], [50.0], [60.0]])
