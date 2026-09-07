@@ -1,5 +1,9 @@
 """Pure preprocessing utilities for CMAPSS-style trajectory DataFrames.
 
+Takes care of standardizing the sensor features and preparing fixed-length
+time windows. Considers left-padding and handling units with fewer rows than
+the window length.
+
 This module has no I/O dependencies and does not import from
 ``examples/jax/cmapss/data.py``. It operates generically on any DataFrame
 with a ``unit_id`` column, a ``time_cycles`` column, and a set of
