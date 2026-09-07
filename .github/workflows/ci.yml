@@ -32,6 +32,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dev dependencies
-        run: uv sync --extra jax --group dev
+        run: uv sync --extra jax --group dev --group example_cmapss
       - name: Run tests
         run: uv run pytest

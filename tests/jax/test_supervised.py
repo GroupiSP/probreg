@@ -30,7 +30,6 @@ from probreg.jax import (
     create_optimizer,
     evaluate_loader,
     initialize_training_state,
-    make_evaluation_step,
     make_supervised_loss,
     make_train_step,
     run_supervised,
@@ -259,19 +258,53 @@ def test_make_train_step_evaluates_batch_metrics_in_inference_mode() -> None:
     assert output["training_flag"] == pytest.approx(0.0)
 
 
-def test_make_evaluation_step_without_registered_metrics_returns_loss_mapping() -> None:
+def test_evaluate_loader_without_registered_metrics_returns_loss_mapping() -> None:
     model, _, state = make_components()
-    evaluation_step = make_evaluation_step(squared_error)
 
     metrics, next_key = evaluate_loader(
         model,
         loader(split="train", epoch=0),
         key=state.rng_state,
-        evaluation_step=evaluation_step,
+        loss=squared_error,
     )
 
     assert set(metrics) == {"loss"}
     assert not bool(jnp.array_equal(next_key, state.rng_state))
+
+
+def test_evaluate_loader_without_loss_omits_loss_and_scores_metrics() -> None:
+    model, _, state = make_components()
+    suite = MetricSuite(
+        batch=(BatchMetricSpec(name="training_flag", metric=training_flag_metric),)
+    )
+
+    metrics, next_key = evaluate_loader(
+        model,
+        loader(split="train", epoch=0),
+        key=state.rng_state,
+        metrics=suite,
+    )
+
+    assert set(metrics) == {"training_flag"}
+    assert metrics["training_flag"] == pytest.approx(0.0)
+    assert not bool(jnp.array_equal(next_key, state.rng_state))
+
+
+def test_evaluate_loader_with_loss_and_metrics_includes_both() -> None:
+    model, _, state = make_components()
+    suite = MetricSuite(
+        batch=(BatchMetricSpec(name="training_flag", metric=training_flag_metric),)
+    )
+
+    metrics, _ = evaluate_loader(
+        model,
+        loader(split="train", epoch=0),
+        key=state.rng_state,
+        metrics=suite,
+        loss=squared_error,
+    )
+
+    assert set(metrics) == {"loss", "training_flag"}
 
 
 def test_training_metric_stopping_saves_best_checkpoint_and_events() -> None:

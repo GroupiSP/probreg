@@ -2,6 +2,16 @@
 
 This document contains information for the agents about general coding guidelines employed in this project.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as GitHub issues in `GroupiSP/probreg`; use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 ## Interactions with the users
 
 - Keep a polite and professional tone.
