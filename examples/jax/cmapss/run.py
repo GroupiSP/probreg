@@ -1,12 +1,21 @@
-"""End-to-end CMAPSS FD001 point-RUL training and evaluation.
+"""End-to-end CMAPSS FD001 two-stage probabilistic RUL training and evaluation.
 
 Loads the FD001 training and test splits, builds standardized sliding
-windows, trains a 1D-CNN mean model through `probreg`'s `MeanStage`
-supervised-runner contract, and reports RMSE against the official FD001
-test split. The test split follows a single-window-per-trajectory
-protocol: one window per test unit, ending at its last observed (possibly
-truncated) cycle, scored against that unit's ground-truth RUL from
-`RUL_FD001.txt`.
+windows, and trains a two-stage probabilistic pipeline through `probreg`'s
+explicit supervised stages:
+
+* Stage 1 trains a deterministic 1D-CNN mean model via `MeanStage`.
+* Stage 2 trains an independently-initialized 1D-CNN Gamma model on the
+  frozen Stage-1 model's squared residuals via `GammaVarianceStage`.
+
+The frozen Stage-1 point prediction and the Stage-2 Gamma mean are then
+combined into a composite `Gaussian` predictive distribution, evaluated
+end to end against the official FD001 test split with `probreg`'s
+`MetricSuite`/`GaussianPredictor`/`evaluate_loader` machinery, reporting
+RMSE, 95% interval coverage, and point-CRPS. The test split follows a
+single-window-per-trajectory protocol: one window per test unit, ending at
+its last observed (possibly truncated) cycle, scored against that unit's
+ground-truth RUL from `RUL_FD001.txt`.
 
 Run it with:
 
@@ -37,7 +46,7 @@ from data import (
     load_fd001_test_data,
     load_fd001_test_rul,
 )
-from model import Cnn1DMeanModel
+from model import Cnn1DGammaModel, Cnn1DMeanModel, CompositeGaussianModel
 from preprocessing import (
     apply_standardization,
     build_last_windows,
@@ -46,16 +55,27 @@ from preprocessing import (
     split_by_unit,
 )
 
-from probreg.core.losses import SquaredErrorLoss
+from probreg.core.losses import NegativeLogLikelihoodLoss, SquaredErrorLoss
+from probreg.core.metric_registry import (
+    EvaluationGrid,
+    IntervalCoverage,
+    PointContinuousRankedProbabilityScore,
+    RootMeanSquaredError,
+)
 from probreg.core.metrics import rmse
 from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import Batch, TrainingState
 from probreg.jax import (
+    GammaVarianceStage,
+    GaussianPredictor,
     HeldOutValidation,
     MeanStage,
+    MetricSuite,
     SupervisedStageOptions,
     create_optimizer,
+    evaluate_loader,
+    make_evaluation_step,
     make_supervised_loss,
 )
 
@@ -71,10 +91,12 @@ class CmapssConfig:
         validation_fraction: Fraction of training units held out for
             validation, grouped by whole unit ID.
         batch_size: Number of windows per mini-batch.
-        hidden_channels: Convolutional channel width of the mean model.
+        hidden_channels: Convolutional channel width of the mean and Gamma
+            models.
         kernel_size: Convolution kernel width along the time axis.
-        learning_rate: Adam learning rate for the mean model.
-        epochs: Number of mean-stage training epochs.
+        learning_rate: Adam learning rate for both stages.
+        mean_epochs: Number of Stage-1 mean-model training epochs.
+        variance_epochs: Number of Stage-2 Gamma-model training epochs.
         seed: Base JAX random seed for splitting, model init, and training.
     """
 
@@ -84,7 +106,8 @@ class CmapssConfig:
     hidden_channels: int = 16
     kernel_size: int = 5
     learning_rate: float = 1e-3
-    epochs: int = 50
+    mean_epochs: int = 50
+    variance_epochs: int = 50
     seed: int = 0
 
     def __post_init__(self) -> None:
@@ -98,8 +121,8 @@ class CmapssConfig:
             raise ValueError("window_length and batch_size must be positive.")
         if self.hidden_channels <= 0 or self.kernel_size <= 0:
             raise ValueError("hidden_channels and kernel_size must be positive.")
-        if self.epochs <= 0:
-            raise ValueError("epochs must be positive.")
+        if self.mean_epochs <= 0 or self.variance_epochs <= 0:
+            raise ValueError("mean_epochs and variance_epochs must be positive.")
         if not 0.0 < self.validation_fraction < 1.0:
             raise ValueError("validation_fraction must be within (0, 1).")
 
@@ -159,7 +182,7 @@ def train_mean_model(
     validation_windows: np.ndarray,
     validation_targets: np.ndarray,
     config: CmapssConfig,
-) -> Cnn1DMeanModel:
+) -> tuple[Cnn1DMeanModel, TrainingState]:
     """Train a 1D-CNN mean model through `MeanStage` on windowed RUL data.
 
     Args:
@@ -172,7 +195,8 @@ def train_mean_model(
         config: Example configuration controlling model size and training.
 
     Returns:
-        The trained `Cnn1DMeanModel`.
+        A tuple of the trained `Cnn1DMeanModel` and the shared staged
+        `TrainingState`, ready for Stage 2 to continue on.
     """
     n_sensors = train_windows.shape[-1]
     model_key, rng_key = jax.random.split(jax.random.key(config.seed))
@@ -197,7 +221,7 @@ def train_mean_model(
         train_loader=train_loader,
         loss=loss,
         options=SupervisedStageOptions(
-            epochs=config.epochs,
+            epochs=config.mean_epochs,
             validation=HeldOutValidation(
                 model=model,
                 loader=validation_loader,
@@ -207,6 +231,58 @@ def train_mean_model(
         ),
     )
     state = TrainingState(rng_state=rng_key)
+    stage.prepare(state)
+    stage.train(state)
+    return model, state
+
+
+def train_gamma_model(
+    mean_model: Cnn1DMeanModel,
+    state: TrainingState,
+    train_windows: np.ndarray,
+    train_targets: np.ndarray,
+    config: CmapssConfig,
+) -> Cnn1DGammaModel:
+    """Train a 1D-CNN Gamma model through `GammaVarianceStage`.
+
+    Consumes the frozen, already-trained Stage-1 mean model's squared
+    residuals on the training split, per `GammaVarianceStage`'s contract.
+
+    Args:
+        mean_model: The trained Stage-1 mean model, registered in `state`.
+        state: The `MEAN_READY` staged training state produced by
+            `train_mean_model`.
+        train_windows: Training sliding windows, shape `(n_train,
+            window_length, n_sensors)`.
+        train_targets: Training RUL targets, shape `(n_train,)`.
+        config: Example configuration controlling model size and training.
+
+    Returns:
+        The trained `Cnn1DGammaModel`.
+    """
+    n_sensors = train_windows.shape[-1]
+    model_key = jax.random.fold_in(jax.random.key(config.seed), 1)
+    model = Cnn1DGammaModel(
+        n_sensors,
+        hidden_channels=config.hidden_channels,
+        kernel_size=config.kernel_size,
+        rngs=nnx.Rngs(model_key),
+    )
+    optimizer = create_optimizer(model, optax.adam(config.learning_rate))
+    train_loader = make_window_loader(
+        train_windows, train_targets, batch_size=config.batch_size
+    )
+
+    stage = GammaVarianceStage(
+        model=model,
+        optimizer=optimizer,
+        source_loader=train_loader,
+        options=SupervisedStageOptions(
+            epochs=config.variance_epochs,
+            event_sinks=[PrintingEventSink()],
+        ),
+        splits=("train",),
+    )
     stage.prepare(state)
     stage.train(state)
     return model
@@ -233,6 +309,68 @@ def evaluate_rmse(
         evaluation_model(jnp.asarray(test_windows, dtype=jnp.float32))
     ).reshape(-1)
     return rmse(test_rul, predictions)
+
+
+def evaluate_composite_metrics(
+    mean_model: Cnn1DMeanModel,
+    variance_model: Cnn1DGammaModel,
+    test_windows: np.ndarray,
+    test_rul: np.ndarray,
+    config: CmapssConfig,
+) -> dict[str, float]:
+    """Evaluate the composite Gaussian predictive model against the test split.
+
+    Combines the frozen Stage-1 mean and Stage-2 Gamma models into a
+    `CompositeGaussianModel` and scores it with `probreg`'s `MetricSuite`,
+    `GaussianPredictor`, and `evaluate_loader`.
+
+    Args:
+        mean_model: The trained Stage-1 mean model.
+        variance_model: The trained Stage-2 Gamma model.
+        test_windows: One trailing window per test unit, shape `(n_units,
+            window_length, n_sensors)`.
+        test_rul: Ground-truth RUL per test unit, shape `(n_units,)`.
+        config: Example configuration controlling the predictive sample
+            count used to approximate point-CRPS.
+
+    Returns:
+        A mapping with `"loss"`, `"rmse"`, `"coverage"`, and `"point_crps"`.
+
+    Raises:
+        ValueError: If `test_rul` has no positive value to size the CRPS
+            evaluation grid against.
+    """
+    grid_upper_bound = float(test_rul.max()) * 1.5
+    if grid_upper_bound <= 0.0:
+        raise ValueError("test_rul must contain at least one positive value.")
+
+    composite = CompositeGaussianModel(nnx.clone(mean_model), nnx.clone(variance_model))
+    composite.eval()
+
+    inputs = jnp.asarray(test_windows, dtype=jnp.float32)
+    targets = jnp.asarray(test_rul, dtype=jnp.float32).reshape(-1, 1)
+    batch = Batch(inputs=inputs, targets=targets)
+
+    metric_suite = MetricSuite(
+        epoch=(
+            RootMeanSquaredError(),
+            IntervalCoverage(level=0.95),
+            PointContinuousRankedProbabilityScore(),
+        ),
+        predictor=GaussianPredictor(),
+        predictive_sample_count=256,
+        evaluation_grid=EvaluationGrid(np.linspace(0.0, grid_upper_bound, 301)),
+    )
+    loss = make_supervised_loss(NegativeLogLikelihoodLoss())
+    evaluation_step = make_evaluation_step(loss, metrics=metric_suite.batch)
+    metrics, _ = evaluate_loader(
+        composite,
+        [batch],
+        key=jax.random.key(config.seed),
+        evaluation_step=evaluation_step,
+        metrics=metric_suite,
+    )
+    return metrics
 
 
 def prepare_cmapss_windows(
@@ -282,7 +420,7 @@ def prepare_cmapss_windows(
 
 
 def main() -> None:
-    """Train the CMAPSS mean model end to end and print the test RMSE."""
+    """Train the two-stage CMAPSS pipeline end to end and print test metrics."""
     config = CmapssConfig()
     (
         train_windows,
@@ -293,15 +431,23 @@ def main() -> None:
         test_rul,
     ) = prepare_cmapss_windows(config)
 
-    model = train_mean_model(
+    mean_model, state = train_mean_model(
         train_windows,
         train_targets,
         validation_windows,
         validation_targets,
         config,
     )
-    test_rmse = evaluate_rmse(model, test_windows, test_rul)
-    print(f"FD001 test RMSE: {test_rmse:.4f}")
+    variance_model = train_gamma_model(
+        mean_model, state, train_windows, train_targets, config
+    )
+
+    metrics = evaluate_composite_metrics(
+        mean_model, variance_model, test_windows, test_rul, config
+    )
+    print(f"FD001 test RMSE: {metrics['rmse']:.4f}")
+    print(f"FD001 test 95% interval coverage: {metrics['coverage']:.4f}")
+    print(f"FD001 test point-CRPS: {metrics['point_crps']:.4f}")
 
 
 if __name__ == "__main__":

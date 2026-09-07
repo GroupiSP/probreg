@@ -47,10 +47,15 @@ def test_train_mean_model_and_evaluate_rmse_end_to_end() -> None:
         rng, n_windows=10, window_length=30, n_sensors=9
     )
     config = _RUN.CmapssConfig(
-        batch_size=16, hidden_channels=4, kernel_size=3, epochs=3, seed=1
+        batch_size=16,
+        hidden_channels=4,
+        kernel_size=3,
+        mean_epochs=3,
+        variance_epochs=3,
+        seed=1,
     )
 
-    model = _RUN.train_mean_model(
+    model, _state = _RUN.train_mean_model(
         train_windows, train_targets, validation_windows, validation_targets, config
     )
     test_rmse = _RUN.evaluate_rmse(model, test_windows, test_rul)
@@ -59,10 +64,50 @@ def test_train_mean_model_and_evaluate_rmse_end_to_end() -> None:
     assert test_rmse >= 0.0
 
 
+def test_train_gamma_model_and_evaluate_composite_metrics_end_to_end() -> None:
+    rng = np.random.default_rng(0)
+    train_windows, train_targets = _synthetic_windows(
+        rng, n_windows=64, window_length=30, n_sensors=9
+    )
+    validation_windows, validation_targets = _synthetic_windows(
+        rng, n_windows=16, window_length=30, n_sensors=9
+    )
+    test_windows, test_rul = _synthetic_windows(
+        rng, n_windows=10, window_length=30, n_sensors=9
+    )
+    config = _RUN.CmapssConfig(
+        batch_size=16,
+        hidden_channels=4,
+        kernel_size=3,
+        mean_epochs=3,
+        variance_epochs=3,
+        seed=1,
+    )
+
+    mean_model, state = _RUN.train_mean_model(
+        train_windows, train_targets, validation_windows, validation_targets, config
+    )
+    variance_model = _RUN.train_gamma_model(
+        mean_model, state, train_windows, train_targets, config
+    )
+    metrics = _RUN.evaluate_composite_metrics(
+        mean_model, variance_model, test_windows, test_rul, config
+    )
+
+    assert math.isfinite(metrics["rmse"])
+    assert math.isfinite(metrics["coverage"])
+    assert math.isfinite(metrics["point_crps"])
+    assert metrics["rmse"] >= 0.0
+    assert 0.0 <= metrics["coverage"] <= 1.0
+    assert metrics["point_crps"] >= 0.0
+
+
 def test_cmapss_config_rejects_invalid_values() -> None:
     with pytest.raises(ValueError, match="window_length and batch_size"):
         _RUN.CmapssConfig(window_length=0)
     with pytest.raises(ValueError, match="validation_fraction"):
         _RUN.CmapssConfig(validation_fraction=1.5)
-    with pytest.raises(ValueError, match="epochs"):
-        _RUN.CmapssConfig(epochs=0)
+    with pytest.raises(ValueError, match="mean_epochs and variance_epochs"):
+        _RUN.CmapssConfig(mean_epochs=0)
+    with pytest.raises(ValueError, match="mean_epochs and variance_epochs"):
+        _RUN.CmapssConfig(variance_epochs=0)

@@ -25,8 +25,16 @@ with one facet per selected sensor and independent sensor scales.
 
 ### `model.py`
 
-Contains the class defining the predictive model that takes the windowed sensor data as input and predicts the RUL of the jet engine units.
+Contains the classes defining the two-stage predictive model: a Stage-1
+deterministic mean model (`Cnn1DMeanModel`), a Stage-2 Gamma residual model
+(`Cnn1DGammaModel`), and a `CompositeGaussianModel` combining the frozen
+Stage-1 point prediction with the Stage-2 Gamma mean into a single Gaussian
+predictive RUL distribution.
 
 ### `run.py`
 
-Contains the script to train and evaluate the predictive model on the CMAPSS dataset, including setting up the data, initializing the model, and running the training and scoring the trained model over the test set.
+Contains the script to train and evaluate the two-stage predictive model on
+the CMAPSS dataset: setting up the data, training the Stage-1 mean model,
+training the Stage-2 Gamma model on the frozen Stage-1 model's residuals,
+and scoring the composite Gaussian model over the test set, reporting RMSE,
+95% interval coverage, and point-CRPS.
