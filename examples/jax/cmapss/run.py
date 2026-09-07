@@ -236,7 +236,6 @@ def train_mean_model(
 
 
 def train_gamma_model(
-    mean_model: Cnn1DMeanModel,
     state: TrainingState,
     train_windows: np.ndarray,
     train_targets: np.ndarray,
@@ -248,7 +247,6 @@ def train_gamma_model(
     residuals on the training split, per `GammaVarianceStage`'s contract.
 
     Args:
-        mean_model: The trained Stage-1 mean model, registered in `state`.
         state: The `MEAN_READY` staged training state produced by
             `train_mean_model`.
         train_windows: Training sliding windows, shape `(n_train,
@@ -414,9 +412,7 @@ def main() -> None:
         validation_targets,
         config,
     )
-    variance_model = train_gamma_model(
-        mean_model, state, train_windows, train_targets, config
-    )
+    variance_model = train_gamma_model(state, train_windows, train_targets, config)
 
     metrics = evaluate_composite_metrics(
         mean_model, variance_model, test_windows, test_rul, config
