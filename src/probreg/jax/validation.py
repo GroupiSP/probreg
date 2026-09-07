@@ -9,11 +9,7 @@ from flax import nnx
 
 from probreg.core.protocols import LoaderFactory
 from probreg.core.types import TrainingState, ValidationResult
-from probreg.jax.evaluation import (
-    SupervisedLoss,
-    evaluate_loader,
-    make_evaluation_step,
-)
+from probreg.jax.evaluation import SupervisedLoss, evaluate_loader
 from probreg.jax.metrics import MetricSuite
 
 
@@ -62,8 +58,8 @@ class HeldOutValidation:
             self.model,
             self.loader(split="validation", epoch=epoch),
             key=state.rng_state,
-            evaluation_step=make_evaluation_step(self.loss, metrics=self.metrics.batch),
             metrics=self.metrics,
+            loss=self.loss,
         )
         return ValidationResult(
             passed=True,

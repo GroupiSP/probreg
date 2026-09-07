@@ -549,12 +549,17 @@ def collect_step_metrics(
     step_output: Mapping[str, Any],
     *,
     metrics: Sequence[BatchMetricSpec],
-    losses: list[float],
+    losses: list[float] | None,
     batch_metric_values: dict[str, list[float]],
     context: str,
 ) -> None:
-    """Append one step's loss and registered batch metrics."""
-    losses.append(float(step_output["loss"]))
+    """Append one step's loss and registered batch metrics.
+
+    Passing ``losses=None`` collects only the registered batch metrics, for
+    steps that compute no loss at all.
+    """
+    if losses is not None:
+        losses.append(float(step_output["loss"]))
     for spec in metrics:
         if spec.name not in step_output:
             raise ValueError(
@@ -587,12 +592,19 @@ def maybe_collect_epoch_prediction_data(
 def reduce_metric_suite(
     *,
     suite: MetricSuite,
-    losses: Sequence[float],
+    losses: Sequence[float] | None,
     batch_metric_values: Mapping[str, Sequence[float]],
     epoch_metric_parts: Sequence[EpochPredictionData] | None,
 ) -> dict[str, float]:
-    """Reduce accumulated batch and typed epoch metrics into one mapping."""
-    reduced: dict[str, float] = {"loss": _finite_float("loss", _metric_mean(losses))}
+    """Reduce accumulated batch and typed epoch metrics into one mapping.
+
+    Passing ``losses=None`` omits the ``"loss"`` key entirely, for
+    evaluations that compute no loss. This is distinct from an empty
+    sequence, which means a loss was requested but no batch produced one.
+    """
+    reduced: dict[str, float] = {}
+    if losses is not None:
+        reduced["loss"] = _finite_float("loss", _metric_mean(losses))
     for spec in suite.batch:
         reduced[spec.name] = _finite_float(
             spec.name, spec.reduce(batch_metric_values[spec.name])

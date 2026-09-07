@@ -103,32 +103,62 @@ def make_evaluation_step(
     return evaluate_step
 
 
+def _make_metrics_step(
+    metrics: Sequence[BatchMetricSpec] = (),
+) -> Callable[..., Mapping[str, jax.Array]]:
+    """Create a JIT-compiled NNX evaluation step that computes no loss."""
+
+    @nnx.jit
+    def metrics_step(
+        model: nnx.Module,
+        inputs: PyTree,
+        targets: jax.Array,
+        sample_weight: jax.Array | None,
+        key: jax.Array,
+    ) -> Mapping[str, jax.Array]:
+        return {
+            spec.name: spec.metric(model, inputs, targets, sample_weight, key, False)
+            for spec in metrics
+        }
+
+    return metrics_step
+
+
 def evaluate_loader(
     model: nnx.Module,
     loader: Iterable[Batch],
     *,
     key: jax.Array,
-    evaluation_step: Callable[..., Mapping[str, jax.Array]],
     metrics: MetricSuite | None = None,
+    loss: SupervisedLoss | None = None,
 ) -> tuple[dict[str, float], jax.Array]:
     """Evaluate a loader and return reduced metrics and the advanced random key.
+
+    The evaluation step is built here from ``metrics`` and ``loss``, so a
+    caller that only wants to score a loader against metrics need not
+    invent a loss to do it.
 
     Args:
         model: The NNX module to evaluate.
         loader: An iterable of batches to evaluate.
         key: The JAX PRNG key to use, advanced once per batch.
-        evaluation_step: The JIT-compiled evaluation step, e.g. one
-            created by :func:`make_evaluation_step`.
-        metrics: Optional registered batch/epoch metrics for evaluation. When
-            omitted, only loss is collected.
+        metrics: Optional registered batch/epoch metrics for evaluation.
+            When omitted, no metrics are collected.
+        loss: Optional supervised loss to average across batches. When
+            omitted, the returned mapping has no ``"loss"`` key.
 
     Returns:
-        A tuple ``(metrics, key)`` where ``metrics`` contains ``"loss"``
-        plus any registered metrics, and ``key`` is advanced past all
-        consumed batches.
+        A tuple ``(metrics, key)`` where ``metrics`` contains the
+        registered metrics plus ``"loss"`` if ``loss`` was given, and
+        ``key`` is advanced past all consumed batches.
     """
     metric_suite = metrics if metrics is not None else MetricSuite()
-    losses: list[float] = []
+    evaluation_step = (
+        _make_metrics_step(metric_suite.batch)
+        if loss is None
+        else make_evaluation_step(loss, metrics=metric_suite.batch)
+    )
+    losses: list[float] | None = None if loss is None else []
     batch_metric_values = initialize_batch_metric_values(metric_suite.batch)
     epoch_metric_parts = [] if metric_suite.epoch else None
 
