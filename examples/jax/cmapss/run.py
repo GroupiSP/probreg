@@ -32,9 +32,13 @@ _MODULE_DIR = Path(__file__).resolve().parent
 if str(_MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(_MODULE_DIR))
 
-from data import load_fd001_data, load_fd001_test_data, load_fd001_test_rul  # noqa: E402
-from model import Cnn1DMeanModel  # noqa: E402
-from preprocessing import (  # noqa: E402
+from data import (
+    load_fd001_data,
+    load_fd001_test_data,
+    load_fd001_test_rul,
+)
+from model import Cnn1DMeanModel
+from preprocessing import (
     apply_standardization,
     build_last_windows,
     build_windows,
@@ -80,7 +84,7 @@ class CmapssConfig:
     hidden_channels: int = 16
     kernel_size: int = 5
     learning_rate: float = 1e-3
-    epochs: int = 20
+    epochs: int = 50
     seed: int = 0
 
     def __post_init__(self) -> None:
