@@ -23,6 +23,15 @@ sys.modules[_SPEC.name] = _DATA
 _SPEC.loader.exec_module(_DATA)
 
 
+@pytest.fixture(autouse=True)
+def isolated_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Point the archive cache at a per-test directory, never the real one."""
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setenv(_DATA._CACHE_DIR_ENV_VAR, str(cache_dir))
+    monkeypatch.delenv(_DATA._ARCHIVE_OVERRIDE_ENV_VAR, raising=False)
+    return cache_dir
+
+
 def _cmapss_row(unit_id: int, time_cycles: int, sensor_offset: int) -> str:
     values = [
         unit_id,
@@ -35,44 +44,40 @@ def _cmapss_row(unit_id: int, time_cycles: int, sensor_offset: int) -> str:
     return " ".join(str(value) for value in values)
 
 
-def _fake_download_writing_members(
+def _write_archive(destination: Path, members: dict[str, str]) -> None:
+    with zipfile.ZipFile(destination, mode="w") as archive:
+        for member, contents in members.items():
+            archive.writestr(member, contents)
+
+
+def _fake_urlretrieve_writing_members(
     monkeypatch: pytest.MonkeyPatch, members: dict[str, str]
-) -> list[Path | None]:
-    """Patch `_DATA._download_archive` to write an in-memory zip.
+) -> list[int]:
+    """Patch `urllib.request.urlretrieve` to write an in-memory zip.
 
     Args:
         monkeypatch: The active monkeypatch fixture.
         members: Mapping of archive member name to its file contents.
 
     Returns:
-        A single-element list that receives the downloaded archive's path
-        once the patched function has been called, so callers can assert on
-        cleanup after the archive-consuming call returns.
+        A single-element list tracking how many times the fake download
+        was invoked, so callers can assert on caching/retry behavior.
     """
-    downloaded_archive: list[Path | None] = [None]
+    call_count = [0]
 
-    def fake_download(url: str, destination: Path) -> None:
+    def fake_urlretrieve(url: str, destination: str) -> None:
         assert url == _DATA._CMAPSS_URL
-        downloaded_archive[0] = destination
-        with zipfile.ZipFile(destination, mode="w") as archive:
-            for member, contents in members.items():
-                archive.writestr(member, contents)
+        call_count[0] += 1
+        _write_archive(Path(destination), members)
 
-    monkeypatch.setattr(_DATA, "_download_archive", fake_download)
-    return downloaded_archive
+    monkeypatch.setattr(_DATA.urllib.request, "urlretrieve", fake_urlretrieve)
+    return call_count
 
 
-def _assert_archive_cleaned_up(downloaded_archive: list[Path | None]) -> None:
-    archive_path = downloaded_archive[0]
-    assert archive_path is not None
-    assert not archive_path.exists()
-    assert not archive_path.parent.exists()
-
-
-def test_load_fd001_data_selects_columns_and_removes_temporary_files(
-    monkeypatch: pytest.MonkeyPatch,
+def test_load_fd001_data_selects_columns_and_caches_archive(
+    monkeypatch: pytest.MonkeyPatch, isolated_cache: Path
 ) -> None:
-    downloaded_archive = _fake_download_writing_members(
+    _fake_urlretrieve_writing_members(
         monkeypatch,
         {
             _DATA._TRAIN_MEMBER: "\n".join(
@@ -91,13 +96,11 @@ def test_load_fd001_data_selects_columns_and_removes_temporary_files(
     assert data["time_cycles"].tolist() == [1, 3]
     assert data["sensor_11"].tolist() == [111, 211]
     assert data["sensor_17"].tolist() == [117, 217]
-    _assert_archive_cleaned_up(downloaded_archive)
+    assert (isolated_cache / _DATA._CACHED_ARCHIVE_NAME).is_file()
 
 
-def test_load_fd001_test_data_selects_columns_and_removes_temporary_files(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    downloaded_archive = _fake_download_writing_members(
+def test_load_fd001_test_data_selects_columns(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_urlretrieve_writing_members(
         monkeypatch,
         {
             _DATA._TEST_MEMBER: "\n".join(
@@ -116,21 +119,171 @@ def test_load_fd001_test_data_selects_columns_and_removes_temporary_files(
     assert data["time_cycles"].tolist() == [1, 3]
     assert data["sensor_11"].tolist() == [111, 211]
     assert data["sensor_17"].tolist() == [117, 217]
-    _assert_archive_cleaned_up(downloaded_archive)
 
 
 def test_load_fd001_test_rul_returns_values_in_unit_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    downloaded_archive = _fake_download_writing_members(
-        monkeypatch, {_DATA._RUL_MEMBER: "112\n98\n45\n"}
-    )
+    _fake_urlretrieve_writing_members(monkeypatch, {_DATA._RUL_MEMBER: "112\n98\n45\n"})
 
     rul = _DATA.load_fd001_test_rul()
 
     assert isinstance(rul, _DATA.np.ndarray)
     assert rul.tolist() == [112.0, 98.0, 45.0]
-    _assert_archive_cleaned_up(downloaded_archive)
+
+
+def test_second_load_reuses_cache_without_redownloading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_count = _fake_urlretrieve_writing_members(
+        monkeypatch, {_DATA._TRAIN_MEMBER: _cmapss_row(1, 1, 100)}
+    )
+
+    _DATA.load_fd001_data()
+    _DATA.load_fd001_data()
+
+    assert call_count[0] == 1
+
+
+def test_download_retries_transient_failures_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_DATA.time, "sleep", lambda _seconds: None)
+    attempts = [0]
+
+    def flaky_urlretrieve(url: str, destination: str) -> None:
+        attempts[0] += 1
+        if attempts[0] < _DATA._DOWNLOAD_ATTEMPTS:
+            raise OSError("transient failure")
+        _write_archive(Path(destination), {_DATA._TRAIN_MEMBER: _cmapss_row(1, 1, 100)})
+
+    monkeypatch.setattr(_DATA.urllib.request, "urlretrieve", flaky_urlretrieve)
+
+    data = _DATA.load_fd001_data()
+
+    assert attempts[0] == _DATA._DOWNLOAD_ATTEMPTS
+    assert data["unit_id"].tolist() == [1]
+
+
+def test_download_raises_after_exhausting_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_DATA.time, "sleep", lambda _seconds: None)
+
+    def always_fails(url: str, destination: str) -> None:
+        raise OSError("permanently unreachable")
+
+    monkeypatch.setattr(_DATA.urllib.request, "urlretrieve", always_fails)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _DATA.load_fd001_data()
+
+    assert _DATA._ARCHIVE_OVERRIDE_ENV_VAR in str(excinfo.value)
+
+
+def test_corrupt_download_is_retried_and_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_DATA.time, "sleep", lambda _seconds: None)
+
+    def writes_garbage(url: str, destination: str) -> None:
+        Path(destination).write_bytes(b"not a zip file")
+
+    monkeypatch.setattr(_DATA.urllib.request, "urlretrieve", writes_garbage)
+
+    with pytest.raises(RuntimeError, match="corrupt"):
+        _DATA.load_fd001_data()
+
+
+def test_corrupt_cached_archive_is_redownloaded(
+    monkeypatch: pytest.MonkeyPatch, isolated_cache: Path
+) -> None:
+    isolated_cache.mkdir(parents=True)
+    (isolated_cache / _DATA._CACHED_ARCHIVE_NAME).write_bytes(b"not a zip file")
+    call_count = _fake_urlretrieve_writing_members(
+        monkeypatch, {_DATA._TRAIN_MEMBER: _cmapss_row(1, 1, 100)}
+    )
+
+    data = _DATA.load_fd001_data()
+
+    assert call_count[0] == 1
+    assert data["unit_id"].tolist() == [1]
+
+
+def test_archive_override_env_var_bypasses_download(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    override_path = tmp_path / "manual" / "CMAPSSData.zip"
+    override_path.parent.mkdir()
+    _write_archive(override_path, {_DATA._TRAIN_MEMBER: _cmapss_row(1, 1, 100)})
+    monkeypatch.setenv(_DATA._ARCHIVE_OVERRIDE_ENV_VAR, str(override_path))
+
+    def fails_if_called(url: str, destination: str) -> None:
+        raise AssertionError("network download should not be attempted")
+
+    monkeypatch.setattr(_DATA.urllib.request, "urlretrieve", fails_if_called)
+
+    data = _DATA.load_fd001_data()
+
+    assert data["unit_id"].tolist() == [1]
+
+
+def test_archive_override_parameter_bypasses_download(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    override_path = tmp_path / "manual" / "CMAPSSData.zip"
+    override_path.parent.mkdir()
+    _write_archive(override_path, {_DATA._TRAIN_MEMBER: _cmapss_row(1, 1, 100)})
+
+    def fails_if_called(url: str, destination: str) -> None:
+        raise AssertionError("network download should not be attempted")
+
+    monkeypatch.setattr(_DATA.urllib.request, "urlretrieve", fails_if_called)
+
+    data = _DATA.load_fd001_data(archive_override=override_path)
+
+    assert data["unit_id"].tolist() == [1]
+
+
+def test_invalid_archive_override_raises(tmp_path: Path) -> None:
+    override_path = tmp_path / "not_a_zip.zip"
+    override_path.write_bytes(b"not a zip file")
+
+    with pytest.raises(RuntimeError, match="not a valid zip"):
+        _DATA.load_fd001_data(archive_override=override_path)
+
+
+def test_default_cache_dir_honors_xdg_cache_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    assert _DATA._default_cache_dir() == tmp_path / "probreg-cmapss"
+
+
+def test_default_cache_dir_falls_back_to_home_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    monkeypatch.setattr(_DATA.Path, "home", classmethod(lambda cls: tmp_path))
+
+    assert _DATA._default_cache_dir() == tmp_path / ".cache" / "probreg-cmapss"
+
+
+def test_main_fetch_only_populates_cache_without_plotting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fake_urlretrieve_writing_members(
+        monkeypatch, {_DATA._TRAIN_MEMBER: _cmapss_row(1, 1, 100)}
+    )
+    monkeypatch.setattr(sys, "argv", ["data.py", "--fetch"])
+
+    def fails_if_called(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("plotting should not happen with --fetch")
+
+    monkeypatch.setattr(_DATA, "plot_sensor_data", fails_if_called)
+
+    _DATA.main()
 
 
 def test_plot_sensor_data_facets_raw_trajectories(
