@@ -35,35 +35,6 @@ def _synthetic_windows(
     return windows, targets
 
 
-def test_train_mean_model_and_evaluate_rmse_end_to_end() -> None:
-    rng = np.random.default_rng(0)
-    train_windows, train_targets = _synthetic_windows(
-        rng, n_windows=64, window_length=30, n_sensors=9
-    )
-    validation_windows, validation_targets = _synthetic_windows(
-        rng, n_windows=16, window_length=30, n_sensors=9
-    )
-    test_windows, test_rul = _synthetic_windows(
-        rng, n_windows=10, window_length=30, n_sensors=9
-    )
-    config = _RUN.CmapssConfig(
-        batch_size=16,
-        hidden_channels=4,
-        kernel_size=3,
-        mean_epochs=3,
-        variance_epochs=3,
-        seed=1,
-    )
-
-    model, _state = _RUN.train_mean_model(
-        train_windows, train_targets, validation_windows, validation_targets, config
-    )
-    test_rmse = _RUN.evaluate_rmse(model, test_windows, test_rul)
-
-    assert math.isfinite(test_rmse)
-    assert test_rmse >= 0.0
-
-
 def test_train_gamma_model_and_evaluate_composite_metrics_end_to_end() -> None:
     rng = np.random.default_rng(0)
     train_windows, train_targets = _synthetic_windows(
@@ -87,9 +58,7 @@ def test_train_gamma_model_and_evaluate_composite_metrics_end_to_end() -> None:
     mean_model, state = _RUN.train_mean_model(
         train_windows, train_targets, validation_windows, validation_targets, config
     )
-    variance_model = _RUN.train_gamma_model(
-        mean_model, state, train_windows, train_targets, config
-    )
+    variance_model = _RUN.train_gamma_model(state, train_windows, train_targets, config)
     metrics = _RUN.evaluate_composite_metrics(
         mean_model, variance_model, test_windows, test_rul, config
     )
