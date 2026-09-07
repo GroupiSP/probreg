@@ -10,6 +10,10 @@ Run this module directly to pre-fetch the archive into the cache without
 loading or plotting anything:
 
     uv run --group example-cmapss python examples/jax/cmapss/data.py --fetch
+
+To just plot the sensor trajectories, run:
+
+    uv run --group example-cmapss python examples/jax/cmapss/data.py
 """
 
 from __future__ import annotations
