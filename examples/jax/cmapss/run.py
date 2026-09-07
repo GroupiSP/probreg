@@ -62,7 +62,6 @@ from probreg.core.metric_registry import (
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
-from probreg.core.metrics import rmse
 from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import Batch, TrainingState
@@ -286,29 +285,6 @@ def train_gamma_model(
     stage.prepare(state)
     stage.train(state)
     return model
-
-
-def evaluate_rmse(
-    model: Cnn1DMeanModel, test_windows: np.ndarray, test_rul: np.ndarray
-) -> float:
-    """Compute RMSE of the trained model's point RUL predictions.
-
-    Args:
-        model: A trained mean model producing shape `(batch, 1)`
-            predictions.
-        test_windows: One trailing window per test unit, shape `(n_units,
-            window_length, n_sensors)`.
-        test_rul: Ground-truth RUL per test unit, shape `(n_units,)`.
-
-    Returns:
-        The root mean squared error between predicted and true RUL.
-    """
-    evaluation_model = nnx.clone(model)
-    evaluation_model.eval()
-    predictions = jax.device_get(
-        evaluation_model(jnp.asarray(test_windows, dtype=jnp.float32))
-    ).reshape(-1)
-    return rmse(test_rul, predictions)
 
 
 def evaluate_composite_metrics(
