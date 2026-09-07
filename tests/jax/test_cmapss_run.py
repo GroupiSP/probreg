@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-jax = pytest.importorskip("jax")
+pytest.importorskip("jax")
 pytest.importorskip("flax.nnx")
 pytest.importorskip("optax")
 
@@ -52,6 +52,7 @@ def test_train_gamma_model_and_evaluate_composite_metrics_end_to_end() -> None:
         kernel_size=3,
         mean_epochs=3,
         variance_epochs=3,
+        predictive_sample_count=32,
         seed=1,
     )
 
@@ -63,6 +64,7 @@ def test_train_gamma_model_and_evaluate_composite_metrics_end_to_end() -> None:
         mean_model, variance_model, test_windows, test_rul, config
     )
 
+    assert "loss" not in metrics
     assert math.isfinite(metrics["rmse"])
     assert math.isfinite(metrics["coverage"])
     assert math.isfinite(metrics["point_crps"])
@@ -80,3 +82,5 @@ def test_cmapss_config_rejects_invalid_values() -> None:
         _RUN.CmapssConfig(mean_epochs=0)
     with pytest.raises(ValueError, match="mean_epochs and variance_epochs"):
         _RUN.CmapssConfig(variance_epochs=0)
+    with pytest.raises(ValueError, match="predictive_sample_count"):
+        _RUN.CmapssConfig(predictive_sample_count=0)

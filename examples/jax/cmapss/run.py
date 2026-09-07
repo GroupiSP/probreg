@@ -55,7 +55,7 @@ from preprocessing import (
     split_by_unit,
 )
 
-from probreg.core.losses import NegativeLogLikelihoodLoss, SquaredErrorLoss
+from probreg.core.losses import SquaredErrorLoss
 from probreg.core.metric_registry import (
     EvaluationGrid,
     IntervalCoverage,
@@ -74,7 +74,6 @@ from probreg.jax import (
     SupervisedStageOptions,
     create_optimizer,
     evaluate_loader,
-    make_evaluation_step,
     make_supervised_loss,
 )
 
@@ -96,6 +95,8 @@ class CmapssConfig:
         learning_rate: Adam learning rate for both stages.
         mean_epochs: Number of Stage-1 mean-model training epochs.
         variance_epochs: Number of Stage-2 Gamma-model training epochs.
+        predictive_sample_count: Number of predictive draws per test window
+            used to approximate point-CRPS.
         seed: Base JAX random seed for splitting, model init, and training.
     """
 
@@ -107,6 +108,7 @@ class CmapssConfig:
     learning_rate: float = 1e-3
     mean_epochs: int = 50
     variance_epochs: int = 50
+    predictive_sample_count: int = 256
     seed: int = 0
 
     def __post_init__(self) -> None:
@@ -122,6 +124,8 @@ class CmapssConfig:
             raise ValueError("hidden_channels and kernel_size must be positive.")
         if self.mean_epochs <= 0 or self.variance_epochs <= 0:
             raise ValueError("mean_epochs and variance_epochs must be positive.")
+        if self.predictive_sample_count <= 0:
+            raise ValueError("predictive_sample_count must be positive.")
         if not 0.0 < self.validation_fraction < 1.0:
             raise ValueError("validation_fraction must be within (0, 1).")
 
@@ -307,8 +311,11 @@ def evaluate_composite_metrics(
         config: Example configuration controlling the predictive sample
             count used to approximate point-CRPS.
 
+    No loss is computed: the composite model is scored against the metric
+    suite alone.
+
     Returns:
-        A mapping with `"loss"`, `"rmse"`, `"coverage"`, and `"point_crps"`.
+        A mapping with `"rmse"`, `"coverage"`, and `"point_crps"`.
 
     Raises:
         ValueError: If `test_rul` has no positive value to size the CRPS
@@ -332,16 +339,13 @@ def evaluate_composite_metrics(
             PointContinuousRankedProbabilityScore(),
         ),
         predictor=GaussianPredictor(),
-        predictive_sample_count=256,
+        predictive_sample_count=config.predictive_sample_count,
         evaluation_grid=EvaluationGrid(np.linspace(0.0, grid_upper_bound, 301)),
     )
-    loss = make_supervised_loss(NegativeLogLikelihoodLoss())
-    evaluation_step = make_evaluation_step(loss, metrics=metric_suite.batch)
     metrics, _ = evaluate_loader(
         composite,
         [batch],
         key=jax.random.key(config.seed),
-        evaluation_step=evaluation_step,
         metrics=metric_suite,
     )
     return metrics
