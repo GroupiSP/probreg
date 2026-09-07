@@ -34,7 +34,19 @@ predictive RUL distribution.
 ### `run.py`
 
 Contains the script to train and evaluate the two-stage predictive model on
-the CMAPSS dataset: setting up the data, training the Stage-1 mean model,
-training the Stage-2 Gamma model on the frozen Stage-1 model's residuals,
-and scoring the composite Gaussian model over the test set, reporting RMSE,
-95% interval coverage, and point-CRPS.
+the CMAPSS dataset end to end: loading the FD001 train/test splits,
+standardizing and windowing them, training the Stage-1 mean model, training
+the Stage-2 Gamma model on the frozen Stage-1 model's squared residuals, and
+scoring the composite Gaussian model against the official FD001 test split
+(`RUL_FD001.txt`), one window per test unit ending at its last observed
+cycle.
+
+Run it with:
+
+```shell
+uv run --group example-cmapss python examples/jax/cmapss/run.py
+```
+
+The script prints per-epoch training metrics for both stages, followed by
+the final test-set metrics: RMSE, 95% predictive-interval coverage, and
+point-CRPS.

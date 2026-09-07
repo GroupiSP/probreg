@@ -54,4 +54,4 @@ reportUnusedVariable = false
 
 [tool.ruff.lint.per-file-ignores]
 "examples/jax/cmapss/*.py" = ["E402"]
-"tests/jax/cmapss/*.py" = ["E402"]
+"tests/jax/test_cmapss_*.py" = ["E402"]
