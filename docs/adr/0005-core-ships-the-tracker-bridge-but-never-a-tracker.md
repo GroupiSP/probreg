@@ -1,0 +1,15 @@
+# Core ships the bridge to experiment trackers, never a tracker
+
+`probreg.core` declares `TrainingEvent`, `EventSink` and `ExperimentTracker`, and it now also ships `TrackerEventSink`, the adapter that turns the events a runner emits into the `log_metrics` calls a tracker understands. That adapter is the whole of the library's tracking support: it names the tag scheme, it decides that the stage segment is unconditional, and it fixes which of the tracker's three methods a training event can drive. Every concrete tracker stays outside the library, in an example a user copies — the TensorBoard tracker under the tracking example is the first of them.
+
+The split follows what is actually reusable. The translation from an event to a tracker record is the same for every destination, and getting it wrong is expensive in a way a user cannot see: a stage-blind tag silently overwrites one stage's curve with another's. Writing a scalar to TensorBoard, MLflow or Weights & Biases, by contrast, is a handful of vendor-specific lines whose value is mostly in being visible and editable. So the library owns the part that carries a decision, and the part that carries a dependency lives where a dependency is cheap. `TrackerEventSink` imports nothing beyond the core modules, which keeps the "probreg depends on no tracker" property true by construction rather than by policy.
+
+## Considered Options
+
+- **A `probreg.trackers` package behind optional extras.** Rejected: every tracker added is a dependency-matrix entry, a version-drift liability and a support surface, for code whose vendor-specific part is thin. The library's value here is the seam, not the integrations.
+- **A tracker-shaped project extra** (`probreg[tensorboard]`). Rejected for the same reason, and because `pyproject.toml` already draws the line the other way: backend and plotting capabilities are extras, example-only tooling is a dependency group. An extra would advertise the TensorBoard code as library-adjacent, which is the impression to avoid.
+- **Protocols with no adapter**, leaving the bridge to each user. Rejected: that is the state this work set out to fix. `ExperimentTracker` had no caller anywhere in the repository, so a reader could not tell whether the library would call it or they were meant to, and every user would rediscover — and re-decide — the same event translation, each free to omit the stage segment.
+
+## Consequences
+
+A user integrating a tracker implements three methods and passes `TrackerEventSink(tracker)` to a runner; nothing else. Because the adapter never calls anything tracker-specific, `log_params` and `log_artifact` stay caller-driven — no training event carries hyperparameters or figures — so a tracked script still calls them itself, before and after the run. And because the trackers live in examples, a user of a tracker probreg has no example for gets no starting point beyond the TensorBoard one; that is accepted, since the file to rewrite is deliberately small and self-contained.

@@ -1,8 +1,28 @@
-# CMAPSS Example
+# probreg
 
-The NASA CMAPSS FD001 remaining-useful-life example pipeline (`examples/jax/cmapss/`): obtaining the dataset — fetching it from NASA's servers, keeping a local copy, and letting a user supply their own copy when the network can't be trusted — and the language used to describe the targets the models predict and the curves that visualize them.
+The shared vocabulary of this repository: the language of a training run and of recording one with an experiment tracker, which the library itself declares, and the language of the NASA CMAPSS FD001 remaining-useful-life example — obtaining the dataset, and describing the targets the models predict and the curves that visualize them.
 
-## Language
+One section per area. A term belongs in the training-and-tracking section when the library uses it, and in the CMAPSS section when only that example does.
+
+## Training and tracking
+
+**Training event**:
+A structured observation emitted at a named point in a stage's lifecycle, carrying that stage's metrics and the live training state. Not a log line: it has no format, and what it means is decided by whoever consumes it.
+_Avoid_: Log record, message
+
+**Event sink**:
+A consumer notified of every training event. Passive: it observes a run and cannot alter it, so a runner never waits on what a sink returns.
+_Avoid_: Callback (implies the runner awaits a decision), logger, hook
+
+**Experiment tracker**:
+A destination that records parameters, metrics and artifacts for one run. Ignorant of probreg's event model: it is told what to record, never when a run reaches a point of interest.
+_Avoid_: Logger, writer, backend
+
+**Run**:
+One execution of a training script, and the unit a tracker groups its records under. One tracked run maps to one TensorBoard run directory.
+_Avoid_: Experiment (a set of runs), trial
+
+## CMAPSS example
 
 **Archive cache**:
 The persistent, on-disk copy of the downloaded CMAPSS zip, kept across process runs so the dataset is fetched from NASA at most once rather than once per loader call or per run.
