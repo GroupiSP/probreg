@@ -48,7 +48,13 @@ from probreg.core.protocols import (
     ValidationStrategy,
 )
 from probreg.core.stages import StageState, TrainingStage, validate_transition
-from probreg.core.tracking import EventSink, ExperimentTracker, TrainingEvent
+from probreg.core.tracking import (
+    DEFAULT_EVENT_PREFIXES,
+    EventSink,
+    ExperimentTracker,
+    TrackerEventSink,
+    TrainingEvent,
+)
 from probreg.core.types import (
     Array,
     Batch,
@@ -61,6 +67,7 @@ from probreg.core.types import (
 )
 
 __all__ = [
+    "DEFAULT_EVENT_PREFIXES",
     "Array",
     "Batch",
     "BetaNLLLoss",
@@ -101,6 +108,7 @@ __all__ = [
     "StageResult",
     "StageState",
     "Step",
+    "TrackerEventSink",
     "TrainingEvent",
     "TrainingStage",
     "TrainingState",
