@@ -53,6 +53,21 @@ deterministic mean model (`Cnn1DMeanModel`), a Stage-2 Gamma residual model
 Stage-1 point prediction with the Stage-2 Gamma mean into a single Gaussian
 predictive RUL distribution.
 
+### `plots.py`
+
+Builds the example's RUL curves. `plot_validation_rul_curve` takes the
+standardized validation trajectories, the feature columns, a trained
+composite model, and the window length, and plots — for the
+shortest-lifetime held-out validation unit — its true linear RUL across
+the whole trajectory, the model's predicted mean, and the 95% predictive
+interval `loc ± 1.96 * scale` taken analytically from the composite
+Gaussian. The predicted mean and its band start at the unit's first full
+window, since no prediction exists before `window_length` cycles of
+history have accumulated; the band is left unclipped at zero, so a band
+dipping below zero stays visible as evidence of the Gaussian assumption
+breaking down near end of life. With a save path the figure is written
+there, otherwise it is displayed.
+
 ### `run.py`
 
 Contains the script to train and evaluate the two-stage predictive model on
@@ -78,4 +93,10 @@ uv run --group example-cmapss python examples/jax/cmapss/run.py
 
 The script prints per-epoch training metrics for both stages, followed by
 the final test-set metrics: RMSE, 95% predictive-interval coverage, and
-point-CRPS.
+point-CRPS. It then plots the RUL curve of the shortest-lifetime held-out
+validation unit. Pass `--plot-path` to save that figure instead of
+displaying it:
+
+```shell
+uv run --group example-cmapss python examples/jax/cmapss/run.py --plot-path rul_curve.png
+```

@@ -24,6 +24,7 @@ Run it with:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +49,7 @@ from data import (
     load_fd001_test_rul,
 )
 from model import Cnn1DGammaModel, Cnn1DMeanModel, CompositeGaussianModel
+from plots import plot_validation_rul_curve
 from preprocessing import (
     SensorStandardization,
     apply_standardization,
@@ -463,7 +465,23 @@ def prepare_cmapss_windows(config: CmapssConfig) -> PreparedCmapssData:
 
 
 def main() -> None:
-    """Train the two-stage CMAPSS pipeline end to end and print test metrics."""
+    """Train the two-stage CMAPSS pipeline, print test metrics, and plot a RUL curve.
+
+    Pass `--plot-path` to save the RUL-curve figure to that path instead of displaying
+    it interactively.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--plot-path",
+        type=Path,
+        default=None,
+        help=(
+            "Save the validation RUL-curve figure to this path instead of "
+            "displaying it."
+        ),
+    )
+    args = parser.parse_args()
+
     config = CmapssConfig()
     prepared = prepare_cmapss_windows(config)
 
@@ -484,6 +502,14 @@ def main() -> None:
     print(f"FD001 test RMSE: {metrics['rmse']:.4f}")
     print(f"FD001 test 95% interval coverage: {metrics['coverage']:.4f}")
     print(f"FD001 test point-CRPS: {metrics['point_crps']:.4f}")
+
+    plot_validation_rul_curve(
+        prepared.validation_trajectories,
+        _SENSOR_NAMES,
+        build_composite_model(mean_model, variance_model),
+        window_length=config.window_length,
+        save_path=args.plot_path,
+    )
 
 
 if __name__ == "__main__":

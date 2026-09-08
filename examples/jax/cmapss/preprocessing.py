@@ -246,3 +246,75 @@ def build_last_windows(
         window_arrays.append(features[-window_length:])
 
     return np.stack(window_arrays, axis=0)
+
+
+@dataclass(frozen=True)
+class UnitWindows:
+    """One unit's sliding windows with their aligned linear RUL and cycles.
+
+    Attributes:
+        windows: The unit's sliding windows, shape `(n_windows,
+            window_length, n_features)`.
+        linear_rul: The true linear RUL at each window's last real cycle,
+            shape `(n_windows,)`.
+        cycles: The `time_cycles` value of each window's last row, shape
+            `(n_windows,)`. This is the time axis a per-unit RUL curve is
+            plotted against; it starts at the unit's first full window.
+    """
+
+    windows: np.ndarray
+    linear_rul: np.ndarray
+    cycles: np.ndarray
+
+
+def build_unit_windows(
+    data: pd.DataFrame,
+    feature_columns: Sequence[str],
+    *,
+    unit_id: object,
+    window_length: int = 30,
+) -> UnitWindows:
+    """Build every sliding window of a single unit, with its RUL and cycle axis.
+
+    Windowing itself is delegated to `build_windows` restricted to that
+    unit's rows, so the windows and targets are exactly the ones the models
+    are trained and scored on. On top of those, the unit's own
+    `time_cycles` values supply the cycle each window ends at, which is
+    what a per-cycle RUL curve is plotted against.
+
+    Args:
+        data: A DataFrame with `unit_id`, `time_cycles`, and
+            `feature_columns` columns, holding one or more units.
+        feature_columns: Names of the columns to use as window channels.
+        unit_id: Identifier of the single unit to window.
+        window_length: Number of cycles per window.
+
+    Returns:
+        The unit's windows, the aligned true linear RUL, and the time cycle
+        of each window's last row, one entry per cycle from the unit's
+        first full window onwards.
+
+    Raises:
+        ValueError: If `unit_id` has no rows in `data`, or if the unit has
+            fewer than `window_length` cycles. Such a unit admits no full
+            window, and left-padding it would fabricate sensor history and
+            manufacture a prediction that has no support in the data.
+    """
+    unit_data = data[data["unit_id"] == unit_id]
+    if unit_data.empty:
+        raise ValueError(f"unit_id {unit_id!r} has no rows in the given trajectories.")
+    time_cycles = unit_data["time_cycles"].sort_values().to_numpy(dtype=float)
+    if time_cycles.shape[0] < window_length:
+        raise ValueError(
+            f"unit_id {unit_id!r} has {time_cycles.shape[0]} cycles, fewer than "
+            f"the window length of {window_length}; it admits no full window."
+        )
+
+    windows, linear_rul = build_windows(
+        unit_data, feature_columns, window_length=window_length
+    )
+    return UnitWindows(
+        windows=windows,
+        linear_rul=linear_rul,
+        cycles=time_cycles[window_length - 1 :],
+    )

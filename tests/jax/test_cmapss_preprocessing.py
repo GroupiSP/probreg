@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 _PREPROCESSING_PATH = (
     Path(__file__).parents[2] / "examples" / "jax" / "cmapss" / "preprocessing.py"
@@ -229,3 +231,103 @@ def test_build_last_windows_pads_short_trajectory(
 
     assert windows.shape == (1, 3, 1)
     np.testing.assert_allclose(windows[0], [[50.0], [50.0], [60.0]])
+
+
+def _unit_trajectories(lengths: dict[int, int]) -> pd.DataFrame:
+    """Build a multi-unit trajectory DataFrame with per-unit cycle counts.
+
+    Args:
+        lengths: Mapping of unit ID to that unit's number of cycles.
+
+    Returns:
+        A DataFrame with `unit_id`, `time_cycles`, and two sensor columns
+        whose values are unique per unit and cycle.
+    """
+    rows = []
+    for unit_id, n_cycles in lengths.items():
+        for cycle in range(1, n_cycles + 1):
+            rows.append(
+                {
+                    "unit_id": unit_id,
+                    "time_cycles": cycle,
+                    "sensor_a": unit_id * 1000.0 + cycle,
+                    "sensor_b": unit_id * 10.0 - 0.25 * cycle,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+@given(
+    n_cycles=st.integers(min_value=2, max_value=40),
+    window_length=st.integers(min_value=1, max_value=40),
+    other_n_cycles=st.integers(min_value=1, max_value=40),
+)
+def test_build_unit_windows_cycle_axis_matches_the_linear_rul(
+    n_cycles: int, window_length: int, other_n_cycles: int
+) -> None:
+    window_length = 1 + (window_length - 1) % n_cycles
+    data = _unit_trajectories({1: other_n_cycles, 2: n_cycles})
+    feature_columns = ["sensor_a", "sensor_b"]
+
+    unit = _PREPROCESSING.build_unit_windows(
+        data, feature_columns, unit_id=2, window_length=window_length
+    )
+
+    max_cycle = float(n_cycles)
+    # The cycle axis is the window's last real cycle, so it is exactly the
+    # unit's lifetime minus the linear RUL at that window.
+    np.testing.assert_allclose(unit.cycles, max_cycle - unit.linear_rul)
+    # One window per cycle from the first full window onwards.
+    assert unit.windows.shape == (
+        n_cycles - window_length + 1,
+        window_length,
+        len(feature_columns),
+    )
+    assert unit.linear_rul.shape == (n_cycles - window_length + 1,)
+    assert unit.cycles.shape == (n_cycles - window_length + 1,)
+    # The cycle axis advances by one cycle per window and the linear RUL
+    # falls by one, reaching zero at the unit's final cycle.
+    assert np.all(np.diff(unit.cycles) > 0)
+    assert np.all(np.diff(unit.linear_rul) < 0)
+    assert unit.linear_rul[-1] == 0.0
+    assert unit.cycles[0] == float(window_length)
+
+
+@given(
+    n_cycles=st.integers(min_value=2, max_value=40),
+    window_length=st.integers(min_value=1, max_value=40),
+)
+def test_build_unit_windows_matches_the_shared_window_builder(
+    n_cycles: int, window_length: int
+) -> None:
+    window_length = 1 + (window_length - 1) % n_cycles
+    data = _unit_trajectories({1: 17, 2: n_cycles})
+    feature_columns = ["sensor_a", "sensor_b"]
+
+    unit = _PREPROCESSING.build_unit_windows(
+        data, feature_columns, unit_id=2, window_length=window_length
+    )
+
+    expected_windows, expected_targets = _PREPROCESSING.build_windows(
+        data[data["unit_id"] == 2], feature_columns, window_length=window_length
+    )
+    np.testing.assert_allclose(unit.windows, expected_windows)
+    np.testing.assert_allclose(unit.linear_rul, expected_targets)
+
+
+def test_build_unit_windows_rejects_an_absent_unit() -> None:
+    data = _unit_trajectories({1: 5})
+
+    with pytest.raises(ValueError, match="unit_id"):
+        _PREPROCESSING.build_unit_windows(
+            data, ["sensor_a"], unit_id=99, window_length=3
+        )
+
+
+def test_build_unit_windows_rejects_a_unit_shorter_than_the_window() -> None:
+    data = _unit_trajectories({1: 4})
+
+    with pytest.raises(ValueError, match="no full window"):
+        _PREPROCESSING.build_unit_windows(
+            data, ["sensor_a"], unit_id=1, window_length=5
+        )

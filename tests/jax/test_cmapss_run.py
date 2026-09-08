@@ -212,3 +212,67 @@ def test_build_composite_model_clones_the_source_models() -> None:
     assert composite.mean_model is not mean_model
     assert composite.variance_model is not variance_model
     assert bool(jnp.allclose(mean_model.output.bias[...], original_bias))
+
+
+@pytest.mark.usefixtures("offline_fd001")
+@pytest.mark.parametrize("plot_path_argv", [[], ["--plot-path", "curve.png"]])
+def test_main_plots_the_rul_curve_after_printing_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    plot_path_argv: list[str],
+) -> None:
+    if plot_path_argv:
+        plot_path_argv = [plot_path_argv[0], str(tmp_path / plot_path_argv[1])]
+    monkeypatch.setattr(sys, "argv", ["run.py", *plot_path_argv])
+    fast_config = _RUN.CmapssConfig(
+        window_length=10,
+        batch_size=16,
+        hidden_channels=2,
+        kernel_size=3,
+        mean_epochs=1,
+        variance_epochs=1,
+        predictive_sample_count=8,
+    )
+    monkeypatch.setattr(_RUN, "CmapssConfig", lambda: fast_config)
+    calls: list[dict[str, object]] = []
+
+    def record_plot(
+        trajectories: pd.DataFrame,
+        feature_columns: list[str],
+        model: object,
+        *,
+        window_length: int,
+        save_path: Path | None,
+    ) -> None:
+        """Record one plotting call and whatever was printed before it."""
+        calls.append(
+            {
+                "trajectories": trajectories,
+                "feature_columns": feature_columns,
+                "model": model,
+                "window_length": window_length,
+                "save_path": save_path,
+                "printed": capsys.readouterr().out,
+            }
+        )
+
+    monkeypatch.setattr(_RUN, "plot_validation_rul_curve", record_plot)
+
+    _RUN.main()
+
+    (call,) = calls
+    assert call["feature_columns"] == _RUN._SENSOR_NAMES
+    assert call["window_length"] == 10
+    assert isinstance(call["model"], _RUN.CompositeGaussianModel)
+    expected_path = Path(plot_path_argv[1]) if plot_path_argv else None
+    assert call["save_path"] == expected_path
+    # The unit plotted is a held-out validation unit, and the metrics are
+    # already printed by the time the figure is built.
+    trajectories = call["trajectories"]
+    assert isinstance(trajectories, pd.DataFrame)
+    assert not trajectories.empty
+    printed = call["printed"]
+    assert isinstance(printed, str)
+    assert "FD001 test RMSE" in printed
+    assert "FD001 test point-CRPS" in printed
