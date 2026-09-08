@@ -54,20 +54,31 @@ def _load_cmapss_module(module_name: str, file_name: str) -> ModuleType:
 @pytest.fixture(scope="session")
 def cmapss_preprocessing() -> ModuleType:
     """The example's windowing and standardization module."""
+    for dependency in ("pandas", "sklearn"):
+        pytest.importorskip(dependency)
     return _load_cmapss_module("cmapss_preprocessing", "preprocessing.py")
 
 
 @pytest.fixture(scope="session")
 def cmapss_plots() -> ModuleType:
     """The example's RUL-curve plotting module."""
-    pytest.importorskip("matplotlib")
+    for dependency in ("matplotlib", "pandas", "sklearn"):
+        pytest.importorskip(dependency)
     return _load_cmapss_module("cmapss_plots", "plots.py")
 
 
 @pytest.fixture(scope="session")
 def cmapss_run() -> ModuleType:
     """The example's end-to-end training and evaluation module."""
-    for dependency in ("jax", "jax.numpy", "flax.nnx", "optax"):
+    for dependency in (
+        "jax",
+        "jax.numpy",
+        "flax.nnx",
+        "optax",
+        "pandas",
+        "matplotlib",
+        "sklearn",
+    ):
         pytest.importorskip(dependency)
     return _load_cmapss_module("cmapss_run", "run.py")
 
