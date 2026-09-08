@@ -14,8 +14,9 @@ prediction exists before `window_length` cycles of sensor history have
 accumulated. The true-RUL line spans the whole trajectory regardless, so
 the length of that warm-up stays visible rather than hidden.
 
-This module knows nothing about training or about the archive: it takes
-already-standardized trajectories and an already-trained model.
+This module knows nothing about training, about the archive, or about
+which units are worth looking at: it takes already-standardized
+trajectories, an already-trained model, and the three units to draw.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ _MODULE_DIR = Path(__file__).resolve().parent
 if str(_MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(_MODULE_DIR))
 
-from preprocessing import build_unit_rul_curve, select_lifetime_spanning_units
+from preprocessing import LifetimeSpanningUnits, build_unit_rul_curve
 
 _INTERVAL_Z_SCORE = 1.96
 _TRUE_RUL_LABEL = "True linear RUL"
@@ -143,28 +144,33 @@ def plot_validation_rul_curves(
     feature_columns: Sequence[str],
     model: PredictiveModel,
     *,
+    units: LifetimeSpanningUnits,
     window_length: int = 30,
     save_path: Path | None = None,
 ) -> Figure:
-    """Plot RUL curves spanning the lifetime range of the validation subset.
+    """Plot RUL curves for three units spanning a lifetime range.
 
-    The three plotted units are the shortest-, median-, and
-    longest-lifetime units of the held-out validation subset. Those units
-    are never trained on, so the curves are evidence of generalization
-    rather than of memorized fit; a unit's lifetime is only observable at
-    all for the run-to-failure train-split trajectories the validation
-    subset is carved out of. Each band is `loc ± 1.96 * scale`, taken
-    analytically from the model's Gaussian and left unclipped at zero, so
-    that a band dipping below zero stays visible as evidence of the
-    Gaussian assumption breaking down near end of life.
+    The units to draw are chosen by the caller, so this module decides how
+    a RUL curve looks and never which subjects it looks at. Passing the
+    lifetime-spanning units of a held-out validation subset gives the
+    example's headline figure: those units are never trained on, so the
+    curves are evidence of generalization rather than of memorized fit,
+    and a unit's lifetime is only observable at all for the
+    run-to-failure train-split trajectories the validation subset is
+    carved out of. Each band is `loc ± 1.96 * scale`, taken analytically
+    from the model's Gaussian and left unclipped at zero, so that a band
+    dipping below zero stays visible as evidence of the Gaussian
+    assumption breaking down near end of life.
 
     Args:
-        trajectories: The standardized validation-subset trajectories,
+        trajectories: The standardized trajectories holding `units`,
             already scaled with the statistics fitted on the training
             subset only.
         feature_columns: Names of the columns to use as window channels, in
             the order the model was trained with.
         model: The trained composite predictive model.
+        units: The three units to draw, one per column. Each must have at
+            least `window_length` cycles in `trajectories`.
         window_length: Number of cycles per window, as trained with.
         save_path: Where to save the figure. When omitted, the figure is
             displayed instead.
@@ -172,13 +178,15 @@ def plot_validation_rul_curves(
     Returns:
         The figure holding the three columns, in shortest / median /
         longest lifetime order.
-    """
-    selected = select_lifetime_spanning_units(trajectories)
 
+    Raises:
+        ValueError: If any of `units` is absent from `trajectories` or has
+            fewer than `window_length` cycles.
+    """
     # Unshared axes, so each column is scaled to its own unit and the band
     # stays readable in the short-lived one.
     figure, columns = plt.subplots(1, len(_ROLE_LABELS), figsize=(15.0, 4.5))
-    plotted_units = (selected.shortest, selected.median, selected.longest)
+    plotted_units = (units.shortest, units.median, units.longest)
     for axes, unit_id, role in zip(columns, plotted_units, _ROLE_LABELS, strict=True):
         _draw_unit_rul_curve(
             axes,

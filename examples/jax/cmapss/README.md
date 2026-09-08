@@ -71,9 +71,11 @@ predictive RUL distribution.
 
 Builds the example's RUL curves. `plot_validation_rul_curves` takes the
 standardized validation trajectories, the feature columns, a trained
-composite model, and the window length, and draws one row of three
-columns: the shortest-, median-, and longest-lifetime unit of that
-subset, in that order. Spanning the lifetime range that way lets a reader
+composite model, the three units to draw, and the window length, and
+draws one row of three columns, one unit per column. `run.py` passes the
+lifetime-spanning units of the validation subset, so the columns are its
+shortest-, median-, and longest-lifetime unit in that order; the module
+itself decides how a RUL curve looks and never which units it looks at. Spanning the lifetime range that way lets a reader
 tell whether the model's accuracy and its stated uncertainty behave
 consistently across units that fail early and units that survive several
 times as long.

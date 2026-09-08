@@ -242,6 +242,7 @@ def test_main_plots_the_rul_curves_after_printing_metrics(
         feature_columns: list[str],
         model: object,
         *,
+        units: object,
         window_length: int,
         save_path: Path | None,
     ) -> None:
@@ -251,6 +252,7 @@ def test_main_plots_the_rul_curves_after_printing_metrics(
                 "trajectories": trajectories,
                 "feature_columns": feature_columns,
                 "model": model,
+                "units": units,
                 "window_length": window_length,
                 "save_path": save_path,
                 "printed": capsys.readouterr().out,
@@ -276,6 +278,11 @@ def test_main_plots_the_rul_curves_after_printing_metrics(
     plotted_units = set(trajectories["unit_id"].unique())
     assert plotted_units == set(prepared.validation_trajectories["unit_id"].unique())
     assert plotted_units.isdisjoint(prepared.train_trajectories["unit_id"].unique())
+    # The run, not the plotting module, picks the lifetime-spanning trio,
+    # and it picks it out of the validation trajectories it hands over.
+    units = call["units"]
+    assert units == _RUN.select_lifetime_spanning_units(trajectories)
+    assert {units.shortest, units.median, units.longest} <= plotted_units
     printed = call["printed"]
     assert isinstance(printed, str)
     assert "FD001 test RMSE" in printed

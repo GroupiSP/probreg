@@ -90,6 +90,13 @@ def _standardized_trajectories(lifetimes: dict[int, int]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _spanning_units(shortest: int, median: int, longest: int) -> Any:
+    """Name the three units a figure should draw, in column order."""
+    return _PLOTS.LifetimeSpanningUnits(
+        shortest=shortest, median=median, longest=longest
+    )
+
+
 @pytest.fixture
 def captured_show(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
     """Record calls to the interactive show, instead of displaying anything."""
@@ -113,6 +120,7 @@ def test_rul_curves_show_truth_prediction_and_band_per_column(
         trajectories,
         _FEATURE_COLUMNS,
         _StubModel(),
+        units=_spanning_units(2, 3, 1),
         window_length=window_length,
     )
 
@@ -148,7 +156,11 @@ def test_rul_curve_columns_have_independent_axis_limits(
     trajectories = _standardized_trajectories({1: 12, 2: 40, 3: 120})
 
     figure = _PLOTS.plot_validation_rul_curves(
-        trajectories, _FEATURE_COLUMNS, _StubModel(), window_length=5
+        trajectories,
+        _FEATURE_COLUMNS,
+        _StubModel(),
+        units=_spanning_units(1, 2, 3),
+        window_length=5,
     )
 
     shortest, median, longest = figure.axes
@@ -167,7 +179,11 @@ def test_rul_curve_column_titles_name_the_unit_role_and_lifetime(
     trajectories = _standardized_trajectories({7: 30, 8: 12, 9: 20})
 
     figure = _PLOTS.plot_validation_rul_curves(
-        trajectories, _FEATURE_COLUMNS, _StubModel(), window_length=4
+        trajectories,
+        _FEATURE_COLUMNS,
+        _StubModel(),
+        units=_spanning_units(8, 9, 7),
+        window_length=4,
     )
 
     titles = [axes.get_title() for axes in figure.axes]
@@ -190,7 +206,11 @@ def test_rul_curves_carry_one_shared_figure_legend(
     trajectories = _standardized_trajectories({1: 30, 2: 12, 3: 20})
 
     figure = _PLOTS.plot_validation_rul_curves(
-        trajectories, _FEATURE_COLUMNS, _StubModel(), window_length=4
+        trajectories,
+        _FEATURE_COLUMNS,
+        _StubModel(),
+        units=_spanning_units(2, 3, 1),
+        window_length=4,
     )
 
     assert all(axes.get_legend() is None for axes in figure.axes)
@@ -212,6 +232,7 @@ def test_band_is_the_analytic_95_percent_predictive_interval(
         trajectories,
         _FEATURE_COLUMNS,
         _StubModel(scale=100.0),
+        units=_spanning_units(1, 1, 1),
         window_length=window_length,
     )
 
@@ -235,7 +256,11 @@ def test_rul_curves_window_each_unit_with_the_given_features(
     model = _StubModel()
 
     _PLOTS.plot_validation_rul_curves(
-        trajectories, _FEATURE_COLUMNS, model, window_length=window_length
+        trajectories,
+        _FEATURE_COLUMNS,
+        model,
+        units=_spanning_units(2, 3, 1),
+        window_length=window_length,
     )
 
     assert len(model.seen_inputs) == 3
@@ -249,6 +274,27 @@ def test_rul_curves_window_each_unit_with_the_given_features(
         np.testing.assert_allclose(inputs, expected)
 
 
+def test_rul_curves_draw_exactly_the_units_the_caller_selected(
+    captured_show: list[bool],
+) -> None:
+    # A deliberately non-spanning trio: were the selection made here rather
+    # than by the caller, units 1 and 4 would be drawn instead.
+    trajectories = _standardized_trajectories({1: 8, 2: 20, 3: 30, 4: 60})
+
+    figure = _PLOTS.plot_validation_rul_curves(
+        trajectories,
+        _FEATURE_COLUMNS,
+        _StubModel(),
+        units=_spanning_units(2, 3, 2),
+        window_length=4,
+    )
+
+    titles = [axes.get_title() for axes in figure.axes]
+    for title, unit_id, lifetime in zip(titles, (2, 3, 2), (20, 30, 20), strict=True):
+        assert f"Unit {unit_id}" in title
+        assert f"{lifetime}" in title
+
+
 def test_rul_curves_save_to_the_given_path(
     tmp_path: Path, captured_show: list[bool]
 ) -> None:
@@ -259,6 +305,7 @@ def test_rul_curves_save_to_the_given_path(
         trajectories,
         _FEATURE_COLUMNS,
         _StubModel(),
+        units=_spanning_units(1, 2, 3),
         window_length=5,
         save_path=save_path,
     )
@@ -288,6 +335,7 @@ def test_band_is_always_the_predicted_mean_plus_minus_1_96_scale(
         trajectories,
         _FEATURE_COLUMNS,
         _StubModel(scale=scale),
+        units=_spanning_units(1, 1, 1),
         window_length=window_length,
     )
 

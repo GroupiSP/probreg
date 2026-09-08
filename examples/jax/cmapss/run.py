@@ -56,6 +56,7 @@ from preprocessing import (
     build_last_windows,
     build_windows,
     fit_standardization,
+    select_lifetime_spanning_units,
     split_by_unit,
 )
 
@@ -503,10 +504,12 @@ def main() -> None:
     print(f"FD001 test 95% interval coverage: {metrics['coverage']:.4f}")
     print(f"FD001 test point-CRPS: {metrics['point_crps']:.4f}")
 
+    validation_trajectories = prepared.validation_trajectories
     plot_validation_rul_curves(
-        prepared.validation_trajectories,
+        validation_trajectories,
         _SENSOR_NAMES,
         build_composite_model(mean_model, variance_model),
+        units=select_lifetime_spanning_units(validation_trajectories),
         window_length=config.window_length,
         save_path=args.plot_path,
     )
