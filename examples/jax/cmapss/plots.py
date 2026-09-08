@@ -21,7 +21,6 @@ trajectories, an already-trained model, and the three units to draw.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol
@@ -32,13 +31,10 @@ import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-# Allow sibling-module imports (`preprocessing`) both when run as a script
-# and when loaded from an arbitrary working directory, e.g. via `importlib`
-# in tests.
-_MODULE_DIR = Path(__file__).resolve().parent
-if str(_MODULE_DIR) not in sys.path:
-    sys.path.insert(0, str(_MODULE_DIR))
-
+# `preprocessing` is a sibling module, importable because whoever loads
+# this module has already put the example's directory on `sys.path`:
+# `run.py` when it is run as a script, and the tests when they load it via
+# `importlib`. See issue #24 for making this directory a real package.
 from preprocessing import LifetimeSpanningUnits, build_unit_rul_curve
 
 _INTERVAL_Z_SCORE = 1.96
