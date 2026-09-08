@@ -21,7 +21,8 @@ Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/do
 
 ## Planning and contributing
 
-- Substantial contributions that come from a planning session should be broken down in self-contained phases of development.
+- You can expect that the planning will happen following the `/grill-with-docs`, `/to-spec` and `/to-tickets` [main flow of Matt Pocock](https://www.aihero.dev/skills).
+- When working on the first ticket (or set of parallel tickets) of the spec, ensure that you open a draft PR on GitHub tracking the development branch.
 - During development, each phase realization should be followed by a commit with a meaningful, conventional-style message.
 - For the remaining contributions guidelines, refer to `CONTRIBUTING.md`
 
