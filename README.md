@@ -117,20 +117,44 @@ run command in its module docstring; they are collected here as well.
 | [`examples/jax/xsin/two_steps.py`](examples/jax/xsin/two_steps.py) | Explicit mean-then-Gamma training on the same benchmark, for comparison |
 | [`examples/jax/cmapss/run.py`](examples/jax/cmapss/run.py) | Two-stage probabilistic RUL estimation on NASA CMAPSS FD001, evaluated against the official test split |
 | [`examples/jax/cmapss/data.py`](examples/jax/cmapss/data.py) | Loading, caching, and plotting the CMAPSS FD001 sensor trajectories |
+| [`examples/jax/tracking/run.py`](examples/jax/tracking/run.py) | The MVE example again, with the whole run tracked to TensorBoard through `TrackerEventSink` ([README](examples/jax/tracking/README.md)) |
 
 `examples/jax/xsin/benchmark.py`, `examples/jax/cmapss/model.py`,
-`examples/jax/cmapss/preprocessing.py`, and `examples/jax/cmapss/plots.py` are
-shared modules imported by the examples above rather than scripts to run.
+`examples/jax/cmapss/preprocessing.py`, `examples/jax/cmapss/plots.py`, and
+`examples/jax/tracking/tensorboard_tracker.py` are shared modules imported by
+the examples above rather than scripts to run.
 
 Examples that visualize predictions need the optional `plot` extra
-(Matplotlib); the CMAPSS example has its own dependency group:
+(Matplotlib); the CMAPSS and tracking examples have their own dependency
+groups:
 
 ```bash
 uv sync --extra jax --extra plot --group dev
 uv run --extra jax python examples/jax/simple_regression.py
 uv run --extra jax --extra plot python examples/jax/mve_regression.py
 uv run --group example-cmapss python examples/jax/cmapss/run.py
+uv run --group example-tracking python examples/jax/tracking/run.py
 ```
+
+### Tracked training with TensorBoard
+
+`examples/jax/tracking/` trains the MVE example's model and records the run to
+TensorBoard: per-epoch training and validation scalars under stage-namespaced
+tags, the hyperparameters and the loss and metric identities in the HParams
+table, and a final figure of the mean with its 95% predictive interval. The
+example's `TensorBoardTracker` is the only TensorBoard-specific code; the
+library depends on no tracker, and the bridge from training events to a tracker
+is `probreg.core.tracking.TrackerEventSink`:
+
+```bash
+uv run --group example-tracking python examples/jax/tracking/run.py --logdir runs/
+uv run --group example-tracking tensorboard --logdir runs/
+```
+
+Each invocation writes to its own UTC-timestamped subdirectory, so successive
+runs appear side by side. See
+[`examples/jax/tracking/README.md`](examples/jax/tracking/README.md) for
+details.
 
 ### XSin-inspired comparison
 
