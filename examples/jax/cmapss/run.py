@@ -110,8 +110,8 @@ class CmapssConfig:
     hidden_channels: int = 16
     kernel_size: int = 5
     learning_rate: float = 1e-3
-    mean_epochs: int = 50
-    variance_epochs: int = 50
+    mean_epochs: int = 20
+    variance_epochs: int = 20
     predictive_sample_count: int = 256
     seed: int = 0
 
