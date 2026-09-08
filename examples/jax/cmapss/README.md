@@ -61,7 +61,14 @@ standardizing and windowing them, training the Stage-1 mean model, training
 the Stage-2 Gamma model on the frozen Stage-1 model's squared residuals, and
 scoring the composite Gaussian model against the official FD001 test split
 (`RUL_FD001.txt`), one window per test unit ending at its last observed
-cycle.
+cycle. `prepare_cmapss_windows` returns a frozen `PreparedCmapssData`
+carrying the windowed arrays together with the standardized trajectories
+they were built from and the standardization statistics fitted on the
+training subset, so a downstream consumer can re-window a unit under
+exactly the feature scaling the models were trained with.
+`build_composite_model` is the one factory for the composite predictive
+model: it clones both trained stage models and returns the composite in
+eval mode, so every consumer scores the same model in the same mode.
 
 Run it with:
 
