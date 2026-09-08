@@ -30,6 +30,10 @@ _Avoid_: Duration, age, total RUL
 The unclipped remaining-useful-life target `max(time_cycles) - t`, decreasing by exactly one per cycle. This is what the example's models are trained on, as opposed to the widely used piecewise-constant convention that caps RUL at a constant (typically 125 or 130) early in life. Naming it explicitly keeps a reader from assuming the capped convention and misreading the targets and curves.
 _Avoid_: RUL (ambiguous between the two conventions), piecewise RUL
 
+**Full window**:
+A window whose every row is an observed cycle of the unit, as opposed to a *padded window*, whose leading rows repeat the unit's first observed reading to make a short trajectory reach the window length. A padded window's remaining-useful-life target is still computed from real cycles, so it is a usable training sample; but its sensor history is fabricated, so a prediction made from it has no support in the data.
+_Avoid_: Complete window, valid window, real window
+
 **RUL curve**:
 For a single unit, its linear RUL and the model's predictive RUL plotted against time cycles. The predicted curve begins at the unit's first full window, since no prediction exists before `window_length` cycles of history have accumulated.
 _Avoid_: RUL plot, degradation curve
