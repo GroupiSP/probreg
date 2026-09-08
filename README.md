@@ -104,14 +104,31 @@ the loss or batch-metric RNG trajectory. Prediction adapters run an inference-mo
 clone of the model, so stateful layers and internal RNG streams are not mutated by
 metric collection.
 
-## Plotting
+## Examples
 
-Install the optional `plot` extra (Matplotlib) to run examples that visualize
-predictions, e.g. `examples/mve_regression_jax.py`:
+The runnable examples live under `examples/jax/`. Each one carries its own
+run command in its module docstring; they are collected here as well.
+
+| Example | What it shows |
+| --- | --- |
+| [`examples/jax/simple_regression.py`](examples/jax/simple_regression.py) | `run_supervised` end to end on a toy linear dataset, with held-out validation, early stopping, an in-memory checkpoint store, and a printing event sink |
+| [`examples/jax/mve_regression.py`](examples/jax/mve_regression.py) | Joint Gaussian mean-variance estimation on a heteroscedastic dataset, with RMSE and point-CRPS epoch metrics |
+| [`examples/jax/xsin/mve.py`](examples/jax/xsin/mve.py) | Joint Gaussian MVE on the XSin-inspired benchmark |
+| [`examples/jax/xsin/two_steps.py`](examples/jax/xsin/two_steps.py) | Explicit mean-then-Gamma training on the same benchmark, for comparison |
+| [`examples/jax/cmapss/run.py`](examples/jax/cmapss/run.py) | Two-stage probabilistic RUL estimation on NASA CMAPSS FD001, evaluated against the official test split |
+| [`examples/jax/cmapss/data.py`](examples/jax/cmapss/data.py) | Loading, caching, and plotting the CMAPSS FD001 sensor trajectories |
+
+`examples/jax/xsin/benchmark.py`, `examples/jax/cmapss/model.py`,
+`examples/jax/cmapss/preprocessing.py`, and `examples/jax/cmapss/plots.py` are
+shared modules imported by the examples above rather than scripts to run.
+
+Examples that visualize predictions need the optional `plot` extra
+(Matplotlib):
 
 ```bash
 uv sync --extra jax --extra plot --group dev
-uv run python examples/mve_regression_jax.py
+uv run --extra jax --extra plot python examples/jax/mve_regression.py
+uv run --extra jax python examples/jax/simple_regression.py
 ```
 
 ### XSin-inspired comparison
@@ -123,8 +140,8 @@ evaluated on the wider `x in (-5, 15)` range to expose both interpolation and
 extrapolation behavior:
 
 ```bash
-uv run --extra jax --extra plot python examples/xsin_mve_jax.py
-uv run --extra jax --extra plot python examples/xsin_two_steps_jax.py
+uv run --extra jax --extra plot python examples/jax/xsin/mve.py
+uv run --extra jax --extra plot python examples/jax/xsin/two_steps.py
 ```
 
 Both scripts print overall, interpolation, and extrapolation errors against the
@@ -139,3 +156,21 @@ The examples reproduce the qualitative XSin comparison motivated by Yi and
 Bessa (2025), with compact settings suitable for a library demonstration. They
 do not claim exact reproduction of the paper's architectures, runtime, or
 reported numerical values.
+
+### CMAPSS FD001 remaining useful life
+
+An end-to-end example trains a two-stage probabilistic RUL model on NASA's
+CMAPSS FD001 turbofan dataset: a 1D-CNN mean model, then an independently
+initialized Gamma variance model on the frozen mean model's squared
+residuals. The combined predictive Gaussian is scored against the official
+test split for RMSE, 95% interval coverage, and point-CRPS. It needs its own
+dependency group, which also pulls in the archive loader and the plots:
+
+```bash
+uv sync --group example-cmapss
+uv run --group example-cmapss python examples/jax/cmapss/run.py
+```
+
+The archive is downloaded at most once and cached on disk; run
+`examples/jax/cmapss/data.py --fetch` to pre-fetch it, or point
+`PROBREG_CMAPSS_ARCHIVE` at a manually obtained copy to skip the network.
