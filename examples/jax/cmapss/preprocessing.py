@@ -318,3 +318,54 @@ def build_unit_windows(
         linear_rul=linear_rul,
         cycles=time_cycles[window_length - 1 :],
     )
+
+
+@dataclass(frozen=True)
+class LifetimeSpanningUnits:
+    """Three units spanning the lifetime range of a set of trajectories.
+
+    Plotting these three together shows whether a model's accuracy and its
+    stated uncertainty behave consistently across units that fail early and
+    units that survive several times as long.
+
+    Attributes:
+        shortest: The `unit_id` with the smallest lifetime.
+        median: The `unit_id` with the lower-median lifetime.
+        longest: The `unit_id` with the largest lifetime.
+    """
+
+    shortest: object
+    median: object
+    longest: object
+
+
+def select_lifetime_spanning_units(data: pd.DataFrame) -> LifetimeSpanningUnits:
+    """Select the shortest-, median-, and longest-lifetime units.
+
+    A unit's lifetime is its maximum observed `time_cycles`, which is its
+    RUL at cycle zero and is therefore only meaningful for run-to-failure
+    trajectories. Units are ordered ascending by lifetime with the unit ID
+    as tie-break, and the median is the lower of the two central entries
+    for an even number of units, so the same trajectories always yield the
+    same three units.
+
+    Args:
+        data: Run-to-failure trajectories with `unit_id` and `time_cycles`
+            columns, holding one or more units.
+
+    Returns:
+        The shortest-, median-, and longest-lifetime unit IDs.
+
+    Raises:
+        ValueError: If `data` holds no rows.
+    """
+    if data.empty:
+        raise ValueError("data must hold at least one unit.")
+    lifetimes = data.groupby("unit_id")["time_cycles"].max()
+    ordered = sorted(lifetimes.items(), key=lambda item: (item[1], item[0]))
+    unit_ids = [unit_id for unit_id, _ in ordered]
+    return LifetimeSpanningUnits(
+        shortest=unit_ids[0],
+        median=unit_ids[(len(unit_ids) - 1) // 2],
+        longest=unit_ids[-1],
+    )

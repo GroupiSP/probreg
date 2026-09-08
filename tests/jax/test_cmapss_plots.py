@@ -98,40 +98,104 @@ def captured_show(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
     return calls
 
 
-def test_rul_curve_shows_truth_prediction_and_band(
+def _lines_by_label(axes: Any) -> dict[str, Any]:
+    """Index an axes' lines by their legend label."""
+    return {line.get_label(): line for line in axes.get_lines()}
+
+
+def test_rul_curves_show_truth_prediction_and_band_per_column(
     captured_show: list[bool],
 ) -> None:
-    trajectories = _standardized_trajectories({1: 30, 2: 12})
+    trajectories = _standardized_trajectories({1: 30, 2: 12, 3: 20, 4: 25})
     window_length = 4
-    model = _StubModel()
 
-    figure = _PLOTS.plot_validation_rul_curve(
+    figure = _PLOTS.plot_validation_rul_curves(
         trajectories,
         _FEATURE_COLUMNS,
-        model,
+        _StubModel(),
         window_length=window_length,
     )
 
     assert captured_show == [True]
-    axes = figure.axes[0]
-    lines = {line.get_label(): line for line in axes.get_lines()}
-    assert len(lines) == 2
-    truth = lines[_PLOTS._TRUE_RUL_LABEL]
-    predicted = lines[_PLOTS._PREDICTED_MEAN_LABEL]
-    # The shortest-lifetime unit is unit 2, of 12 cycles.
-    np.testing.assert_allclose(truth.get_xdata(), np.arange(1, 13))
-    np.testing.assert_allclose(truth.get_ydata(), np.arange(11, -1, -1))
-    # The prediction starts one full window into the unit's life.
-    predicted_x = np.asarray(predicted.get_xdata())
-    assert predicted_x[0] == float(window_length)
-    np.testing.assert_allclose(predicted_x, np.arange(window_length, 13))
-    np.testing.assert_allclose(predicted.get_ydata(), np.arange(len(predicted_x)))
-    # A single filled band accompanies the predicted mean.
-    assert len(axes.collections) == 1
-    assert axes.get_xlabel().lower().startswith("time cycles")
-    assert "rul" in axes.get_ylabel().lower()
-    legend_labels = [text.get_text() for text in axes.get_legend().get_texts()]
-    assert legend_labels == [
+    assert len(figure.axes) == 3
+    # One column per unit, in shortest / median / longest lifetime order:
+    # unit 2 (12 cycles), unit 3 (20 cycles), and unit 1 (30 cycles).
+    for axes, lifetime in zip(figure.axes, (12, 20, 30), strict=True):
+        lines = _lines_by_label(axes)
+        assert set(lines) == {
+            _PLOTS._TRUE_RUL_LABEL,
+            _PLOTS._PREDICTED_MEAN_LABEL,
+        }
+        truth = lines[_PLOTS._TRUE_RUL_LABEL]
+        np.testing.assert_allclose(truth.get_xdata(), np.arange(1, lifetime + 1))
+        np.testing.assert_allclose(truth.get_ydata(), np.arange(lifetime - 1, -1, -1))
+        # The prediction starts one full window into the unit's life.
+        predicted = lines[_PLOTS._PREDICTED_MEAN_LABEL]
+        predicted_x = np.asarray(predicted.get_xdata())
+        np.testing.assert_allclose(predicted_x, np.arange(window_length, lifetime + 1))
+        np.testing.assert_allclose(predicted.get_ydata(), np.arange(len(predicted_x)))
+        # A single filled band accompanies the predicted mean.
+        assert len(axes.collections) == 1
+        assert axes.get_xlabel().lower().startswith("time cycles")
+        assert "rul" in axes.get_ylabel().lower()
+
+
+def test_rul_curve_columns_have_independent_axis_limits(
+    captured_show: list[bool],
+) -> None:
+    # A long-lived unit alongside a short-lived one: were the limits
+    # shared, the short unit's curve would be squashed into a corner.
+    trajectories = _standardized_trajectories({1: 12, 2: 40, 3: 120})
+
+    figure = _PLOTS.plot_validation_rul_curves(
+        trajectories, _FEATURE_COLUMNS, _StubModel(), window_length=5
+    )
+
+    shortest, median, longest = figure.axes
+    assert shortest.get_xlim() != longest.get_xlim()
+    assert shortest.get_ylim() != longest.get_ylim()
+    assert median.get_xlim() not in (shortest.get_xlim(), longest.get_xlim())
+    # Each column's x range covers its own unit's lifetime and no more.
+    for axes, lifetime in zip(figure.axes, (12, 40, 120), strict=True):
+        assert axes.get_xlim()[1] >= lifetime
+        assert axes.get_xlim()[1] < 2 * lifetime
+
+
+def test_rul_curve_column_titles_name_the_unit_role_and_lifetime(
+    captured_show: list[bool],
+) -> None:
+    trajectories = _standardized_trajectories({7: 30, 8: 12, 9: 20})
+
+    figure = _PLOTS.plot_validation_rul_curves(
+        trajectories, _FEATURE_COLUMNS, _StubModel(), window_length=4
+    )
+
+    titles = [axes.get_title() for axes in figure.axes]
+    for title, unit_id, role, lifetime in zip(
+        titles,
+        (8, 9, 7),
+        ("shortest", "median", "longest"),
+        (12, 20, 30),
+        strict=True,
+    ):
+        assert f"{unit_id}" in title
+        assert role in title.lower()
+        assert f"{lifetime}" in title
+        assert "cycles" in title.lower()
+
+
+def test_rul_curves_carry_one_shared_figure_legend(
+    captured_show: list[bool],
+) -> None:
+    trajectories = _standardized_trajectories({1: 30, 2: 12, 3: 20})
+
+    figure = _PLOTS.plot_validation_rul_curves(
+        trajectories, _FEATURE_COLUMNS, _StubModel(), window_length=4
+    )
+
+    assert all(axes.get_legend() is None for axes in figure.axes)
+    (legend,) = figure.legends
+    assert [text.get_text() for text in legend.get_texts()] == [
         _PLOTS._TRUE_RUL_LABEL,
         _PLOTS._PREDICTED_MEAN_LABEL,
         _PLOTS._INTERVAL_LABEL,
@@ -143,10 +207,12 @@ def test_band_is_the_analytic_95_percent_predictive_interval(
 ) -> None:
     trajectories = _standardized_trajectories({1: 10})
     window_length = 3
-    model = _StubModel(scale=100.0)
 
-    figure = _PLOTS.plot_validation_rul_curve(
-        trajectories, _FEATURE_COLUMNS, model, window_length=window_length
+    figure = _PLOTS.plot_validation_rul_curves(
+        trajectories,
+        _FEATURE_COLUMNS,
+        _StubModel(scale=100.0),
+        window_length=window_length,
     )
 
     band = figure.axes[0].collections[0]
@@ -161,31 +227,35 @@ def test_band_is_the_analytic_95_percent_predictive_interval(
     assert expected_lower.min() < 0.0
 
 
-def test_rul_curve_windows_the_unit_with_the_given_features(
+def test_rul_curves_window_each_unit_with_the_given_features(
     captured_show: list[bool],
 ) -> None:
-    trajectories = _standardized_trajectories({1: 20, 2: 9})
+    trajectories = _standardized_trajectories({1: 20, 2: 9, 3: 14})
     window_length = 3
     model = _StubModel()
 
-    _PLOTS.plot_validation_rul_curve(
+    _PLOTS.plot_validation_rul_curves(
         trajectories, _FEATURE_COLUMNS, model, window_length=window_length
     )
 
-    (inputs,) = model.seen_inputs
-    expected = _PLOTS.build_unit_windows(
-        trajectories, _FEATURE_COLUMNS, unit_id=2, window_length=window_length
-    ).windows
-    np.testing.assert_allclose(inputs, expected)
+    assert len(model.seen_inputs) == 3
+    for inputs, unit_id in zip(model.seen_inputs, (2, 3, 1), strict=True):
+        expected = _PLOTS.build_unit_windows(
+            trajectories,
+            _FEATURE_COLUMNS,
+            unit_id=unit_id,
+            window_length=window_length,
+        ).windows
+        np.testing.assert_allclose(inputs, expected)
 
 
-def test_rul_curve_saves_to_the_given_path(
+def test_rul_curves_save_to_the_given_path(
     tmp_path: Path, captured_show: list[bool]
 ) -> None:
-    trajectories = _standardized_trajectories({1: 15})
-    save_path = tmp_path / "rul_curve.png"
+    trajectories = _standardized_trajectories({1: 15, 2: 20, 3: 25})
+    save_path = tmp_path / "rul_curves.png"
 
-    _PLOTS.plot_validation_rul_curve(
+    _PLOTS.plot_validation_rul_curves(
         trajectories,
         _FEATURE_COLUMNS,
         _StubModel(),
@@ -214,27 +284,27 @@ def test_band_is_always_the_predicted_mean_plus_minus_1_96_scale(
     window_length = 1 + (window_length - 1) % n_cycles
     trajectories = _standardized_trajectories({1: n_cycles})
 
-    figure = _PLOTS.plot_validation_rul_curve(
+    figure = _PLOTS.plot_validation_rul_curves(
         trajectories,
         _FEATURE_COLUMNS,
         _StubModel(scale=scale),
         window_length=window_length,
     )
 
-    axes = figure.axes[0]
-    predicted = axes.get_lines()[1]
-    predicted_y = np.asarray(predicted.get_ydata(), dtype=float)
-    # One prediction per cycle from the first full window onwards, drawn
-    # against a cycle axis that starts exactly one window length in.
-    assert predicted_y.shape == (n_cycles - window_length + 1,)
-    assert np.asarray(predicted.get_xdata())[0] == float(window_length)
-    # The band is symmetric about the predicted mean and exactly 1.96
-    # scales wide on each side, whatever the scale.
-    vertices = axes.collections[0].get_paths()[0].vertices
-    assert vertices[:, 1].max() == pytest.approx(
-        predicted_y.max() + 1.96 * scale, rel=1e-6
-    )
-    assert vertices[:, 1].min() == pytest.approx(
-        predicted_y.min() - 1.96 * scale, rel=1e-6
-    )
+    for axes in figure.axes:
+        predicted = _lines_by_label(axes)[_PLOTS._PREDICTED_MEAN_LABEL]
+        predicted_y = np.asarray(predicted.get_ydata(), dtype=float)
+        # One prediction per cycle from the first full window onwards, drawn
+        # against a cycle axis that starts exactly one window length in.
+        assert predicted_y.shape == (n_cycles - window_length + 1,)
+        assert np.asarray(predicted.get_xdata())[0] == float(window_length)
+        # The band is symmetric about the predicted mean and exactly 1.96
+        # scales wide on each side, whatever the scale.
+        vertices = axes.collections[0].get_paths()[0].vertices
+        assert vertices[:, 1].max() == pytest.approx(
+            predicted_y.max() + 1.96 * scale, rel=1e-6
+        )
+        assert vertices[:, 1].min() == pytest.approx(
+            predicted_y.min() - 1.96 * scale, rel=1e-6
+        )
     _PLOTS.plt.close(figure)

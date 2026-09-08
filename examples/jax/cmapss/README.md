@@ -44,6 +44,15 @@ fitted on the training subset only, `build_windows` produces sliding windows
 with their aligned RUL targets, and `build_last_windows` produces the single
 trailing window per test unit required by the FD001 test protocol. Units
 shorter than the window length are left-padded by repeating their first row.
+`build_unit_windows` returns a single unit's windows together with the
+aligned linear RUL and the time cycle each window ends at, which is the
+axis a per-cycle RUL curve is drawn against.
+`select_lifetime_spanning_units` picks the shortest-, median-, and
+longest-lifetime units of a set of trajectories, a unit's lifetime being
+its maximum observed time cycle. Units are ordered ascending by lifetime
+with the unit ID as tie-break and the median is the lower of the two
+central entries, so the same data always yields the same three units and
+the figure is reproducible.
 
 ### `model.py`
 
@@ -55,18 +64,36 @@ predictive RUL distribution.
 
 ### `plots.py`
 
-Builds the example's RUL curves. `plot_validation_rul_curve` takes the
+Builds the example's RUL curves. `plot_validation_rul_curves` takes the
 standardized validation trajectories, the feature columns, a trained
-composite model, and the window length, and plots — for the
-shortest-lifetime held-out validation unit — its true linear RUL across
-the whole trajectory, the model's predicted mean, and the 95% predictive
-interval `loc ± 1.96 * scale` taken analytically from the composite
-Gaussian. The predicted mean and its band start at the unit's first full
-window, since no prediction exists before `window_length` cycles of
-history have accumulated; the band is left unclipped at zero, so a band
-dipping below zero stays visible as evidence of the Gaussian assumption
-breaking down near end of life. With a save path the figure is written
-there, otherwise it is displayed.
+composite model, and the window length, and draws one row of three
+columns: the shortest-, median-, and longest-lifetime unit of that
+subset, in that order. Spanning the lifetime range that way lets a reader
+tell whether the model's accuracy and its stated uncertainty behave
+consistently across units that fail early and units that survive several
+times as long.
+
+Each column shows one unit's true linear RUL across its whole trajectory,
+the model's predicted mean, and the 95% predictive interval
+`loc ± 1.96 * scale` taken analytically from the composite Gaussian. The
+columns have independent x and y limits, so the band stays readable in
+the short-lived unit instead of being squashed by the long-lived one's
+axis range; each is titled with its unit ID, the role it plays, and that
+unit's lifetime in cycles, and one shared figure-level legend names the
+three elements. The predicted mean and its band start at each unit's
+first full window, since no prediction exists before `window_length`
+cycles of history have accumulated; the band is left unclipped at zero,
+so a band dipping below zero stays visible as evidence of the Gaussian
+assumption breaking down near end of life. With a save path the figure is
+written there, otherwise it is displayed.
+
+The plotted units are drawn from the **held-out validation subset**, never
+from the units the model trained on: those units are never fitted, so the
+curves are evidence of generalization rather than of memorized fit. They
+also cannot come from the FD001 test split, whose trajectories are
+truncated rather than run to failure — a unit's lifetime, and hence its
+true RUL at every cycle, is only observable for the run-to-failure train
+split the validation subset is carved out of.
 
 ### `run.py`
 
@@ -93,10 +120,10 @@ uv run --group example-cmapss python examples/jax/cmapss/run.py
 
 The script prints per-epoch training metrics for both stages, followed by
 the final test-set metrics: RMSE, 95% predictive-interval coverage, and
-point-CRPS. It then plots the RUL curve of the shortest-lifetime held-out
-validation unit. Pass `--plot-path` to save that figure instead of
-displaying it:
+point-CRPS. It then plots the RUL curves of the shortest-, median-, and
+longest-lifetime held-out validation units. Pass `--plot-path` to save
+that figure instead of displaying it:
 
 ```shell
-uv run --group example-cmapss python examples/jax/cmapss/run.py --plot-path rul_curve.png
+uv run --group example-cmapss python examples/jax/cmapss/run.py --plot-path rul_curves.png
 ```

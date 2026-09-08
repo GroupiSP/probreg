@@ -49,7 +49,7 @@ from data import (
     load_fd001_test_rul,
 )
 from model import Cnn1DGammaModel, Cnn1DMeanModel, CompositeGaussianModel
-from plots import plot_validation_rul_curve
+from plots import plot_validation_rul_curves
 from preprocessing import (
     SensorStandardization,
     apply_standardization,
@@ -465,9 +465,9 @@ def prepare_cmapss_windows(config: CmapssConfig) -> PreparedCmapssData:
 
 
 def main() -> None:
-    """Train the two-stage CMAPSS pipeline, print test metrics, and plot a RUL curve.
+    """Train the two-stage CMAPSS pipeline, print test metrics, and plot RUL curves.
 
-    Pass `--plot-path` to save the RUL-curve figure to that path instead of displaying
+    Pass `--plot-path` to save the RUL-curves figure to that path instead of displaying
     it interactively.
     """
     parser = argparse.ArgumentParser(description=__doc__)
@@ -476,7 +476,7 @@ def main() -> None:
         type=Path,
         default=None,
         help=(
-            "Save the validation RUL-curve figure to this path instead of "
+            "Save the validation RUL-curves figure to this path instead of "
             "displaying it."
         ),
     )
@@ -503,7 +503,7 @@ def main() -> None:
     print(f"FD001 test 95% interval coverage: {metrics['coverage']:.4f}")
     print(f"FD001 test point-CRPS: {metrics['point_crps']:.4f}")
 
-    plot_validation_rul_curve(
+    plot_validation_rul_curves(
         prepared.validation_trajectories,
         _SENSOR_NAMES,
         build_composite_model(mean_model, variance_model),

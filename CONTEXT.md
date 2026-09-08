@@ -34,6 +34,10 @@ _Avoid_: RUL (ambiguous between the two conventions), piecewise RUL
 For a single unit, its linear RUL and the model's predictive RUL plotted against time cycles. The predicted curve begins at the unit's first full window, since no prediction exists before `window_length` cycles of history have accumulated.
 _Avoid_: RUL plot, degradation curve
 
+**Lifetime-spanning units**:
+The shortest-, lower-median-, and longest-lifetime units of a set of run-to-failure trajectories, drawn side by side so that a reader can tell whether the model's accuracy and its stated uncertainty behave consistently across units that fail early and units that survive several times as long. Ordered ascending by lifetime with the unit ID as tie-break, and the median is the lower of the two central entries, so the same data always yields the same three units.
+_Avoid_: Representative units, extreme units, best/worst units (none of the three is chosen for how well the model does on it)
+
 **Predictive interval**:
 The `loc ± 1.96 * scale` band of the composite Gaussian predictive distribution, covering 95% of its mass and left unclipped at zero, so that a band extending below zero remains visible as evidence of the Gaussian assumption breaking down near end of life.
 _Avoid_: Confidence interval (this is an interval over a predicted value, not over a parameter estimate)

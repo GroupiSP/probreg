@@ -216,7 +216,7 @@ def test_build_composite_model_clones_the_source_models() -> None:
 
 @pytest.mark.usefixtures("offline_fd001")
 @pytest.mark.parametrize("plot_path_argv", [[], ["--plot-path", "curve.png"]])
-def test_main_plots_the_rul_curve_after_printing_metrics(
+def test_main_plots_the_rul_curves_after_printing_metrics(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -257,7 +257,7 @@ def test_main_plots_the_rul_curve_after_printing_metrics(
             }
         )
 
-    monkeypatch.setattr(_RUN, "plot_validation_rul_curve", record_plot)
+    monkeypatch.setattr(_RUN, "plot_validation_rul_curves", record_plot)
 
     _RUN.main()
 
@@ -272,6 +272,10 @@ def test_main_plots_the_rul_curve_after_printing_metrics(
     trajectories = call["trajectories"]
     assert isinstance(trajectories, pd.DataFrame)
     assert not trajectories.empty
+    prepared = _RUN.prepare_cmapss_windows(fast_config)
+    plotted_units = set(trajectories["unit_id"].unique())
+    assert plotted_units == set(prepared.validation_trajectories["unit_id"].unique())
+    assert plotted_units.isdisjoint(prepared.train_trajectories["unit_id"].unique())
     printed = call["printed"]
     assert isinstance(printed, str)
     assert "FD001 test RMSE" in printed

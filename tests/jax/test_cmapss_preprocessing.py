@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import logging
 import sys
@@ -331,3 +332,116 @@ def test_build_unit_windows_rejects_a_unit_shorter_than_the_window() -> None:
         _PREPROCESSING.build_unit_windows(
             data, ["sensor_a"], unit_id=1, window_length=5
         )
+
+
+@given(
+    lifetimes=st.lists(st.integers(min_value=1, max_value=40), min_size=1, max_size=8),
+    seed=st.integers(min_value=0, max_value=2**16),
+)
+def test_lifetime_spanning_units_are_invariant_to_row_order(
+    lifetimes: list[int], seed: int
+) -> None:
+    by_unit = {unit_id: n_cycles for unit_id, n_cycles in enumerate(lifetimes, start=1)}
+    data = _unit_trajectories(by_unit)
+    shuffled = data.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+    selected = _PREPROCESSING.select_lifetime_spanning_units(data)
+    from_shuffled = _PREPROCESSING.select_lifetime_spanning_units(shuffled)
+
+    assert selected == from_shuffled
+    # Repeated calls on the same frame agree too: the selection is a pure
+    # function of the lifetimes, never of iteration order.
+    assert selected == _PREPROCESSING.select_lifetime_spanning_units(data)
+
+
+@given(
+    lifetimes=st.lists(
+        st.integers(min_value=1, max_value=40), min_size=1, max_size=8, unique=True
+    ),
+    labels=st.lists(
+        st.integers(min_value=1, max_value=999), min_size=8, max_size=8, unique=True
+    ),
+)
+def test_lifetime_spanning_units_are_invariant_to_unit_relabelling(
+    lifetimes: list[int], labels: list[int]
+) -> None:
+    by_unit = {unit_id: n_cycles for unit_id, n_cycles in enumerate(lifetimes, start=1)}
+    # Relabel every unit through an arbitrary permutation of fresh IDs, so
+    # the new labels need not order the same way as the old ones. Lifetimes
+    # are unique here, so no tie-break is in play: the same trajectories
+    # must be picked out whatever they are called.
+    relabelling = {unit_id: labels[unit_id - 1] for unit_id in by_unit}
+    relabelled = {
+        relabelling[unit_id]: n_cycles for unit_id, n_cycles in by_unit.items()
+    }
+
+    selected = _PREPROCESSING.select_lifetime_spanning_units(
+        _unit_trajectories(by_unit)
+    )
+    from_relabelled = _PREPROCESSING.select_lifetime_spanning_units(
+        _unit_trajectories(relabelled)
+    )
+
+    assert from_relabelled.shortest == relabelling[selected.shortest]
+    assert from_relabelled.median == relabelling[selected.median]
+    assert from_relabelled.longest == relabelling[selected.longest]
+
+
+@given(
+    lifetimes=st.lists(st.integers(min_value=1, max_value=40), min_size=1, max_size=8),
+)
+def test_lifetime_spanning_units_span_and_order_the_lifetimes(
+    lifetimes: list[int],
+) -> None:
+    by_unit = {unit_id: n_cycles for unit_id, n_cycles in enumerate(lifetimes, start=1)}
+    data = _unit_trajectories(by_unit)
+
+    selected = _PREPROCESSING.select_lifetime_spanning_units(data)
+
+    assert by_unit[selected.shortest] == min(lifetimes)
+    assert by_unit[selected.longest] == max(lifetimes)
+    assert (
+        by_unit[selected.shortest]
+        <= by_unit[selected.median]
+        <= by_unit[selected.longest]
+    )
+
+
+@given(
+    lifetimes=st.lists(
+        st.integers(min_value=1, max_value=80), min_size=2, max_size=8, unique=True
+    ),
+)
+def test_lifetime_spanning_units_take_the_lower_median_for_an_even_count(
+    lifetimes: list[int],
+) -> None:
+    # An even number of units with distinct lifetimes, so the two central
+    # entries genuinely differ and taking the lower one is a real choice.
+    ascending = sorted(lifetimes)[: len(lifetimes) // 2 * 2]
+    by_unit = {unit_id: n_cycles for unit_id, n_cycles in enumerate(ascending, start=1)}
+    data = _unit_trajectories(by_unit)
+
+    selected = _PREPROCESSING.select_lifetime_spanning_units(data)
+
+    # Unit IDs ascend with lifetime here, so the two central units are the
+    # two middle IDs and the tie-break never comes into play.
+    n_units = len(ascending)
+    lower_central, upper_central = n_units // 2, n_units // 2 + 1
+    assert selected.median == lower_central
+    assert by_unit[lower_central] < by_unit[upper_central]
+
+
+def test_lifetime_spanning_units_are_frozen() -> None:
+    selected = _PREPROCESSING.select_lifetime_spanning_units(
+        _unit_trajectories({1: 3, 2: 7})
+    )
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        selected.median = selected.shortest  # type: ignore[misc]
+
+
+def test_lifetime_spanning_units_rejects_empty_trajectories() -> None:
+    empty = _unit_trajectories({1: 1}).iloc[0:0]
+
+    with pytest.raises(ValueError, match="at least one unit"):
+        _PREPROCESSING.select_lifetime_spanning_units(empty)
