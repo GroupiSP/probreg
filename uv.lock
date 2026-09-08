@@ -1201,6 +1201,7 @@ dev = [
 example-cmapss = [
     { name = "flax" },
     { name = "jax" },
+    { name = "matplotlib" },
     { name = "optax" },
     { name = "pandas" },
     { name = "scikit-learn" },
@@ -1228,6 +1229,7 @@ dev = [
 example-cmapss = [
     { name = "flax", specifier = ">=0.11" },
     { name = "jax", specifier = ">=0.6" },
+    { name = "matplotlib", specifier = ">=3.11.0" },
     { name = "optax", specifier = ">=0.2.4" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "scikit-learn", specifier = ">=1.9.0" },
