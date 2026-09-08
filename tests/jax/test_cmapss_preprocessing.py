@@ -2,48 +2,24 @@
 
 from __future__ import annotations
 
-import importlib.util
+import dataclasses
 import logging
-import sys
-from pathlib import Path
+from types import ModuleType
 
 import numpy as np
 import pandas as pd
 import pytest
-
-_PREPROCESSING_PATH = (
-    Path(__file__).parents[2] / "examples" / "jax" / "cmapss" / "preprocessing.py"
-)
-_SPEC = importlib.util.spec_from_file_location(
-    "cmapss_preprocessing", _PREPROCESSING_PATH
-)
-if _SPEC is None or _SPEC.loader is None:
-    raise RuntimeError("could not load the CMAPSS preprocessing module.")
-_PREPROCESSING = importlib.util.module_from_spec(_SPEC)
-sys.modules[_SPEC.name] = _PREPROCESSING
-_SPEC.loader.exec_module(_PREPROCESSING)
+from cmapss_trajectories import FEATURE_COLUMNS, build_trajectories
+from hypothesis import given
+from hypothesis import strategies as st
 
 
-def _synthetic_data() -> pd.DataFrame:
-    """Build a small synthetic multi-unit trajectory DataFrame."""
-    rows = []
-    for unit_id, n_cycles in ((1, 5), (2, 4), (3, 6)):
-        for cycle in range(1, n_cycles + 1):
-            rows.append(
-                {
-                    "unit_id": unit_id,
-                    "time_cycles": cycle,
-                    "sensor_a": unit_id * 100.0 + cycle,
-                    "sensor_b": unit_id * 10.0 + 0.5 * cycle,
-                }
-            )
-    return pd.DataFrame(rows)
+def test_split_by_unit_has_no_cross_unit_leakage(
+    cmapss_preprocessing: ModuleType,
+) -> None:
+    data = build_trajectories({1: 5, 2: 4, 3: 6})
 
-
-def test_split_by_unit_has_no_cross_unit_leakage() -> None:
-    data = _synthetic_data()
-
-    train_df, val_df = _PREPROCESSING.split_by_unit(
+    train_df, val_df = cmapss_preprocessing.split_by_unit(
         data, test_size=0.34, random_state=0
     )
 
@@ -55,13 +31,15 @@ def test_split_by_unit_has_no_cross_unit_leakage() -> None:
     assert len(train_df) + len(val_df) == len(data)
 
 
-def test_fit_and_apply_standardization_uses_train_only_statistics() -> None:
-    data = _synthetic_data()
+def test_fit_and_apply_standardization_uses_train_only_statistics(
+    cmapss_preprocessing: ModuleType,
+) -> None:
+    data = build_trajectories({1: 5, 2: 4, 3: 6})
     train_df = data[data["unit_id"] != 3].reset_index(drop=True)
     val_df = data[data["unit_id"] == 3].reset_index(drop=True)
-    feature_columns = ["sensor_a", "sensor_b"]
+    feature_columns = FEATURE_COLUMNS
 
-    stats = _PREPROCESSING.fit_standardization(train_df, feature_columns)
+    stats = cmapss_preprocessing.fit_standardization(train_df, feature_columns)
 
     expected_mean = train_df[feature_columns].mean().to_numpy()
     expected_std = train_df[feature_columns].std(ddof=0).to_numpy()
@@ -69,7 +47,7 @@ def test_fit_and_apply_standardization_uses_train_only_statistics() -> None:
     np.testing.assert_allclose(stats.scale, expected_std)
     assert stats.feature_columns == feature_columns
 
-    applied_val = _PREPROCESSING.apply_standardization(val_df, stats)
+    applied_val = cmapss_preprocessing.apply_standardization(val_df, stats)
 
     expected_val = (val_df[feature_columns].to_numpy() - expected_mean) / expected_std
     np.testing.assert_allclose(applied_val[feature_columns].to_numpy(), expected_val)
@@ -82,7 +60,9 @@ def test_fit_and_apply_standardization_uses_train_only_statistics() -> None:
     assert applied_val["time_cycles"].tolist() == val_df["time_cycles"].tolist()
 
 
-def test_fit_standardization_guards_zero_variance_columns() -> None:
+def test_fit_standardization_guards_zero_variance_columns(
+    cmapss_preprocessing: ModuleType,
+) -> None:
     data = pd.DataFrame(
         {
             "unit_id": [1, 1, 1],
@@ -91,12 +71,14 @@ def test_fit_standardization_guards_zero_variance_columns() -> None:
         }
     )
 
-    stats = _PREPROCESSING.fit_standardization(data, ["sensor_a"])
+    stats = cmapss_preprocessing.fit_standardization(data, ["sensor_a"])
 
     assert stats.scale[0] == 1.0
 
 
-def test_build_windows_shapes_and_targets_for_long_trajectory() -> None:
+def test_build_windows_shapes_and_targets_for_long_trajectory(
+    cmapss_preprocessing: ModuleType,
+) -> None:
     data = pd.DataFrame(
         {
             "unit_id": [1, 1, 1, 1, 1],
@@ -105,9 +87,9 @@ def test_build_windows_shapes_and_targets_for_long_trajectory() -> None:
             "sensor_b": [0.1, 0.2, 0.3, 0.4, 0.5],
         }
     )
-    feature_columns = ["sensor_a", "sensor_b"]
+    feature_columns = FEATURE_COLUMNS
 
-    windows, targets = _PREPROCESSING.build_windows(
+    windows, targets = cmapss_preprocessing.build_windows(
         data, feature_columns, window_length=3, stride=1
     )
 
@@ -128,7 +110,9 @@ def test_build_windows_shapes_and_targets_for_long_trajectory() -> None:
     assert targets[2] == 5 - 5
 
 
-def test_build_windows_unsorted_input_is_sorted_by_time_cycles() -> None:
+def test_build_windows_unsorted_input_is_sorted_by_time_cycles(
+    cmapss_preprocessing: ModuleType,
+) -> None:
     data = pd.DataFrame(
         {
             "unit_id": [1, 1, 1],
@@ -137,7 +121,7 @@ def test_build_windows_unsorted_input_is_sorted_by_time_cycles() -> None:
         }
     )
 
-    windows, targets = _PREPROCESSING.build_windows(
+    windows, targets = cmapss_preprocessing.build_windows(
         data, ["sensor_a"], window_length=3, stride=1
     )
 
@@ -147,6 +131,7 @@ def test_build_windows_unsorted_input_is_sorted_by_time_cycles() -> None:
 
 
 def test_build_windows_pads_short_trajectory_and_logs_info(
+    cmapss_preprocessing: ModuleType,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     data = pd.DataFrame(
@@ -158,7 +143,7 @@ def test_build_windows_pads_short_trajectory_and_logs_info(
     )
 
     with caplog.at_level(logging.INFO):
-        windows, targets = _PREPROCESSING.build_windows(
+        windows, targets = cmapss_preprocessing.build_windows(
             data, ["sensor_a"], window_length=3, stride=1
         )
 
@@ -181,11 +166,13 @@ def test_build_windows_pads_short_trajectory_and_logs_info(
     )
 
 
-def test_build_windows_concatenates_multiple_units_deterministically() -> None:
-    data = _synthetic_data()
-    feature_columns = ["sensor_a", "sensor_b"]
+def test_build_windows_concatenates_multiple_units_deterministically(
+    cmapss_preprocessing: ModuleType,
+) -> None:
+    data = build_trajectories({1: 5, 2: 4, 3: 6})
+    feature_columns = FEATURE_COLUMNS
 
-    windows, targets = _PREPROCESSING.build_windows(
+    windows, targets = cmapss_preprocessing.build_windows(
         data, feature_columns, window_length=3, stride=1
     )
 
@@ -195,25 +182,30 @@ def test_build_windows_concatenates_multiple_units_deterministically() -> None:
     assert targets.shape == (9,)
 
 
-def test_build_last_windows_takes_trailing_cycles_per_unit() -> None:
-    data = _synthetic_data()
-    feature_columns = ["sensor_a", "sensor_b"]
+def test_build_last_windows_takes_trailing_cycles_per_unit(
+    cmapss_preprocessing: ModuleType,
+) -> None:
+    data = build_trajectories({1: 5, 2: 4, 3: 6})
+    feature_columns = FEATURE_COLUMNS
 
-    windows = _PREPROCESSING.build_last_windows(data, feature_columns, window_length=3)
+    windows = cmapss_preprocessing.build_last_windows(
+        data, feature_columns, window_length=3
+    )
 
     # 3 units -> one trailing window each.
     assert windows.shape == (3, 3, 2)
     # unit 1 has cycles 1-5; the trailing window covers cycles 3-5.
     np.testing.assert_allclose(
-        windows[0], [[103.0, 11.5], [104.0, 12.0], [105.0, 12.5]]
+        windows[0], [[1003.0, 9.25], [1004.0, 9.0], [1005.0, 8.75]]
     )
     # unit 3 has cycles 1-6; the trailing window covers cycles 4-6.
     np.testing.assert_allclose(
-        windows[2], [[304.0, 32.0], [305.0, 32.5], [306.0, 33.0]]
+        windows[2], [[3004.0, 29.0], [3005.0, 28.75], [3006.0, 28.5]]
     )
 
 
 def test_build_last_windows_pads_short_trajectory(
+    cmapss_preprocessing: ModuleType,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     data = pd.DataFrame(
@@ -225,7 +217,242 @@ def test_build_last_windows_pads_short_trajectory(
     )
 
     with caplog.at_level(logging.INFO):
-        windows = _PREPROCESSING.build_last_windows(data, ["sensor_a"], window_length=3)
+        windows = cmapss_preprocessing.build_last_windows(
+            data, ["sensor_a"], window_length=3
+        )
 
     assert windows.shape == (1, 3, 1)
     np.testing.assert_allclose(windows[0], [[50.0], [50.0], [60.0]])
+
+
+@given(
+    n_cycles=st.integers(min_value=2, max_value=40),
+    window_length=st.integers(min_value=1, max_value=40),
+    other_n_cycles=st.integers(min_value=1, max_value=40),
+)
+def test_build_unit_rul_curve_cycle_axis_matches_the_linear_rul(
+    cmapss_preprocessing: ModuleType,
+    n_cycles: int,
+    window_length: int,
+    other_n_cycles: int,
+) -> None:
+    window_length = 1 + (window_length - 1) % n_cycles
+    data = build_trajectories({1: other_n_cycles, 2: n_cycles})
+    feature_columns = FEATURE_COLUMNS
+
+    curve = cmapss_preprocessing.build_unit_rul_curve(
+        data, feature_columns, unit_id=2, window_length=window_length
+    )
+
+    assert curve.lifetime == float(n_cycles)
+    # The window axis is the window's last real cycle, so it is exactly the
+    # unit's lifetime minus the linear RUL at that window.
+    np.testing.assert_allclose(
+        curve.window_cycles, curve.lifetime - curve.window_linear_rul
+    )
+    # One window per cycle from the first full window onwards.
+    assert curve.windows.shape == (
+        n_cycles - window_length + 1,
+        window_length,
+        len(feature_columns),
+    )
+    assert curve.window_linear_rul.shape == (n_cycles - window_length + 1,)
+    assert curve.window_cycles.shape == (n_cycles - window_length + 1,)
+    # The window axis advances by one cycle per window and the linear RUL
+    # falls by one, reaching zero at the unit's final cycle.
+    assert np.all(np.diff(curve.window_cycles) > 0)
+    assert np.all(np.diff(curve.window_linear_rul) < 0)
+    assert curve.window_linear_rul[-1] == 0.0
+    assert curve.window_cycles[0] == float(window_length)
+
+
+@given(
+    n_cycles=st.integers(min_value=2, max_value=40),
+    window_length=st.integers(min_value=1, max_value=40),
+)
+def test_build_unit_rul_curve_window_axis_is_the_tail_of_the_trajectory_axis(
+    cmapss_preprocessing: ModuleType, n_cycles: int, window_length: int
+) -> None:
+    window_length = 1 + (window_length - 1) % n_cycles
+    data = build_trajectories({1: 17, 2: n_cycles})
+
+    curve = cmapss_preprocessing.build_unit_rul_curve(
+        data, ["sensor_a", "sensor_b"], unit_id=2, window_length=window_length
+    )
+
+    # The truth axis spans every observed cycle, so the window axis, which
+    # starts at the first full window, is exactly its tail. Both axes are
+    # stored rather than derived, so this agreement is worth asserting.
+    assert curve.trajectory_cycles.shape == (n_cycles,)
+    assert curve.trajectory_linear_rul.shape == (n_cycles,)
+    np.testing.assert_allclose(
+        curve.trajectory_cycles[window_length - 1 :], curve.window_cycles
+    )
+    np.testing.assert_allclose(
+        curve.trajectory_linear_rul[window_length - 1 :], curve.window_linear_rul
+    )
+    np.testing.assert_allclose(
+        curve.trajectory_linear_rul, curve.lifetime - curve.trajectory_cycles
+    )
+    assert curve.trajectory_linear_rul[-1] == 0.0
+
+
+@given(
+    n_cycles=st.integers(min_value=2, max_value=40),
+    window_length=st.integers(min_value=1, max_value=40),
+)
+def test_build_unit_rul_curve_matches_the_shared_window_builder(
+    cmapss_preprocessing: ModuleType, n_cycles: int, window_length: int
+) -> None:
+    window_length = 1 + (window_length - 1) % n_cycles
+    data = build_trajectories({1: 17, 2: n_cycles})
+    feature_columns = FEATURE_COLUMNS
+
+    curve = cmapss_preprocessing.build_unit_rul_curve(
+        data, feature_columns, unit_id=2, window_length=window_length
+    )
+
+    expected_windows, expected_targets = cmapss_preprocessing.build_windows(
+        data[data["unit_id"] == 2], feature_columns, window_length=window_length
+    )
+    np.testing.assert_allclose(curve.windows, expected_windows)
+    np.testing.assert_allclose(curve.window_linear_rul, expected_targets)
+
+
+def test_build_unit_rul_curve_rejects_an_absent_unit(
+    cmapss_preprocessing: ModuleType,
+) -> None:
+    data = build_trajectories({1: 5})
+
+    with pytest.raises(ValueError, match="unit_id"):
+        cmapss_preprocessing.build_unit_rul_curve(
+            data, ["sensor_a"], unit_id=99, window_length=3
+        )
+
+
+def test_build_unit_rul_curve_rejects_a_unit_shorter_than_the_window(
+    cmapss_preprocessing: ModuleType,
+) -> None:
+    data = build_trajectories({1: 4})
+
+    with pytest.raises(ValueError, match="no full window"):
+        cmapss_preprocessing.build_unit_rul_curve(
+            data, ["sensor_a"], unit_id=1, window_length=5
+        )
+
+
+@given(
+    lifetimes=st.lists(st.integers(min_value=1, max_value=40), min_size=1, max_size=8),
+    seed=st.integers(min_value=0, max_value=2**16),
+)
+def test_lifetime_spanning_units_are_invariant_to_row_order(
+    cmapss_preprocessing: ModuleType, lifetimes: list[int], seed: int
+) -> None:
+    by_unit = {unit_id: n_cycles for unit_id, n_cycles in enumerate(lifetimes, start=1)}
+    data = build_trajectories(by_unit)
+    shuffled = data.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+    selected = cmapss_preprocessing.select_lifetime_spanning_units(data)
+    from_shuffled = cmapss_preprocessing.select_lifetime_spanning_units(shuffled)
+
+    assert selected == from_shuffled
+    # Repeated calls on the same frame agree too: the selection is a pure
+    # function of the lifetimes, never of iteration order.
+    assert selected == cmapss_preprocessing.select_lifetime_spanning_units(data)
+
+
+@given(
+    lifetimes=st.lists(
+        st.integers(min_value=1, max_value=40), min_size=1, max_size=8, unique=True
+    ),
+    labels=st.lists(
+        st.integers(min_value=1, max_value=999), min_size=8, max_size=8, unique=True
+    ),
+)
+def test_lifetime_spanning_units_are_invariant_to_unit_relabelling(
+    cmapss_preprocessing: ModuleType, lifetimes: list[int], labels: list[int]
+) -> None:
+    by_unit = {unit_id: n_cycles for unit_id, n_cycles in enumerate(lifetimes, start=1)}
+    # Relabel every unit through an arbitrary permutation of fresh IDs, so
+    # the new labels need not order the same way as the old ones. Lifetimes
+    # are unique here, so no tie-break is in play: the same trajectories
+    # must be picked out whatever they are called.
+    relabelling = {unit_id: labels[unit_id - 1] for unit_id in by_unit}
+    relabelled = {
+        relabelling[unit_id]: n_cycles for unit_id, n_cycles in by_unit.items()
+    }
+
+    selected = cmapss_preprocessing.select_lifetime_spanning_units(
+        build_trajectories(by_unit)
+    )
+    from_relabelled = cmapss_preprocessing.select_lifetime_spanning_units(
+        build_trajectories(relabelled)
+    )
+
+    assert from_relabelled.shortest == relabelling[selected.shortest]
+    assert from_relabelled.median == relabelling[selected.median]
+    assert from_relabelled.longest == relabelling[selected.longest]
+
+
+@given(
+    lifetimes=st.lists(st.integers(min_value=1, max_value=40), min_size=1, max_size=8),
+)
+def test_lifetime_spanning_units_span_and_order_the_lifetimes(
+    cmapss_preprocessing: ModuleType,
+    lifetimes: list[int],
+) -> None:
+    by_unit = {unit_id: n_cycles for unit_id, n_cycles in enumerate(lifetimes, start=1)}
+    data = build_trajectories(by_unit)
+
+    selected = cmapss_preprocessing.select_lifetime_spanning_units(data)
+
+    assert by_unit[selected.shortest] == min(lifetimes)
+    assert by_unit[selected.longest] == max(lifetimes)
+    assert (
+        by_unit[selected.shortest]
+        <= by_unit[selected.median]
+        <= by_unit[selected.longest]
+    )
+
+
+@given(
+    lifetimes=st.lists(
+        st.integers(min_value=1, max_value=80), min_size=2, max_size=8, unique=True
+    ),
+)
+def test_lifetime_spanning_units_take_the_lower_median_for_an_even_count(
+    cmapss_preprocessing: ModuleType,
+    lifetimes: list[int],
+) -> None:
+    # An even number of units with distinct lifetimes, so the two central
+    # entries genuinely differ and taking the lower one is a real choice.
+    ascending = sorted(lifetimes)[: len(lifetimes) // 2 * 2]
+    by_unit = {unit_id: n_cycles for unit_id, n_cycles in enumerate(ascending, start=1)}
+    data = build_trajectories(by_unit)
+
+    selected = cmapss_preprocessing.select_lifetime_spanning_units(data)
+
+    # Unit IDs ascend with lifetime here, so the two central units are the
+    # two middle IDs and the tie-break never comes into play.
+    n_units = len(ascending)
+    lower_central, upper_central = n_units // 2, n_units // 2 + 1
+    assert selected.median == lower_central
+    assert by_unit[lower_central] < by_unit[upper_central]
+
+
+def test_lifetime_spanning_units_are_frozen(cmapss_preprocessing: ModuleType) -> None:
+    selected = cmapss_preprocessing.select_lifetime_spanning_units(
+        build_trajectories({1: 3, 2: 7})
+    )
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        selected.median = selected.shortest  # type: ignore[misc]
+
+
+def test_lifetime_spanning_units_rejects_empty_trajectories(
+    cmapss_preprocessing: ModuleType,
+) -> None:
+    empty = build_trajectories({1: 1}).iloc[0:0]
+
+    with pytest.raises(ValueError, match="at least one unit"):
+        cmapss_preprocessing.select_lifetime_spanning_units(empty)
