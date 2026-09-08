@@ -2,32 +2,16 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import numpy as np
-import pandas as pd
 import pytest
+from cmapss_trajectories import FEATURE_COLUMNS, build_trajectories
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-
-pytest.importorskip("matplotlib")
-
-_CMAPSS_DIR = Path(__file__).parents[2] / "examples" / "jax" / "cmapss"
-if str(_CMAPSS_DIR) not in sys.path:
-    sys.path.insert(0, str(_CMAPSS_DIR))
-
-_PLOTS_PATH = _CMAPSS_DIR / "plots.py"
-_SPEC = importlib.util.spec_from_file_location("cmapss_plots", _PLOTS_PATH)
-if _SPEC is None or _SPEC.loader is None:
-    raise RuntimeError("could not load the CMAPSS plots module.")
-_PLOTS = importlib.util.module_from_spec(_SPEC)
-sys.modules[_SPEC.name] = _PLOTS
-_SPEC.loader.exec_module(_PLOTS)
-
-_FEATURE_COLUMNS = ["sensor_a", "sensor_b"]
 
 
 class _StubGaussian:
@@ -74,34 +58,13 @@ class _StubModel:
         return _StubGaussian(loc=loc, scale=np.full((n_windows, 1), self.scale))
 
 
-def _standardized_trajectories(lifetimes: dict[int, int]) -> pd.DataFrame:
-    """Build synthetic standardized trajectories with the given lifetimes."""
-    rows = []
-    for unit_id, n_cycles in lifetimes.items():
-        for cycle in range(1, n_cycles + 1):
-            rows.append(
-                {
-                    "unit_id": unit_id,
-                    "time_cycles": cycle,
-                    "sensor_a": 0.01 * unit_id + 0.1 * cycle,
-                    "sensor_b": -0.02 * unit_id - 0.05 * cycle,
-                }
-            )
-    return pd.DataFrame(rows)
-
-
-def _spanning_units(shortest: int, median: int, longest: int) -> Any:
-    """Name the three units a figure should draw, in column order."""
-    return _PLOTS.LifetimeSpanningUnits(
-        shortest=shortest, median=median, longest=longest
-    )
-
-
 @pytest.fixture
-def captured_show(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+def captured_show(
+    cmapss_plots: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> list[bool]:
     """Record calls to the interactive show, instead of displaying anything."""
     calls: list[bool] = []
-    monkeypatch.setattr(_PLOTS.plt, "show", lambda: calls.append(True))
+    monkeypatch.setattr(cmapss_plots.plt, "show", lambda: calls.append(True))
     return calls
 
 
@@ -111,16 +74,18 @@ def _lines_by_label(axes: Any) -> dict[str, Any]:
 
 
 def test_rul_curves_show_truth_prediction_and_band_per_column(
+    cmapss_plots: ModuleType,
+    spanning_units: Callable[[int, int, int], Any],
     captured_show: list[bool],
 ) -> None:
-    trajectories = _standardized_trajectories({1: 30, 2: 12, 3: 20, 4: 25})
+    trajectories = build_trajectories({1: 30, 2: 12, 3: 20, 4: 25})
     window_length = 4
 
-    figure = _PLOTS.plot_validation_rul_curves(
+    figure = cmapss_plots.plot_validation_rul_curves(
         trajectories,
-        _FEATURE_COLUMNS,
+        FEATURE_COLUMNS,
         _StubModel(),
-        units=_spanning_units(2, 3, 1),
+        units=spanning_units(2, 3, 1),
         window_length=window_length,
     )
 
@@ -131,14 +96,14 @@ def test_rul_curves_show_truth_prediction_and_band_per_column(
     for axes, lifetime in zip(figure.axes, (12, 20, 30), strict=True):
         lines = _lines_by_label(axes)
         assert set(lines) == {
-            _PLOTS._TRUE_RUL_LABEL,
-            _PLOTS._PREDICTED_MEAN_LABEL,
+            cmapss_plots._TRUE_RUL_LABEL,
+            cmapss_plots._PREDICTED_MEAN_LABEL,
         }
-        truth = lines[_PLOTS._TRUE_RUL_LABEL]
+        truth = lines[cmapss_plots._TRUE_RUL_LABEL]
         np.testing.assert_allclose(truth.get_xdata(), np.arange(1, lifetime + 1))
         np.testing.assert_allclose(truth.get_ydata(), np.arange(lifetime - 1, -1, -1))
         # The prediction starts one full window into the unit's life.
-        predicted = lines[_PLOTS._PREDICTED_MEAN_LABEL]
+        predicted = lines[cmapss_plots._PREDICTED_MEAN_LABEL]
         predicted_x = np.asarray(predicted.get_xdata())
         np.testing.assert_allclose(predicted_x, np.arange(window_length, lifetime + 1))
         np.testing.assert_allclose(predicted.get_ydata(), np.arange(len(predicted_x)))
@@ -149,17 +114,19 @@ def test_rul_curves_show_truth_prediction_and_band_per_column(
 
 
 def test_rul_curve_columns_have_independent_axis_limits(
+    cmapss_plots: ModuleType,
+    spanning_units: Callable[[int, int, int], Any],
     captured_show: list[bool],
 ) -> None:
     # A long-lived unit alongside a short-lived one: were the limits
     # shared, the short unit's curve would be squashed into a corner.
-    trajectories = _standardized_trajectories({1: 12, 2: 40, 3: 120})
+    trajectories = build_trajectories({1: 12, 2: 40, 3: 120})
 
-    figure = _PLOTS.plot_validation_rul_curves(
+    figure = cmapss_plots.plot_validation_rul_curves(
         trajectories,
-        _FEATURE_COLUMNS,
+        FEATURE_COLUMNS,
         _StubModel(),
-        units=_spanning_units(1, 2, 3),
+        units=spanning_units(1, 2, 3),
         window_length=5,
     )
 
@@ -174,15 +141,17 @@ def test_rul_curve_columns_have_independent_axis_limits(
 
 
 def test_rul_curve_column_titles_name_the_unit_role_and_lifetime(
+    cmapss_plots: ModuleType,
+    spanning_units: Callable[[int, int, int], Any],
     captured_show: list[bool],
 ) -> None:
-    trajectories = _standardized_trajectories({7: 30, 8: 12, 9: 20})
+    trajectories = build_trajectories({7: 30, 8: 12, 9: 20})
 
-    figure = _PLOTS.plot_validation_rul_curves(
+    figure = cmapss_plots.plot_validation_rul_curves(
         trajectories,
-        _FEATURE_COLUMNS,
+        FEATURE_COLUMNS,
         _StubModel(),
-        units=_spanning_units(8, 9, 7),
+        units=spanning_units(8, 9, 7),
         window_length=4,
     )
 
@@ -201,38 +170,42 @@ def test_rul_curve_column_titles_name_the_unit_role_and_lifetime(
 
 
 def test_rul_curves_carry_one_shared_figure_legend(
+    cmapss_plots: ModuleType,
+    spanning_units: Callable[[int, int, int], Any],
     captured_show: list[bool],
 ) -> None:
-    trajectories = _standardized_trajectories({1: 30, 2: 12, 3: 20})
+    trajectories = build_trajectories({1: 30, 2: 12, 3: 20})
 
-    figure = _PLOTS.plot_validation_rul_curves(
+    figure = cmapss_plots.plot_validation_rul_curves(
         trajectories,
-        _FEATURE_COLUMNS,
+        FEATURE_COLUMNS,
         _StubModel(),
-        units=_spanning_units(2, 3, 1),
+        units=spanning_units(2, 3, 1),
         window_length=4,
     )
 
     assert all(axes.get_legend() is None for axes in figure.axes)
     (legend,) = figure.legends
     assert [text.get_text() for text in legend.get_texts()] == [
-        _PLOTS._TRUE_RUL_LABEL,
-        _PLOTS._PREDICTED_MEAN_LABEL,
-        _PLOTS._INTERVAL_LABEL,
+        cmapss_plots._TRUE_RUL_LABEL,
+        cmapss_plots._PREDICTED_MEAN_LABEL,
+        cmapss_plots._INTERVAL_LABEL,
     ]
 
 
 def test_band_is_the_analytic_95_percent_predictive_interval(
+    cmapss_plots: ModuleType,
+    spanning_units: Callable[[int, int, int], Any],
     captured_show: list[bool],
 ) -> None:
-    trajectories = _standardized_trajectories({1: 10})
+    trajectories = build_trajectories({1: 10})
     window_length = 3
 
-    figure = _PLOTS.plot_validation_rul_curves(
+    figure = cmapss_plots.plot_validation_rul_curves(
         trajectories,
-        _FEATURE_COLUMNS,
+        FEATURE_COLUMNS,
         _StubModel(scale=100.0),
-        units=_spanning_units(1, 1, 1),
+        units=spanning_units(1, 1, 1),
         window_length=window_length,
     )
 
@@ -249,25 +222,27 @@ def test_band_is_the_analytic_95_percent_predictive_interval(
 
 
 def test_rul_curves_window_each_unit_with_the_given_features(
+    cmapss_plots: ModuleType,
+    spanning_units: Callable[[int, int, int], Any],
     captured_show: list[bool],
 ) -> None:
-    trajectories = _standardized_trajectories({1: 20, 2: 9, 3: 14})
+    trajectories = build_trajectories({1: 20, 2: 9, 3: 14})
     window_length = 3
     model = _StubModel()
 
-    _PLOTS.plot_validation_rul_curves(
+    cmapss_plots.plot_validation_rul_curves(
         trajectories,
-        _FEATURE_COLUMNS,
+        FEATURE_COLUMNS,
         model,
-        units=_spanning_units(2, 3, 1),
+        units=spanning_units(2, 3, 1),
         window_length=window_length,
     )
 
     assert len(model.seen_inputs) == 3
     for inputs, unit_id in zip(model.seen_inputs, (2, 3, 1), strict=True):
-        expected = _PLOTS.build_unit_rul_curve(
+        expected = cmapss_plots.build_unit_rul_curve(
             trajectories,
-            _FEATURE_COLUMNS,
+            FEATURE_COLUMNS,
             unit_id=unit_id,
             window_length=window_length,
         ).windows
@@ -275,17 +250,19 @@ def test_rul_curves_window_each_unit_with_the_given_features(
 
 
 def test_rul_curves_draw_exactly_the_units_the_caller_selected(
+    cmapss_plots: ModuleType,
+    spanning_units: Callable[[int, int, int], Any],
     captured_show: list[bool],
 ) -> None:
     # A deliberately non-spanning trio: were the selection made here rather
     # than by the caller, units 1 and 4 would be drawn instead.
-    trajectories = _standardized_trajectories({1: 8, 2: 20, 3: 30, 4: 60})
+    trajectories = build_trajectories({1: 8, 2: 20, 3: 30, 4: 60})
 
-    figure = _PLOTS.plot_validation_rul_curves(
+    figure = cmapss_plots.plot_validation_rul_curves(
         trajectories,
-        _FEATURE_COLUMNS,
+        FEATURE_COLUMNS,
         _StubModel(),
-        units=_spanning_units(2, 3, 2),
+        units=spanning_units(2, 3, 2),
         window_length=4,
     )
 
@@ -296,16 +273,19 @@ def test_rul_curves_draw_exactly_the_units_the_caller_selected(
 
 
 def test_rul_curves_save_to_the_given_path(
-    tmp_path: Path, captured_show: list[bool]
+    cmapss_plots: ModuleType,
+    spanning_units: Callable[[int, int, int], Any],
+    tmp_path: Path,
+    captured_show: list[bool],
 ) -> None:
-    trajectories = _standardized_trajectories({1: 15, 2: 20, 3: 25})
+    trajectories = build_trajectories({1: 15, 2: 20, 3: 25})
     save_path = tmp_path / "rul_curves.png"
 
-    _PLOTS.plot_validation_rul_curves(
+    cmapss_plots.plot_validation_rul_curves(
         trajectories,
-        _FEATURE_COLUMNS,
+        FEATURE_COLUMNS,
         _StubModel(),
-        units=_spanning_units(1, 2, 3),
+        units=spanning_units(1, 2, 3),
         window_length=5,
         save_path=save_path,
     )
@@ -322,25 +302,27 @@ def test_rul_curves_save_to_the_given_path(
     scale=st.floats(min_value=1e-3, max_value=1e3, allow_nan=False),
 )
 def test_band_is_always_the_predicted_mean_plus_minus_1_96_scale(
+    cmapss_plots: ModuleType,
+    spanning_units: Callable[[int, int, int], Any],
     monkeypatch: pytest.MonkeyPatch,
     n_cycles: int,
     window_length: int,
     scale: float,
 ) -> None:
-    monkeypatch.setattr(_PLOTS.plt, "show", lambda: None)
+    monkeypatch.setattr(cmapss_plots.plt, "show", lambda: None)
     window_length = 1 + (window_length - 1) % n_cycles
-    trajectories = _standardized_trajectories({1: n_cycles})
+    trajectories = build_trajectories({1: n_cycles})
 
-    figure = _PLOTS.plot_validation_rul_curves(
+    figure = cmapss_plots.plot_validation_rul_curves(
         trajectories,
-        _FEATURE_COLUMNS,
+        FEATURE_COLUMNS,
         _StubModel(scale=scale),
-        units=_spanning_units(1, 1, 1),
+        units=spanning_units(1, 1, 1),
         window_length=window_length,
     )
 
     for axes in figure.axes:
-        predicted = _lines_by_label(axes)[_PLOTS._PREDICTED_MEAN_LABEL]
+        predicted = _lines_by_label(axes)[cmapss_plots._PREDICTED_MEAN_LABEL]
         predicted_y = np.asarray(predicted.get_ydata(), dtype=float)
         # One prediction per cycle from the first full window onwards, drawn
         # against a cycle axis that starts exactly one window length in.
@@ -355,4 +337,4 @@ def test_band_is_always_the_predicted_mean_plus_minus_1_96_scale(
         assert vertices[:, 1].min() == pytest.approx(
             predicted_y.min() - 1.96 * scale, rel=1e-6
         )
-    _PLOTS.plt.close(figure)
+    cmapss_plots.plt.close(figure)
