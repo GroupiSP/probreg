@@ -44,9 +44,14 @@ fitted on the training subset only, `build_windows` produces sliding windows
 with their aligned RUL targets, and `build_last_windows` produces the single
 trailing window per test unit required by the FD001 test protocol. Units
 shorter than the window length are left-padded by repeating their first row.
-`build_unit_windows` returns a single unit's windows together with the
-aligned linear RUL and the time cycle each window ends at, which is the
-axis a per-cycle RUL curve is drawn against.
+`build_unit_rul_curve` returns a single unit's `UnitRulCurve`: its
+windows with their aligned linear RUL and window-end cycles, its lifetime,
+and the true linear RUL over every observed cycle. The two time axes are
+named apart — `window_cycles` is what a predicted curve is drawn against,
+`trajectory_cycles` what the truth is drawn against — so a caller never
+re-derives either one. A unit shorter than the window length is rejected
+rather than padded; see
+`docs/adr/0004-cmapss-rul-curves-refuse-padded-windows.md`.
 `select_lifetime_spanning_units` picks the shortest-, median-, and
 longest-lifetime units of a set of trajectories, a unit's lifetime being
 its maximum observed time cycle. Units are ordered ascending by lifetime

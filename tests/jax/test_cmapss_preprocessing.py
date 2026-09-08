@@ -263,73 +263,106 @@ def _unit_trajectories(lengths: dict[int, int]) -> pd.DataFrame:
     window_length=st.integers(min_value=1, max_value=40),
     other_n_cycles=st.integers(min_value=1, max_value=40),
 )
-def test_build_unit_windows_cycle_axis_matches_the_linear_rul(
+def test_build_unit_rul_curve_cycle_axis_matches_the_linear_rul(
     n_cycles: int, window_length: int, other_n_cycles: int
 ) -> None:
     window_length = 1 + (window_length - 1) % n_cycles
     data = _unit_trajectories({1: other_n_cycles, 2: n_cycles})
     feature_columns = ["sensor_a", "sensor_b"]
 
-    unit = _PREPROCESSING.build_unit_windows(
+    curve = _PREPROCESSING.build_unit_rul_curve(
         data, feature_columns, unit_id=2, window_length=window_length
     )
 
-    max_cycle = float(n_cycles)
-    # The cycle axis is the window's last real cycle, so it is exactly the
+    assert curve.lifetime == float(n_cycles)
+    # The window axis is the window's last real cycle, so it is exactly the
     # unit's lifetime minus the linear RUL at that window.
-    np.testing.assert_allclose(unit.cycles, max_cycle - unit.linear_rul)
+    np.testing.assert_allclose(
+        curve.window_cycles, curve.lifetime - curve.window_linear_rul
+    )
     # One window per cycle from the first full window onwards.
-    assert unit.windows.shape == (
+    assert curve.windows.shape == (
         n_cycles - window_length + 1,
         window_length,
         len(feature_columns),
     )
-    assert unit.linear_rul.shape == (n_cycles - window_length + 1,)
-    assert unit.cycles.shape == (n_cycles - window_length + 1,)
-    # The cycle axis advances by one cycle per window and the linear RUL
+    assert curve.window_linear_rul.shape == (n_cycles - window_length + 1,)
+    assert curve.window_cycles.shape == (n_cycles - window_length + 1,)
+    # The window axis advances by one cycle per window and the linear RUL
     # falls by one, reaching zero at the unit's final cycle.
-    assert np.all(np.diff(unit.cycles) > 0)
-    assert np.all(np.diff(unit.linear_rul) < 0)
-    assert unit.linear_rul[-1] == 0.0
-    assert unit.cycles[0] == float(window_length)
+    assert np.all(np.diff(curve.window_cycles) > 0)
+    assert np.all(np.diff(curve.window_linear_rul) < 0)
+    assert curve.window_linear_rul[-1] == 0.0
+    assert curve.window_cycles[0] == float(window_length)
 
 
 @given(
     n_cycles=st.integers(min_value=2, max_value=40),
     window_length=st.integers(min_value=1, max_value=40),
 )
-def test_build_unit_windows_matches_the_shared_window_builder(
+def test_build_unit_rul_curve_window_axis_is_the_tail_of_the_trajectory_axis(
+    n_cycles: int, window_length: int
+) -> None:
+    window_length = 1 + (window_length - 1) % n_cycles
+    data = _unit_trajectories({1: 17, 2: n_cycles})
+
+    curve = _PREPROCESSING.build_unit_rul_curve(
+        data, ["sensor_a", "sensor_b"], unit_id=2, window_length=window_length
+    )
+
+    # The truth axis spans every observed cycle, so the window axis, which
+    # starts at the first full window, is exactly its tail. Both axes are
+    # stored rather than derived, so this agreement is worth asserting.
+    assert curve.trajectory_cycles.shape == (n_cycles,)
+    assert curve.trajectory_linear_rul.shape == (n_cycles,)
+    np.testing.assert_allclose(
+        curve.trajectory_cycles[window_length - 1 :], curve.window_cycles
+    )
+    np.testing.assert_allclose(
+        curve.trajectory_linear_rul[window_length - 1 :], curve.window_linear_rul
+    )
+    np.testing.assert_allclose(
+        curve.trajectory_linear_rul, curve.lifetime - curve.trajectory_cycles
+    )
+    assert curve.trajectory_linear_rul[-1] == 0.0
+
+
+@given(
+    n_cycles=st.integers(min_value=2, max_value=40),
+    window_length=st.integers(min_value=1, max_value=40),
+)
+def test_build_unit_rul_curve_matches_the_shared_window_builder(
     n_cycles: int, window_length: int
 ) -> None:
     window_length = 1 + (window_length - 1) % n_cycles
     data = _unit_trajectories({1: 17, 2: n_cycles})
     feature_columns = ["sensor_a", "sensor_b"]
 
-    unit = _PREPROCESSING.build_unit_windows(
+    curve = _PREPROCESSING.build_unit_rul_curve(
         data, feature_columns, unit_id=2, window_length=window_length
     )
 
     expected_windows, expected_targets = _PREPROCESSING.build_windows(
         data[data["unit_id"] == 2], feature_columns, window_length=window_length
     )
-    np.testing.assert_allclose(unit.windows, expected_windows)
-    np.testing.assert_allclose(unit.linear_rul, expected_targets)
+    np.testing.assert_allclose(curve.windows, expected_windows)
+    np.testing.assert_allclose(curve.window_linear_rul, expected_targets)
 
 
-def test_build_unit_windows_rejects_an_absent_unit() -> None:
+def test_build_unit_rul_curve_rejects_an_absent_unit() -> None:
     data = _unit_trajectories({1: 5})
 
     with pytest.raises(ValueError, match="unit_id"):
-        _PREPROCESSING.build_unit_windows(
+        _PREPROCESSING.build_unit_rul_curve(
             data, ["sensor_a"], unit_id=99, window_length=3
         )
 
 
-def test_build_unit_windows_rejects_a_unit_shorter_than_the_window() -> None:
+def test_build_unit_rul_curve_rejects_a_unit_shorter_than_the_window() -> None:
     data = _unit_trajectories({1: 4})
 
     with pytest.raises(ValueError, match="no full window"):
-        _PREPROCESSING.build_unit_windows(
+        _PREPROCESSING.build_unit_rul_curve(
             data, ["sensor_a"], unit_id=1, window_length=5
         )
 

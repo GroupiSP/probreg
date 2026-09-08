@@ -38,7 +38,7 @@ _MODULE_DIR = Path(__file__).resolve().parent
 if str(_MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(_MODULE_DIR))
 
-from preprocessing import build_unit_windows, select_lifetime_spanning_units
+from preprocessing import build_unit_rul_curve, select_lifetime_spanning_units
 
 _INTERVAL_Z_SCORE = 1.96
 _TRUE_RUL_LABEL = "True linear RUL"
@@ -106,29 +106,27 @@ def _draw_unit_rul_curve(
         role: The role this unit plays in the figure, named in the title.
         window_length: Number of cycles per window, as trained with.
     """
-    unit_trajectory = trajectories[trajectories["unit_id"] == unit_id].sort_values(
-        "time_cycles"
-    )
-    unit_cycles = unit_trajectory["time_cycles"].to_numpy(dtype=float)
-    lifetime = unit_cycles[-1]
-    true_linear_rul = lifetime - unit_cycles
-
-    unit = build_unit_windows(
+    curve = build_unit_rul_curve(
         trajectories,
         feature_columns,
         unit_id=unit_id,
         window_length=window_length,
     )
-    prediction = model(np.asarray(unit.windows, dtype=np.float32))
+    prediction = model(np.asarray(curve.windows, dtype=np.float32))
     loc = np.asarray(prediction.loc, dtype=float).reshape(-1)
     half_width = _INTERVAL_Z_SCORE * np.asarray(prediction.scale, dtype=float).reshape(
         -1
     )
 
-    axes.plot(unit_cycles, true_linear_rul, label=_TRUE_RUL_LABEL, color="black")
-    axes.plot(unit.cycles, loc, label=_PREDICTED_MEAN_LABEL, color="tab:blue")
+    axes.plot(
+        curve.trajectory_cycles,
+        curve.trajectory_linear_rul,
+        label=_TRUE_RUL_LABEL,
+        color="black",
+    )
+    axes.plot(curve.window_cycles, loc, label=_PREDICTED_MEAN_LABEL, color="tab:blue")
     axes.fill_between(
-        unit.cycles,
+        curve.window_cycles,
         loc - half_width,
         loc + half_width,
         alpha=0.25,
@@ -137,7 +135,7 @@ def _draw_unit_rul_curve(
     )
     axes.set_xlabel("Time cycles")
     axes.set_ylabel("RUL (cycles)")
-    axes.set_title(f"Unit {unit_id} — {role} ({lifetime:g} cycles)")
+    axes.set_title(f"Unit {unit_id} — {role} ({curve.lifetime:g} cycles)")
 
 
 def plot_validation_rul_curves(

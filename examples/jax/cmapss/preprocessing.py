@@ -249,38 +249,63 @@ def build_last_windows(
 
 
 @dataclass(frozen=True)
-class UnitWindows:
-    """One unit's sliding windows with their aligned linear RUL and cycles.
+class UnitRulCurve:
+    """One unit's RUL curve: its trajectory truth and its windowed inputs.
+
+    Holds the two time axes a per-unit RUL curve is drawn against, so that
+    a caller never has to re-derive either of them. The trajectory axis
+    covers every observed cycle and carries the truth the model is judged
+    against; the window axis starts at the unit's first full window, since
+    no prediction exists before `window_length` cycles of sensor history
+    have accumulated. Both axes are named explicitly: an unqualified
+    `cycles` would silently mean either one.
 
     Attributes:
         windows: The unit's sliding windows, shape `(n_windows,
             window_length, n_features)`.
-        linear_rul: The true linear RUL at each window's last real cycle,
-            shape `(n_windows,)`.
-        cycles: The `time_cycles` value of each window's last row, shape
-            `(n_windows,)`. This is the time axis a per-unit RUL curve is
-            plotted against; it starts at the unit's first full window.
+        window_cycles: The `time_cycles` value of each window's last row,
+            shape `(n_windows,)`. This is the time axis a predicted curve
+            is plotted against.
+        window_linear_rul: The true linear RUL at each window's last real
+            cycle, shape `(n_windows,)`. Equal to
+            `trajectory_linear_rul[window_length - 1:]`, kept as its own
+            field because it is what `build_windows` returns as the
+            training target and is therefore the array the models are
+            actually scored against.
+        lifetime: The unit's total number of cycles, i.e. its linear RUL at
+            cycle zero.
+        trajectory_cycles: Every observed `time_cycles` value of the unit,
+            ascending, shape `(n_cycles,)`.
+        trajectory_linear_rul: The true linear RUL at every observed cycle,
+            `lifetime - trajectory_cycles`, shape `(n_cycles,)`. This is
+            the truth axis a RUL curve is plotted against, spanning the
+            whole trajectory so that the model's warm-up stays visible
+            rather than hidden.
     """
 
     windows: np.ndarray
-    linear_rul: np.ndarray
-    cycles: np.ndarray
+    window_cycles: np.ndarray
+    window_linear_rul: np.ndarray
+    lifetime: float
+    trajectory_cycles: np.ndarray
+    trajectory_linear_rul: np.ndarray
 
 
-def build_unit_windows(
+def build_unit_rul_curve(
     data: pd.DataFrame,
     feature_columns: Sequence[str],
     *,
     unit_id: object,
     window_length: int = 30,
-) -> UnitWindows:
-    """Build every sliding window of a single unit, with its RUL and cycle axis.
+) -> UnitRulCurve:
+    """Build a single unit's RUL curve: its trajectory truth and its windows.
 
     Windowing itself is delegated to `build_windows` restricted to that
     unit's rows, so the windows and targets are exactly the ones the models
     are trained and scored on. On top of those, the unit's own
-    `time_cycles` values supply the cycle each window ends at, which is
-    what a per-cycle RUL curve is plotted against.
+    `time_cycles` values supply both time axes: the cycle each window ends
+    at, which a predicted curve is plotted against, and the whole
+    trajectory, which the true linear RUL is plotted against.
 
     Args:
         data: A DataFrame with `unit_id`, `time_cycles`, and
@@ -290,33 +315,39 @@ def build_unit_windows(
         window_length: Number of cycles per window.
 
     Returns:
-        The unit's windows, the aligned true linear RUL, and the time cycle
-        of each window's last row, one entry per cycle from the unit's
-        first full window onwards.
+        The unit's `UnitRulCurve`: its windows with their aligned true
+        linear RUL and window-end cycles, its lifetime, and the true linear
+        RUL over every observed cycle.
 
     Raises:
         ValueError: If `unit_id` has no rows in `data`, or if the unit has
             fewer than `window_length` cycles. Such a unit admits no full
             window, and left-padding it would fabricate sensor history and
-            manufacture a prediction that has no support in the data.
+            manufacture a prediction that has no support in the data. This
+            is deliberately stricter than `build_windows`, which does pad
+            such a unit; see `docs/adr/0004-cmapss-rul-curves-refuse-padded-windows.md`.
     """
     unit_data = data[data["unit_id"] == unit_id]
     if unit_data.empty:
         raise ValueError(f"unit_id {unit_id!r} has no rows in the given trajectories.")
-    time_cycles = unit_data["time_cycles"].sort_values().to_numpy(dtype=float)
-    if time_cycles.shape[0] < window_length:
+    trajectory_cycles = unit_data["time_cycles"].sort_values().to_numpy(dtype=float)
+    if trajectory_cycles.shape[0] < window_length:
         raise ValueError(
-            f"unit_id {unit_id!r} has {time_cycles.shape[0]} cycles, fewer than "
-            f"the window length of {window_length}; it admits no full window."
+            f"unit_id {unit_id!r} has {trajectory_cycles.shape[0]} cycles, fewer "
+            f"than the window length of {window_length}; it admits no full window."
         )
 
-    windows, linear_rul = build_windows(
+    windows, window_linear_rul = build_windows(
         unit_data, feature_columns, window_length=window_length
     )
-    return UnitWindows(
+    lifetime = float(trajectory_cycles[-1])
+    return UnitRulCurve(
         windows=windows,
-        linear_rul=linear_rul,
-        cycles=time_cycles[window_length - 1 :],
+        window_cycles=trajectory_cycles[window_length - 1 :],
+        window_linear_rul=window_linear_rul,
+        lifetime=lifetime,
+        trajectory_cycles=trajectory_cycles,
+        trajectory_linear_rul=lifetime - trajectory_cycles,
     )
 
 

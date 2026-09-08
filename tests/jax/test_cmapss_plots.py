@@ -240,7 +240,7 @@ def test_rul_curves_window_each_unit_with_the_given_features(
 
     assert len(model.seen_inputs) == 3
     for inputs, unit_id in zip(model.seen_inputs, (2, 3, 1), strict=True):
-        expected = _PLOTS.build_unit_windows(
+        expected = _PLOTS.build_unit_rul_curve(
             trajectories,
             _FEATURE_COLUMNS,
             unit_id=unit_id,
