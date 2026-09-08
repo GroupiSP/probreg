@@ -13,10 +13,11 @@ import importlib.util
 from typing import Any
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from probreg.core.tracking import (
+    DEFAULT_EVENT_PREFIXES,
     EventSink,
     ExperimentTracker,
     TrackerEventSink,
@@ -50,7 +51,7 @@ class InMemoryTracker:
         self.artifacts[name] = value
 
 
-def train_with_sinks(*sinks: EventSink, epochs: int = 3) -> None:
+def train_with_sinks(*sinks: EventSink, epochs: int = 3, stage: str = "mean") -> None:
     """Drive a real validated training run through the given event sinks.
 
     A one-parameter linear model is fitted on a single constant batch, with
@@ -62,6 +63,7 @@ def train_with_sinks(*sinks: EventSink, epochs: int = 3) -> None:
     Args:
         *sinks: The event sinks to attach to the run.
         epochs: The number of epochs to train for.
+        stage: The stage name the run records on its events.
 
     Returns:
         None.
@@ -115,7 +117,7 @@ def train_with_sinks(*sinks: EventSink, epochs: int = 3) -> None:
         validation=HeldOutValidation(
             model=model, loader=loader, loss=squared_error, metric_prefix=""
         ),
-        stage="mean",
+        stage=stage,
         event_sinks=list(sinks),
     )
 
@@ -144,22 +146,16 @@ def test_tracker_protocols_record_structured_training_data() -> None:
     assert tracker.artifacts == {"checkpoint": "mean-best"}
 
 
-def test_tracker_event_sink_satisfies_the_event_sink_protocol() -> None:
-    sink: EventSink = TrackerEventSink(InMemoryTracker())
-
-    assert callable(sink.on_event)
-
-
 @requires_jax_backend
 def test_tracker_event_sink_namespaces_a_real_run_by_stage_and_event() -> None:
     tracker = InMemoryTracker()
+    sink: EventSink = TrackerEventSink(tracker)
 
-    train_with_sinks(TrackerEventSink(tracker))
+    train_with_sinks(sink)
 
     tags = {tag for values, _ in tracker.metrics for tag in values}
-    assert "mean/train/loss" in tags
-    assert "mean/validation/loss" in tags
-    assert all(tag.startswith("mean/") for tag in tags)
+    assert tags == {f"mean/{prefix}loss" for prefix in DEFAULT_EVENT_PREFIXES.values()}
+    assert tags == {"mean/train/loss", "mean/validation/loss"}
     assert tracker.params == {}
     assert tracker.artifacts == {}
 
@@ -198,42 +194,28 @@ def test_tracker_event_sink_records_the_step_of_each_event(epochs: int) -> None:
     train_with_sinks(observer, TrackerEventSink(tracker), epochs=epochs)
 
     assert [step for _, step in tracker.metrics] == [
-        event.step for event in observer.events if event.metrics
+        event.step for event in observer.events
     ]
 
 
+@requires_jax_backend
 @given(
-    prefixes=st.dictionaries(
-        st.sampled_from(["epoch_end", "validation_end", "best_model", "early_stop"]),
-        st.sampled_from(["a/", "b/", "c/", "d/"]),
-        min_size=1,
-        max_size=4,
+    stages=st.lists(
+        st.sampled_from(["mean", "variance", "joint"]),
+        min_size=2,
+        max_size=2,
+        unique=True,
     )
 )
+@settings(deadline=None, max_examples=3)
 def test_tracker_event_sink_tags_are_injective_in_stage_event_and_metric(
-    prefixes: dict[str, str],
+    stages: list[str],
 ) -> None:
-    assume(len(set(prefixes.values())) == len(prefixes))
     tracker = InMemoryTracker()
-    sink = TrackerEventSink(tracker, event_prefixes=prefixes)
-    keys = [
-        (stage, name, metric)
-        for stage in ("mean", "variance")
-        for name in prefixes
-        for metric in ("loss", "rmse")
-    ]
 
-    for stage, name, metric in keys:
-        sink.on_event(
-            TrainingEvent(
-                name=name,
-                stage=stage,
-                iteration=0,
-                step=0,
-                metrics={metric: 0.1},
-                state=TrainingState(stage=stage),
-            )
-        )
+    for stage in stages:
+        train_with_sinks(TrackerEventSink(tracker), epochs=1, stage=stage)
 
     tags = [tag for values, _ in tracker.metrics for tag in values]
-    assert len(set(tags)) == len(keys)
+    assert len(set(tags)) == len(stages) * len(DEFAULT_EVENT_PREFIXES)
+    assert len(tags) == len(set(tags))

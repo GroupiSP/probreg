@@ -123,12 +123,13 @@ run command in its module docstring; they are collected here as well.
 shared modules imported by the examples above rather than scripts to run.
 
 Examples that visualize predictions need the optional `plot` extra
-(Matplotlib):
+(Matplotlib); the CMAPSS example has its own dependency group:
 
 ```bash
 uv sync --extra jax --extra plot --group dev
-uv run --extra jax --extra plot python examples/jax/mve_regression.py
 uv run --extra jax python examples/jax/simple_regression.py
+uv run --extra jax --extra plot python examples/jax/mve_regression.py
+uv run --group example-cmapss python examples/jax/cmapss/run.py
 ```
 
 ### XSin-inspired comparison
@@ -156,21 +157,3 @@ The examples reproduce the qualitative XSin comparison motivated by Yi and
 Bessa (2025), with compact settings suitable for a library demonstration. They
 do not claim exact reproduction of the paper's architectures, runtime, or
 reported numerical values.
-
-### CMAPSS FD001 remaining useful life
-
-An end-to-end example trains a two-stage probabilistic RUL model on NASA's
-CMAPSS FD001 turbofan dataset: a 1D-CNN mean model, then an independently
-initialized Gamma variance model on the frozen mean model's squared
-residuals. The combined predictive Gaussian is scored against the official
-test split for RMSE, 95% interval coverage, and point-CRPS. It needs its own
-dependency group, which also pulls in the archive loader and the plots:
-
-```bash
-uv sync --group example-cmapss
-uv run --group example-cmapss python examples/jax/cmapss/run.py
-```
-
-The archive is downloaded at most once and cached on disk; run
-`examples/jax/cmapss/data.py --fetch` to pre-fetch it, or point
-`PROBREG_CMAPSS_ARCHIVE` at a manually obtained copy to skip the network.

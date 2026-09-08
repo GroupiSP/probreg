@@ -75,14 +75,11 @@ class TrackerEventSink:
         """Log an event's metrics to the tracker under namespaced tags.
 
         Args:
-            event: The training event whose metrics to forward. An event
-                carrying no metrics is not logged.
+            event: The training event whose metrics to forward.
 
         Returns:
             None.
         """
-        if not event.metrics:
-            return
         prefix = self.event_prefixes.get(event.name, "")
         self.tracker.log_metrics(
             {
