@@ -27,6 +27,7 @@ class FakeWriter:
         self.figures: list[tuple[str, Any]] = []
         self.texts: list[tuple[str, str]] = []
         self.hparams: list[dict[str, Any]] = []
+        self.hparam_session_names: list[str | None] = []
         self.flushes = 0
         self.closes = 0
 
@@ -44,9 +45,13 @@ class FakeWriter:
         self.texts.append((tag, text_string))
 
     def add_hparams(
-        self, hparam_dict: dict[str, Any], metric_dict: dict[str, float]
+        self,
+        hparam_dict: dict[str, Any],
+        metric_dict: dict[str, float],
+        name: str | None = None,
     ) -> None:
         self.hparams.append(hparam_dict)
+        self.hparam_session_names.append(name)
 
     def flush(self) -> None:
         self.flushes += 1
@@ -56,7 +61,15 @@ class FakeWriter:
 
 
 def count_leaves(values: Mapping[str, Any]) -> int:
-    """Count the non-mapping leaves of a nested mapping."""
+    """Count the non-mapping leaves of a possibly nested mapping.
+
+    Args:
+        values: The mapping to walk.
+
+    Returns:
+        The number of values that are not themselves mappings, at any
+        depth. That is the number of entries a flattening must produce.
+    """
     return sum(
         count_leaves(value) if isinstance(value, Mapping) else 1
         for value in values.values()
@@ -76,19 +89,35 @@ nested_params = st.recursive(
 )
 
 
-@pytest.fixture
-def writer() -> FakeWriter:
-    return FakeWriter()
+IGNORED_LOGDIR = "ignored-when-a-writer-is-injected"
+"""The tracker's log directory is unused once a writer is injected."""
+
+
+def make_tracker(tracking_tracker: ModuleType) -> tuple[Any, FakeWriter]:
+    """Build a tracker on a fake writer.
+
+    A helper rather than a fixture: Hypothesis rejects function-scoped
+    fixtures in a `@given` test, and a fresh writer per example is
+    exactly what these tests need.
+
+    Args:
+        tracking_tracker: The example's tracker module.
+
+    Returns:
+        The tracker and the writer recording its calls.
+    """
+    writer = FakeWriter()
+    return tracking_tracker.TensorBoardTracker(IGNORED_LOGDIR, writer=writer), writer
 
 
 def test_the_tracker_satisfies_the_experiment_tracker_protocol(
-    tracking_tracker: ModuleType, writer: FakeWriter
+    tracking_tracker: ModuleType,
 ) -> None:
-    tracker: ExperimentTracker = tracking_tracker.TensorBoardTracker(
-        "unused", writer=writer
-    )
+    tracker, _ = make_tracker(tracking_tracker)
 
-    assert tracker is not None
+    experiment_tracker: ExperimentTracker = tracker
+
+    assert experiment_tracker is tracker
 
 
 @given(
@@ -100,8 +129,7 @@ def test_the_tracker_satisfies_the_experiment_tracker_protocol(
 def test_log_metrics_writes_one_scalar_per_entry_at_the_given_step(
     tracking_tracker: ModuleType, values: dict[str, float], step: int
 ) -> None:
-    writer = FakeWriter()
-    tracker = tracking_tracker.TensorBoardTracker("unused", writer=writer)
+    tracker, writer = make_tracker(tracking_tracker)
 
     tracker.log_metrics(values, step=step)
 
@@ -115,8 +143,7 @@ def test_log_metrics_writes_one_scalar_per_entry_at_the_given_step(
 def test_log_params_flattening_is_injective_in_the_nested_key_path(
     tracking_tracker: ModuleType, values: dict[str, Any]
 ) -> None:
-    writer = FakeWriter()
-    tracker = tracking_tracker.TensorBoardTracker("unused", writer=writer)
+    tracker, writer = make_tracker(tracking_tracker)
 
     tracker.log_params(values)
 
@@ -128,8 +155,7 @@ def test_log_params_flattening_is_injective_in_the_nested_key_path(
 def test_log_params_records_only_flat_scalars_or_strings(
     tracking_tracker: ModuleType, values: dict[str, Any]
 ) -> None:
-    writer = FakeWriter()
-    tracker = tracking_tracker.TensorBoardTracker("unused", writer=writer)
+    tracker, writer = make_tracker(tracking_tracker)
 
     tracker.log_params(values)
 
@@ -140,9 +166,9 @@ def test_log_params_records_only_flat_scalars_or_strings(
 
 
 def test_log_params_stringifies_values_the_hparams_plugin_cannot_carry(
-    tracking_tracker: ModuleType, writer: FakeWriter
+    tracking_tracker: ModuleType,
 ) -> None:
-    tracker = tracking_tracker.TensorBoardTracker("unused", writer=writer)
+    tracker, writer = make_tracker(tracking_tracker)
 
     tracker.log_params({"metrics": ("rmse", "point_crps"), "loss": None})
 
@@ -150,21 +176,34 @@ def test_log_params_stringifies_values_the_hparams_plugin_cannot_carry(
     assert recorded == {"metrics": "('rmse', 'point_crps')", "loss": "None"}
 
 
-def test_log_params_rejects_a_key_that_would_collide_with_a_nested_path(
-    tracking_tracker: ModuleType, writer: FakeWriter
+def test_log_params_keeps_the_hparams_session_in_the_run_directory(
+    tracking_tracker: ModuleType,
 ) -> None:
-    tracker = tracking_tracker.TensorBoardTracker("unused", writer=writer)
+    tracker, writer = make_tracker(tracking_tracker)
+
+    tracker.log_params({"learning_rate": 0.05})
+
+    # A named session of "." is what keeps the hyperparameters in the run
+    # that holds the scalars: the writer's own default opens a time-named
+    # subdirectory, which TensorBoard reads as a second, metric-less run.
+    assert writer.hparam_session_names == ["."]
+
+
+def test_log_params_rejects_a_key_that_would_collide_with_a_nested_path(
+    tracking_tracker: ModuleType,
+) -> None:
+    tracker, _ = make_tracker(tracking_tracker)
 
     with pytest.raises(ValueError, match="/"):
         tracker.log_params({"optimizer/learning_rate": 0.05})
 
 
 def test_log_artifact_routes_a_figure_to_the_image_summary(
-    tracking_tracker: ModuleType, writer: FakeWriter
+    tracking_tracker: ModuleType,
 ) -> None:
     plt = pytest.importorskip("matplotlib.pyplot")
     figure, _ = plt.subplots()
-    tracker = tracking_tracker.TensorBoardTracker("unused", writer=writer)
+    tracker, writer = make_tracker(tracking_tracker)
 
     tracker.log_artifact("predictions", figure)
 
@@ -174,9 +213,9 @@ def test_log_artifact_routes_a_figure_to_the_image_summary(
 
 
 def test_log_artifact_routes_a_string_to_the_text_summary(
-    tracking_tracker: ModuleType, writer: FakeWriter
+    tracking_tracker: ModuleType,
 ) -> None:
-    tracker = tracking_tracker.TensorBoardTracker("unused", writer=writer)
+    tracker, writer = make_tracker(tracking_tracker)
 
     tracker.log_artifact("summary", "best epoch: 42")
 
@@ -185,18 +224,18 @@ def test_log_artifact_routes_a_string_to_the_text_summary(
 
 
 def test_log_artifact_rejects_an_unsupported_value(
-    tracking_tracker: ModuleType, writer: FakeWriter
+    tracking_tracker: ModuleType,
 ) -> None:
-    tracker = tracking_tracker.TensorBoardTracker("unused", writer=writer)
+    tracker, _ = make_tracker(tracking_tracker)
 
     with pytest.raises(TypeError, match="list"):
         tracker.log_artifact("predictions", [1.0, 2.0])
 
 
 def test_flush_and_close_reach_the_injected_writer(
-    tracking_tracker: ModuleType, writer: FakeWriter
+    tracking_tracker: ModuleType,
 ) -> None:
-    tracker = tracking_tracker.TensorBoardTracker("unused", writer=writer)
+    tracker, writer = make_tracker(tracking_tracker)
 
     tracker.flush()
     tracker.close()

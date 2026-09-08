@@ -42,7 +42,10 @@ class SummaryWriter(Protocol):
     ) -> None: ...
 
     def add_hparams(
-        self, hparam_dict: dict[str, Any], metric_dict: dict[str, float]
+        self,
+        hparam_dict: dict[str, Any],
+        metric_dict: dict[str, float],
+        name: str | None = None,
     ) -> None: ...
 
     def flush(self) -> None: ...
@@ -165,13 +168,21 @@ class TensorBoardTracker:
             ValueError: If a key contains
                 :data:`PARAMETER_SEPARATOR`.
         """
-        self._writer.add_hparams(flatten_parameters(values), {})
+        # `name="."` keeps the HParams session in this run's own directory.
+        # Left to its own default, `tensorboardX` opens a second writer on a
+        # time-named subdirectory, which TensorBoard then reads as a separate
+        # run: one run with the scalars and no hyperparameters, another with
+        # the hyperparameters and no metric columns to sort by.
+        self._writer.add_hparams(flatten_parameters(values), {}, name=".")
 
     def log_metrics(self, values: Mapping[str, float], *, step: int) -> None:
         """Record one scalar summary per metric at the given step.
 
         Args:
             values: Metric values keyed by the tag to record them under.
+                Anything convertible with `float` is accepted, including
+                the zero-dimensional arrays a backend's metrics arrive as,
+                so no backend type is ever imported here.
             step: The step the metrics belong to, TensorBoard's x axis.
 
         Returns:

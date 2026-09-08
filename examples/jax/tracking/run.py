@@ -1,11 +1,12 @@
 """Train a tracked MVE model and watch the whole run in TensorBoard.
 
-The regression problem is `examples/jax/mve_regression.py` reused
-verbatim — heteroscedastic noise on a linear mean, held-out validation,
-early stopping on the validation loss, best-model checkpointing — with
-one exception: the early-stopping patience is raised from 5 to 20, so the
-tracked curves are long enough to be worth opening TensorBoard for. What
-this example adds is the tracking:
+The regression problem is `examples/jax/mve_regression.py`'s, restated
+here so that this example stands alone as the file a reader copies:
+heteroscedastic noise on a linear mean, held-out validation, early
+stopping on the validation loss, best-model checkpointing, all with the
+same hyperparameters. There is one exception — the early-stopping
+patience is raised from 5 to 20, so the tracked curves are long enough to
+be worth opening TensorBoard for. What this example adds is the tracking:
 
 * a `TensorBoardTracker` (in `tensorboard_tracker.py`, the file to copy)
   implementing `probreg.core.tracking.ExperimentTracker`;

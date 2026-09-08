@@ -6,12 +6,14 @@ training and validation scalars, the run's hyperparameters, and a final figure
 of the fitted mean with its predictive interval.
 
 The regression problem is
-[`examples/jax/mve_regression.py`](../mve_regression.py) reused verbatim —
-heteroscedastic noise on a linear mean, held-out validation, early stopping on
-the validation loss, best-model checkpointing — so diffing the two examples
-shows the tracking and nothing else. There is **one exception**: the
-early-stopping patience is raised from 5 to 20. Patience 5 stops after a few
-dozen epochs and produces too thin a curve to justify opening TensorBoard.
+[`examples/jax/mve_regression.py`](../mve_regression.py)'s, restated here with
+the same hyperparameters so that this example stands alone as the file a reader
+copies: heteroscedastic noise on a linear mean, held-out validation, early
+stopping on the validation loss, best-model checkpointing. Diffing the two
+files therefore shows the tracking and nothing else. There is **one
+exception**: the early-stopping patience is raised from 5 to 20. Patience 5
+stops after a few dozen epochs and produces too thin a curve to justify opening
+TensorBoard.
 
 ## Installing and running
 
@@ -57,7 +59,10 @@ script, which is already the backend-specific layer.
 - `log_params` writes through TensorBoard's HParams plugin, so runs are
   comparable in a sortable table. Nested values are flattened onto one entry
   per leaf, keys joined with `/`; a key containing `/` is rejected rather than
-  allowed to collide with a nested key path. Recorded parameters cover the
+  allowed to collide with a nested key path. The HParams session is named `.`,
+  which keeps the hyperparameters in the same run directory as the scalars —
+  the writer's own default opens a time-named subdirectory that TensorBoard
+  reads as a second, metric-less run. Recorded parameters cover the
   hyperparameters **and** the loss and metric identities, so runs differing in
   objective are distinguishable in the table.
 - `log_artifact` dispatches on the value's type: a Matplotlib figure becomes an

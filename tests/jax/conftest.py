@@ -56,25 +56,12 @@ def _load_example_module(
     return module
 
 
-def _load_cmapss_module(module_name: str, file_name: str) -> ModuleType:
-    """Load one of the CMAPSS example's modules from its file path.
-
-    Args:
-        module_name: Name to register the loaded module under.
-        file_name: The module's file name within the example's directory.
-
-    Returns:
-        The executed module.
-    """
-    return _load_example_module(_CMAPSS_DIR, module_name, file_name)
-
-
 @pytest.fixture(scope="session")
 def cmapss_preprocessing() -> ModuleType:
     """The example's windowing and standardization module."""
     for dependency in ("pandas", "sklearn"):
         pytest.importorskip(dependency)
-    return _load_cmapss_module("cmapss_preprocessing", "preprocessing.py")
+    return _load_example_module(_CMAPSS_DIR, "cmapss_preprocessing", "preprocessing.py")
 
 
 @pytest.fixture(scope="session")
@@ -82,7 +69,7 @@ def cmapss_plots() -> ModuleType:
     """The example's RUL-curve plotting module."""
     for dependency in ("matplotlib", "pandas", "sklearn"):
         pytest.importorskip(dependency)
-    return _load_cmapss_module("cmapss_plots", "plots.py")
+    return _load_example_module(_CMAPSS_DIR, "cmapss_plots", "plots.py")
 
 
 @pytest.fixture(scope="session")
@@ -98,7 +85,7 @@ def cmapss_run() -> ModuleType:
         "sklearn",
     ):
         pytest.importorskip(dependency)
-    return _load_cmapss_module("cmapss_run", "run.py")
+    return _load_example_module(_CMAPSS_DIR, "cmapss_run", "run.py")
 
 
 @pytest.fixture(scope="session")
