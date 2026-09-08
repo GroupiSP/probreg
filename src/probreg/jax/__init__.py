@@ -64,8 +64,8 @@ __all__ = [
     "make_train_step",
     "materialize_residual_loader",
     "merge_epoch_prediction_data",
-    "run_supervised",
     "restore_checkpoint",
+    "run_supervised",
     "snapshot",
     "split_key",
 ]

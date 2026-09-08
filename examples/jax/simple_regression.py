@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.checkpoints import Checkpoint, CheckpointStore
+from probreg.core.checkpoints import InMemoryCheckpointStore
 from probreg.core.early_stopping import EarlyStopper, MetricSource, OptimizationMode
 from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import TrainingEvent
@@ -130,22 +130,6 @@ def make_loader(
         ]
 
     return loader
-
-
-class InMemoryCheckpointStore(CheckpointStore):
-    """A minimal :class:`CheckpointStore` that keeps checkpoints in memory."""
-
-    def __init__(self) -> None:
-        self._checkpoints: dict[str, Checkpoint] = {}
-
-    def save(self, key: str, checkpoint: Checkpoint) -> None:
-        self._checkpoints[key] = checkpoint
-
-    def load(self, key: str) -> Checkpoint:
-        return self._checkpoints[key]
-
-    def exists(self, key: str) -> bool:
-        return key in self._checkpoints
 
 
 class PrintingEventSink:

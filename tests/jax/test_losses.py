@@ -6,10 +6,10 @@ import optax
 from flax import nnx
 
 from probreg.core.losses import SquaredErrorLoss
+from probreg.jax.evaluation import make_evaluation_step
 from probreg.jax.losses import make_supervised_loss
 from probreg.jax.state import create_optimizer
 from probreg.jax.supervised import make_train_step
-from probreg.jax.evaluation import make_evaluation_step
 
 
 class ModeAwareModel(nnx.Module):
