@@ -1,6 +1,10 @@
 """Backend-neutral contracts and utilities for probabilistic regression."""
 
-from probreg.core.checkpoints import Checkpoint, CheckpointStore
+from probreg.core.checkpoints import (
+    Checkpoint,
+    CheckpointStore,
+    InMemoryCheckpointStore,
+)
 from probreg.core.distributions import (
     DistributionHead,
     DistributionLoss,
@@ -44,7 +48,12 @@ from probreg.core.protocols import (
     ValidationStrategy,
 )
 from probreg.core.stages import StageState, TrainingStage, validate_transition
-from probreg.core.tracking import EventSink, ExperimentTracker, TrainingEvent
+from probreg.core.tracking import (
+    EventSink,
+    ExperimentTracker,
+    TrackerEventSink,
+    TrainingEvent,
+)
 from probreg.core.types import (
     Array,
     Batch,
@@ -76,6 +85,7 @@ __all__ = [
     "EventSink",
     "ExperimentTracker",
     "GaussianNLLLoss",
+    "InMemoryCheckpointStore",
     "IntervalCoverage",
     "Likelihood",
     "LoaderFactory",
@@ -96,6 +106,7 @@ __all__ = [
     "StageResult",
     "StageState",
     "Step",
+    "TrackerEventSink",
     "TrainingEvent",
     "TrainingStage",
     "TrainingState",

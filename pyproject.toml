@@ -44,6 +44,15 @@ example-cmapss = [
     "matplotlib>=3.11.0"
 ]
 
+example-tracking = [
+    "flax>=0.11",
+    "jax>=0.6",
+    "optax>=0.2.4",
+    "matplotlib>=3.11.0",
+    "tensorboard>=2.20",
+    "tensorboardX>=2.6.4",
+]
+
 [tool.docformatter]
 recursive = true
 black = true
@@ -56,3 +65,4 @@ reportUnusedVariable = false
 [tool.ruff.lint.per-file-ignores]
 "examples/jax/cmapss/*.py" = ["E402"]
 "tests/jax/test_cmapss_*.py" = ["E402"]
+"examples/jax/tracking/*.py" = ["E402"]
