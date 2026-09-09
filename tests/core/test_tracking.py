@@ -26,8 +26,8 @@ from probreg.core.tracking import (
 from probreg.core.types import TrainingState
 
 requires_jax_backend = pytest.mark.skipif(
-    importlib.util.find_spec("flax") is None,
-    reason="The JAX backend is required to drive a real training run.",
+    any(importlib.util.find_spec(name) is None for name in ("jax", "flax", "optax")),
+    reason="The JAX backend (jax, flax, optax) is required to drive a real training run.",
 )
 
 
