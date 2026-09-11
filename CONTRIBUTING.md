@@ -16,9 +16,10 @@ Thanks for your interest in contributing to `probreg`.
 2. Set up your development environment with `uv`, then install pre-commit hooks:
    - `uv sync --group dev`
    - `uv run pre-commit install`
-3. Implement your changes and run the required checks locally:
+3. Open a **draft pull request** targeting the `main` branch as soon as you start the work, and
+   link it to the issue you opened.
+4. Implement your changes on that branch, pushing commits to the draft PR as you go.
+5. Run the required checks locally:
    - `uv run pre-commit run --all-files`
    - `uv run pytest`
-4. Open a **draft pull request** targeting the `main` branch.
-5. Link the pull request to the issue you opened and push your changes to that PR.
-6. When the draft PR is ready for review, mark it as ready and request review from one of the maintainers.
+6. When the checks pass, mark the PR as ready and request review from one of the maintainers.

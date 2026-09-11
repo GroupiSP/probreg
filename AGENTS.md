@@ -1,56 +1,35 @@
 # AGENTS.md
 
-This document contains information for the agents about general coding guidelines employed in this project.
+`probreg` is a Python library for stage-oriented probabilistic regression, with a JAX/Flax
+backend and runnable examples under `examples/jax/`.
 
-## Agent skills
+## Environment
 
-### Issue tracker
+The package manager is **`uv`**, not pip. Every Python command runs through it: `uv run pytest`,
+`uv run pre-commit run --all-files`. Dev setup is `uv sync --group dev` then
+`uv run pre-commit install`. Examples have their own dependency groups (`example-cmapss`,
+`example-tracking`); install one with `uv sync --group <name>`.
 
-Issues and specs live as GitHub issues in `GroupiSP/probreg`; use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+## Verification gate
 
-### Domain docs
+Before presenting changes for review, all three must pass:
 
-Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+- `uv run pre-commit run --all-files` (ruff check, ruff format, docformatter)
+- `uv run pytest`
+- A smoke test of the entry points under `examples/jax/` that your change could affect.
 
-## Interactions with the users
+## Reference
 
-- Keep a polite and professional tone.
-- Keep your replies concise.
-- Where possible, provide examples to illustrate your points.
-- Where possible, provide schematics, diagrams, code snippets, tables or other visual aids to illustrate your points.
+| Topic | Document |
+| --- | --- |
+| Issues and specs live as GitHub issues in `GroupiSP/probreg`, driven by the `gh` CLI | [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) |
+| Glossary and architecture decisions: read before exploring an unfamiliar area | [`CONTEXT.md`](CONTEXT.md), [`docs/adr/`](docs/adr/), [`docs/agents/domain.md`](docs/agents/domain.md) |
+| Planning flow, branches, draft PRs, commit messages | [`docs/agents/workflow.md`](docs/agents/workflow.md) |
+| Code structure, typing, interfaces, docstrings | [`docs/agents/coding-style.md`](docs/agents/coding-style.md) |
+| Test layout, fixtures, property-based testing | [`docs/agents/testing.md`](docs/agents/testing.md) |
+| Human-facing contribution rules | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
-## Planning and contributing
+## Replies
 
-- You can expect that the planning will happen following the `/grill-with-docs`, `/to-spec` and `/to-tickets` [main flow of Matt Pocock](https://www.aihero.dev/skills).
-- When working on the first ticket (or set of parallel tickets) of the spec, ensure that you open a draft PR on GitHub tracking the development branch.
-- During development, each phase realization should be followed by a commit with a meaningful, conventional-style message.
-- For the remaining contributions guidelines, refer to `CONTRIBUTING.md`
-
-## Coding style
-
-- Favour functions and data container classes over wrapping everything in a single class.
-- Avoid god functions/classes. When reviewing code for quality, flag when an entity has too many responsibilities.
-- Always use type hints for functions/classes.
-- Favour composition over inheritance. Avoid deep inheritance hierarchies (one level at most).
-- Try to abstract behaviour into interfaces and define the interfaces via `Protocols` (from `typing` module) rather than abstract base classes.
-- Identify the possible introduction of design patterns, when reviewing code quality. Flag when a design pattern could be used to improve code quality.
-- Write code for testing and think about which properties of a piece of code can be tested.
-
-## Documentation
-
-- Always add docstrings following the Google style guide (include `Args`, `Returns`, and `Raises` sections).
-- For dataclasses, document the attributes, except those for which `init=False`.
-
-## Testing
-
-- Add tests using pytest and arrange tests in modules that mirror the structure of the main codebase.
-- Use reusable test fixtures as much as possible. Feel free to introduce a `conftest.py` file, if relevant.
-- Privilege property-based testing over example-based testing, when possible. Favour mathematical properties, such as invariances, symmetries, monotonicity, etc.
-
-## Running the code
-
-Before presenting the changes for review,
-
-- Always run `pre-commit run --all-files`.
-- Smoke test the files in `scripts/`, except for those that are not maintained per repo instructions.
-- Always run the tests with `pytest` and ensure that all tests pass.
+Answer concisely. Reach for a table, diagram, code snippet or worked example when prose alone
+would not carry the point — not by default.
