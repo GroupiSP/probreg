@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 from hypothesis import given
@@ -114,6 +116,28 @@ def test_adapters_declare_materialization_requirements() -> None:
     assert point_requirements.predictive_samples
     assert point_requirements.evaluation_grid
     assert conditional_requirements.reference_samples
+
+
+@pytest.mark.parametrize(
+    ("adapter_type", "default_name"),
+    [
+        (RootMeanSquaredError, "rmse"),
+        (IntervalCoverage, "coverage"),
+        (WeightedSpread, "wsu"),
+        (PointContinuousRankedProbabilityScore, "point_crps"),
+        (ContinuousRankedProbabilityScore, "crps"),
+    ],
+)
+def test_adapters_declare_name_field_directly(
+    adapter_type: type, default_name: str
+) -> None:
+    field_names = {field.name for field in dataclasses.fields(adapter_type)}
+
+    assert "name" in field_names
+    assert "metric_name" not in field_names
+    assert not isinstance(vars(adapter_type).get("name"), property)
+    assert adapter_type().name == default_name
+    assert adapter_type(name="custom").name == "custom"
 
 
 def test_epoch_prediction_data_rejects_non_scalar_axes_and_invalid_fields() -> None:

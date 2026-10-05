@@ -496,6 +496,27 @@ def test_run_supervised_records_registered_batch_and_epoch_metrics() -> None:
     )
 
 
+def test_run_supervised_reports_epoch_metric_under_its_declared_name() -> None:
+    model, optimizer, state = make_components(learning_rate=0.0)
+    metric_suite = MetricSuite(
+        epoch=(RootMeanSquaredError(name="root_mse"),),
+        predictor=linear_predictor,
+    )
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=loader,
+        loss=squared_error,
+        state=state,
+        epochs=1,
+        metrics=metric_suite,
+    )
+
+    assert set(result.metrics) == {"loss", "root_mse"}
+    assert len(result.state.metric_history["training_root_mse"]) == 1
+
+
 def test_held_out_validation_prefixes_registered_metrics() -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
     validation = HeldOutValidation(
@@ -531,7 +552,7 @@ def test_metric_suite_rejects_reserved_and_duplicate_names() -> None:
     with pytest.raises(ValueError, match="duplicate"):
         MetricSuite(
             batch=(BatchMetricSpec(name="mae", metric=mean_absolute_error),),
-            epoch=(RootMeanSquaredError(metric_name="mae"),),
+            epoch=(RootMeanSquaredError(name="mae"),),
         )
 
 
