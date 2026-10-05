@@ -40,6 +40,13 @@ from probreg.core.metric_registry import (
     WeightedSpread,
 )
 from probreg.core.metrics import cdf, coverage, crps, point_crps, rmse, wsu
+from probreg.core.naming import (
+    MetricTag,
+    Split,
+    flatten_parameters,
+    metric_tag,
+    parse_metric_tag,
+)
 from probreg.core.protocols import (
     Dataset,
     LoaderFactory,
@@ -92,6 +99,7 @@ __all__ = [
     "Loss",
     "MetricRequirements",
     "MetricSource",
+    "MetricTag",
     "NegativeLogLikelihoodLoss",
     "OptimizationMode",
     "Optimizer",
@@ -102,6 +110,7 @@ __all__ = [
     "PredictiveDistribution",
     "PyTree",
     "RootMeanSquaredError",
+    "Split",
     "SquaredErrorLoss",
     "StageResult",
     "StageState",
@@ -117,6 +126,9 @@ __all__ = [
     "cdf",
     "coverage",
     "crps",
+    "flatten_parameters",
+    "metric_tag",
+    "parse_metric_tag",
     "point_crps",
     "rmse",
     "validate_transition",
