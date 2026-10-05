@@ -57,6 +57,9 @@ from probreg.jax import (
     run_supervised,
 )
 
+INTERVAL_MULTIPLIER = 1.96
+"""Half-width of the 95% predictive interval, in predictive scales."""
+
 
 def make_dataset(*, num_samples: int, key: jax.Array) -> tuple[jax.Array, jax.Array]:
     """Sample inputs and noisy targets from ``y = 2x + noise``.
@@ -160,7 +163,11 @@ def plot_predictions(
     *,
     save_path: str | None = None,
 ) -> None:
-    """Plot validation targets against the model's mean and ±2σ interval.
+    """Plot validation targets against the mean and its predictive interval.
+
+    The band is the 95% predictive interval: the mean plus or minus
+    ``INTERVAL_MULTIPLIER`` standard deviations, which for the Gaussian
+    head is ``loc ± 1.96 * scale``.
 
     Args:
         model: An NNX module mapping inputs directly to a
@@ -179,12 +186,18 @@ def plot_predictions(
     prediction = model(sorted_inputs)
     mean = np.asarray(prediction.mean().squeeze(-1))
     scale = np.asarray(jnp.sqrt(prediction.variance()).squeeze(-1))
+    half_width = INTERVAL_MULTIPLIER * scale
 
     _, ax = plt.subplots()
     ax.scatter(x, y, s=10, alpha=0.6, label="validation data")
     ax.plot(x, mean, color="C1", label="predicted mean")
     ax.fill_between(
-        x, mean - 2 * scale, mean + 2 * scale, color="C1", alpha=0.2, label="±2σ"
+        x,
+        mean - half_width,
+        mean + half_width,
+        color="C1",
+        alpha=0.2,
+        label="95% predictive interval",
     )
     ax.set_xlabel("x")
     ax.set_ylabel("y")
