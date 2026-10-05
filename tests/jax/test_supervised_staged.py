@@ -10,12 +10,12 @@ from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint
 from probreg.core.early_stopping import EarlyStopper
-from probreg.core.naming import Split
 from probreg.core.losses import (
     NegativeLogLikelihoodLoss,
     SquaredErrorLoss,
     add_epsilon,
 )
+from probreg.core.naming import Split
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import (

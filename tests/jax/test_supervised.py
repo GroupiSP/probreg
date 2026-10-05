@@ -11,7 +11,6 @@ from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint
 from probreg.core.early_stopping import EarlyStopper
-from probreg.core.naming import Split
 from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EpochPredictionData,
@@ -19,6 +18,7 @@ from probreg.core.metric_registry import (
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
+from probreg.core.naming import Split
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import Batch, StageResult, TrainingState, ValidationResult
 from probreg.jax import (
@@ -396,7 +396,9 @@ def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs() -> Non
 def test_held_out_validation_drives_validation_metric_stopping() -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
     validation = HeldOutValidation(model=model, loader=loader, loss=squared_error)
-    stopper = EarlyStopper(metric="validation_loss", mode="min", patience=0)
+    stopper = EarlyStopper(
+        metric="validation_loss", mode="min", patience=0, source=Split.VALIDATION
+    )
 
     result = run_supervised(
         model=model,
@@ -440,7 +442,9 @@ def test_custom_fold_validation_strategy_is_accepted() -> None:
 
 def test_validation_stopping_requires_a_validation_strategy() -> None:
     model, optimizer, state = make_components()
-    stopper = EarlyStopper(metric="validation_loss", mode="min", patience=1)
+    stopper = EarlyStopper(
+        metric="validation_loss", mode="min", patience=1, source=Split.VALIDATION
+    )
 
     with pytest.raises(ValueError, match="requires a validation strategy"):
         run_supervised(

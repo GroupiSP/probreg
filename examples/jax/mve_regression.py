@@ -37,13 +37,13 @@ from flax import nnx
 
 from probreg.core.checkpoints import InMemoryCheckpointStore
 from probreg.core.early_stopping import EarlyStopper, OptimizationMode
-from probreg.core.naming import Split
 from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EvaluationGrid,
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
+from probreg.core.naming import Split
 from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import Batch
