@@ -299,22 +299,33 @@ def run_tracked_training(tracker: ExperimentTracker, *, epochs: int = EPOCHS) ->
         source=Split.VALIDATION,
     )
 
+    # Every split-specific setting sits under its split's own segment, so it
+    # is recorded as e.g. `data/train/samples`, never `data/train_samples`.
     tracker.log_params(
         {
             "optimizer": {"name": "adam", "learning_rate": LEARNING_RATE},
             "data": {
-                "train_samples": TRAIN_SAMPLES,
-                "validation_samples": VALIDATION_SAMPLES,
-                "train_batch_size": TRAIN_BATCH_SIZE,
-                "validation_batch_size": VALIDATION_BATCH_SIZE,
                 "seed": SEED,
+                Split.TRAIN: {
+                    "samples": TRAIN_SAMPLES,
+                    "batch_size": TRAIN_BATCH_SIZE,
+                },
+                Split.VALIDATION: {
+                    "samples": VALIDATION_SAMPLES,
+                    "batch_size": VALIDATION_BATCH_SIZE,
+                },
             },
-            "training": {"epochs": epochs, "patience": PATIENCE},
             # What was optimized, not only how fast: two runs differing in
             # objective are otherwise indistinguishable in the HParams table.
-            "loss": type(loss_definition).__name__,
-            "metrics": tuple(type(metric).__name__ for metric in epoch_metrics),
-            "predictive_sample_count": PREDICTIVE_SAMPLE_COUNT,
+            "training": {
+                "epochs": epochs,
+                "patience": PATIENCE,
+                "loss": type(loss_definition).__name__,
+            },
+            "metrics": {
+                "names": tuple(type(metric).__name__ for metric in epoch_metrics),
+                "predictive_sample_count": PREDICTIVE_SAMPLE_COUNT,
+            },
         }
     )
 

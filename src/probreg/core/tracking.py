@@ -32,11 +32,46 @@ class EventSink(Protocol):
 class ExperimentTracker(Protocol):
     """Records parameters, metrics, and artifacts for an experiment."""
 
-    def log_params(self, values: Mapping[str, Any]) -> None: ...
+    def log_params(self, values: Mapping[str, Any]) -> None:
+        """Record a run's hyperparameters.
 
-    def log_metrics(self, values: Mapping[str, float], *, step: int) -> None: ...
+        Args:
+            values: A nested mapping whose leaf keys are bare
+                ``snake_case`` names. A split is a level of nesting of its
+                own (``{"data": {"train": {"samples": ...}}}``), never part
+                of a leaf key (``train_samples``). A tracker that stores
+                flat names flattens the mapping with
+                :func:`probreg.core.naming.flatten_parameters` into
+                parameter paths such as ``data/train/samples``.
 
-    def log_artifact(self, name: str, value: Any) -> None: ...
+        Returns:
+            None.
+        """
+        ...
+
+    def log_metrics(self, values: Mapping[str, float], *, step: int) -> None:
+        """Record metric values at a step.
+
+        Args:
+            values: Metric values keyed by the tag to record them under.
+            step: The step the metrics belong to.
+
+        Returns:
+            None.
+        """
+        ...
+
+    def log_artifact(self, name: str, value: Any) -> None:
+        """Record an artifact under a name.
+
+        Args:
+            name: The name to record the artifact under.
+            value: The artifact to record.
+
+        Returns:
+            None.
+        """
+        ...
 
 
 DEFAULT_EVENT_PREFIXES: Mapping[str, str] = MappingProxyType(

@@ -57,9 +57,12 @@ script, which is already the backend-specific layer.
   and testable — with the dependency absent.
 - `log_metrics` writes one scalar summary per entry, at the given step.
 - `log_params` writes through TensorBoard's HParams plugin, so runs are
-  comparable in a sortable table. Nested values are flattened onto one entry
-  per leaf, keys joined with `/`; a key containing `/` is rejected rather than
-  allowed to collide with a nested key path. The HParams session is named `.`,
+  comparable in a sortable table. The nested parameters are flattened by
+  `probreg.core.naming.flatten_parameters` into one entry per leaf, keyed by
+  its parameter path (`data/train/samples`); a key that is empty or contains
+  `/` is rejected rather than allowed to collide with a nested key path. The
+  tracker's only HParams-specific work is stringifying values the plugin
+  cannot store, such as tuples or `None`. The HParams session is named `.`,
   which keeps the hyperparameters in the same run directory as the scalars —
   the writer's own default opens a time-named subdirectory that TensorBoard
   reads as a second, metric-less run. Recorded parameters cover the
@@ -91,6 +94,22 @@ the tracker owns the whole tag, which yields matched `supervised/train/loss` and
 one chart, where overfitting is visible without switching charts. The cost of
 clearing that prefix is that `state.metric_history` records validation metrics
 unprefixed, which is why the printing sink reads them without a prefix.
+
+Before training, the script logs its hyperparameters as one nested mapping,
+fully grouped so that every one is recorded under a parameter path:
+
+| Path | Value |
+| --- | --- |
+| `optimizer/name`, `optimizer/learning_rate` | the optimizer and its step size |
+| `data/seed` | the seed of the synthetic data |
+| `data/train/samples`, `data/train/batch_size` | training split size and batch size |
+| `data/validation/samples`, `data/validation/batch_size` | validation split size and batch size |
+| `training/epochs`, `training/patience`, `training/loss` | the epoch cap, early-stopping patience and the loss optimized |
+| `metrics/names`, `metrics/predictive_sample_count` | the epoch metrics and the samples drawn to compute them |
+
+A split is a path segment of its own (`data/train/samples`), never part of a
+leaf key (`data/train_samples`). Logging the parameters stays the script's job:
+`TrackerEventSink` forwards only metrics.
 
 After training, the script logs one figure showing the validation data, the
 predicted mean, and the 95% predictive interval `loc ± 1.96 * scale`. The
