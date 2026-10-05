@@ -249,7 +249,11 @@ class EpochMetric(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class RootMeanSquaredError:
-    """Epoch adapter for root mean squared error."""
+    """Epoch adapter for root mean squared error.
+
+    Attributes:
+        name: Bare metric name the value is reported under. Defaults to ``rmse``.
+    """
 
     name: str = "rmse"
 
@@ -265,7 +269,12 @@ class RootMeanSquaredError:
 
 @dataclass(frozen=True, slots=True)
 class IntervalCoverage:
-    """Observed coverage of an explicitly labelled prediction interval."""
+    """Observed coverage of an explicitly labelled prediction interval.
+
+    Attributes:
+        level: Confidence level of the labelled interval, in ``(0, 1)``.
+        name: Bare metric name the value is reported under. Defaults to ``coverage``.
+    """
 
     level: float = 0.95
     name: str = "coverage"
@@ -291,7 +300,12 @@ class IntervalCoverage:
 
 @dataclass(frozen=True, slots=True)
 class WeightedSpread:
-    """Weighted spread for an interval and explicit numeric coordinate."""
+    """Weighted spread for an interval and explicit numeric coordinate.
+
+    Attributes:
+        level: Confidence level of the labelled interval, in ``(0, 1)``.
+        name: Bare metric name the value is reported under. Defaults to ``wsu``.
+    """
 
     level: float = 0.95
     name: str = "wsu"
@@ -330,7 +344,11 @@ class WeightedSpread:
 
 @dataclass(frozen=True, slots=True)
 class PointContinuousRankedProbabilityScore:
-    """Mean point-CRPS across independent scalar scoring units."""
+    """Mean point-CRPS across independent scalar scoring units.
+
+    Attributes:
+        name: Bare metric name the value is reported under. Defaults to ``point_crps``.
+    """
 
     name: str = "point_crps"
 
@@ -360,7 +378,11 @@ class PointContinuousRankedProbabilityScore:
 
 @dataclass(frozen=True, slots=True)
 class ContinuousRankedProbabilityScore:
-    """Mean expected CRPS under per-unit empirical reference distributions."""
+    """Mean expected CRPS under per-unit empirical reference distributions.
+
+    Attributes:
+        name: Bare metric name the value is reported under. Defaults to ``crps``.
+    """
 
     name: str = "crps"
 

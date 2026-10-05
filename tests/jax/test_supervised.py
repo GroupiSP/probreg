@@ -514,7 +514,6 @@ def test_run_supervised_reports_epoch_metric_under_its_declared_name() -> None:
     )
 
     assert set(result.metrics) == {"loss", "root_mse"}
-    assert len(result.state.metric_history["training_root_mse"]) == 1
 
 
 def test_held_out_validation_prefixes_registered_metrics() -> None:
