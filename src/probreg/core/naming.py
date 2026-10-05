@@ -13,7 +13,7 @@ from collections.abc import Iterator, Mapping
 from enum import StrEnum
 from typing import Any, NamedTuple
 
-SEPARATOR = "/"
+_SEPARATOR = "/"
 
 
 class Split(StrEnum):
@@ -49,8 +49,8 @@ def _check_segment(segment: str, role: str) -> None:
     """
     if not segment:
         raise ValueError(f"{role} must be a non-empty string.")
-    if SEPARATOR in segment:
-        raise ValueError(f"{role} {segment!r} may not contain {SEPARATOR!r}.")
+    if _SEPARATOR in segment:
+        raise ValueError(f"{role} {segment!r} may not contain {_SEPARATOR!r}.")
 
 
 def metric_tag(stage: str, split: Split, metric: str) -> str:
@@ -70,7 +70,7 @@ def metric_tag(stage: str, split: Split, metric: str) -> str:
     """
     _check_segment(stage, "stage")
     _check_segment(metric, "metric")
-    return SEPARATOR.join((stage, Split(split).value, metric))
+    return _SEPARATOR.join((stage, Split(split).value, metric))
 
 
 def parse_metric_tag(tag: str) -> MetricTag:
@@ -88,10 +88,10 @@ def parse_metric_tag(tag: str) -> MetricTag:
         ValueError: If `tag` does not have exactly three segments, has an
             empty segment, or names an unknown split.
     """
-    segments = tag.split(SEPARATOR)
+    segments = tag.split(_SEPARATOR)
     if len(segments) != 3:
         raise ValueError(
-            f"metric tag {tag!r} must have exactly three {SEPARATOR!r}-separated "
+            f"metric tag {tag!r} must have exactly three {_SEPARATOR!r}-separated "
             f"segments, not {len(segments)}."
         )
     stage, split, metric = segments
@@ -111,8 +111,8 @@ def parse_metric_tag(tag: str) -> MetricTag:
 def flatten_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
     """Flatten a nested parameter mapping into parameter paths.
 
-    Every non-mapping value is a leaf and is kept unchanged under its key
-    path joined with the separator. Because no key may be empty or contain
+    Every non-mapping value, and every empty mapping, is a leaf and is kept
+    unchanged under its key path joined with the separator. Because no key may be empty or contain
     the separator, two distinct key paths never map onto one parameter path.
 
     Args:
@@ -130,8 +130,8 @@ def flatten_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
         for key, value in mapping.items():
             _check_segment(key, "parameter key")
             path = f"{prefix}{key}"
-            if isinstance(value, Mapping):
-                yield from walk(value, f"{path}{SEPARATOR}")
+            if isinstance(value, Mapping) and value:
+                yield from walk(value, f"{path}{_SEPARATOR}")
             else:
                 yield path, value
 

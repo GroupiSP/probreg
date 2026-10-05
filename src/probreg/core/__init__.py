@@ -41,7 +41,6 @@ from probreg.core.metric_registry import (
 )
 from probreg.core.metrics import cdf, coverage, crps, point_crps, rmse, wsu
 from probreg.core.naming import (
-    SEPARATOR,
     MetricTag,
     Split,
     flatten_parameters,
@@ -74,7 +73,6 @@ from probreg.core.types import (
 )
 
 __all__ = [
-    "SEPARATOR",
     "Array",
     "Batch",
     "BetaNLLLoss",
