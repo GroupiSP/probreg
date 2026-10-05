@@ -18,12 +18,11 @@ this file and nothing else: the run script is typed against
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-PARAMETER_SEPARATOR = "/"
-"""Separator joining the key path of a nested parameter into a flat name."""
+from probreg.core.naming import flatten_parameters
 
 
 class SummaryWriter(Protocol):
@@ -70,46 +69,21 @@ def create_summary_writer(logdir: str | Path) -> SummaryWriter:
     return TensorBoardXSummaryWriter(logdir=str(logdir))
 
 
-def flatten_parameters(
-    values: Mapping[str, Any], *, separator: str = PARAMETER_SEPARATOR
-) -> dict[str, bool | int | float | str]:
-    """Flatten a nested parameter mapping into HParams-compatible entries.
+def _to_hparam_value(value: Any) -> bool | int | float | str:
+    """Convert a parameter value to one the HParams plugin can store.
 
-    TensorBoard's HParams plugin accepts only flat scalar and string
-    values, so nested mappings are joined into one key per leaf and any
-    value the plugin cannot carry is stringified. Keys may not contain the
-    separator: allowing them would let two distinct nested key paths
-    collapse onto one flat name and silently overwrite each other.
+    TensorBoard's HParams plugin stores only scalars and strings, so any
+    other value is stringified.
 
     Args:
-        values: The parameters to flatten, possibly nested.
-        separator: String joining the segments of a nested key path.
+        value: A leaf value of a parameter mapping.
 
     Returns:
-        One entry per leaf, keyed by its separator-joined key path.
-
-    Raises:
-        ValueError: If a key contains the separator.
+        `value` unchanged if it is a scalar or string, else its string form.
     """
-
-    def walk(
-        mapping: Mapping[str, Any], prefix: str
-    ) -> Iterator[tuple[str, bool | int | float | str]]:
-        for key, value in mapping.items():
-            if separator in key:
-                raise ValueError(
-                    f"parameter key {key!r} may not contain {separator!r}: "
-                    "it would collide with a nested key path."
-                )
-            name = f"{prefix}{key}"
-            if isinstance(value, Mapping):
-                yield from walk(value, f"{name}{separator}")
-            elif isinstance(value, bool | int | float | str):
-                yield name, value
-            else:
-                yield name, str(value)
-
-    return dict(walk(values, ""))
+    if isinstance(value, bool | int | float | str):
+        return value
+    return str(value)
 
 
 def _is_figure(value: Any) -> bool:
@@ -157,23 +131,29 @@ class TensorBoardTracker:
     def log_params(self, values: Mapping[str, Any]) -> None:
         """Record a run's parameters through the HParams plugin.
 
+        Each leaf becomes one HParams entry keyed by its parameter path,
+        e.g. ``data/train/samples``.
+
         Args:
-            values: The run's parameters, possibly nested. Nested keys
-                are flattened onto one HParams entry per leaf.
+            values: The run's parameters, a nested mapping of bare
+                ``snake_case`` leaf keys.
 
         Returns:
             None.
 
         Raises:
-            ValueError: If a key contains
-                :data:`PARAMETER_SEPARATOR`.
+            ValueError: If a key, at any depth, is empty or contains ``/``.
         """
         # `name="."` keeps the HParams session in this run's own directory.
         # Left to its own default, `tensorboardX` opens a second writer on a
         # time-named subdirectory, which TensorBoard then reads as a separate
         # run: one run with the scalars and no hyperparameters, another with
         # the hyperparameters and no metric columns to sort by.
-        self._writer.add_hparams(flatten_parameters(values), {}, name=".")
+        hparams = {
+            path: _to_hparam_value(value)
+            for path, value in flatten_parameters(values).items()
+        }
+        self._writer.add_hparams(hparams, {}, name=".")
 
     def log_metrics(self, values: Mapping[str, float], *, step: int) -> None:
         """Record one scalar summary per metric at the given step.

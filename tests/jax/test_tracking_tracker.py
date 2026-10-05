@@ -16,6 +16,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from probreg.core.naming import flatten_parameters
 from probreg.core.tracking import ExperimentTracker
 
 
@@ -152,6 +153,29 @@ def test_log_params_flattening_is_injective_in_the_nested_key_path(
 
 
 @given(values=nested_params)
+def test_log_params_records_the_core_parameter_paths(
+    tracking_tracker: ModuleType, values: dict[str, Any]
+) -> None:
+    tracker, writer = make_tracker(tracking_tracker)
+
+    tracker.log_params(values)
+
+    (recorded,) = writer.hparams
+    assert recorded.keys() == flatten_parameters(values).keys()
+
+
+def test_log_params_makes_a_split_a_path_segment_of_its_own(
+    tracking_tracker: ModuleType,
+) -> None:
+    tracker, writer = make_tracker(tracking_tracker)
+
+    tracker.log_params({"data": {"train": {"samples": 256}}})
+
+    (recorded,) = writer.hparams
+    assert recorded == {"data/train/samples": 256}
+
+
+@given(values=nested_params)
 def test_log_params_records_only_flat_scalars_or_strings(
     tracking_tracker: ModuleType, values: dict[str, Any]
 ) -> None:
@@ -189,13 +213,22 @@ def test_log_params_keeps_the_hparams_session_in_the_run_directory(
     assert writer.hparam_session_names == ["."]
 
 
-def test_log_params_rejects_a_key_that_would_collide_with_a_nested_path(
-    tracking_tracker: ModuleType,
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"optimizer/learning_rate": 0.05},
+        {"optimizer": {"": 0.05}},
+    ],
+    ids=["separator", "empty"],
+)
+def test_log_params_rejects_an_empty_or_separator_key(
+    tracking_tracker: ModuleType, values: dict[str, Any]
 ) -> None:
-    tracker, _ = make_tracker(tracking_tracker)
+    tracker, writer = make_tracker(tracking_tracker)
 
-    with pytest.raises(ValueError, match="/"):
-        tracker.log_params({"optimizer/learning_rate": 0.05})
+    with pytest.raises(ValueError, match="parameter key"):
+        tracker.log_params(values)
+    assert writer.hparams == []
 
 
 def test_log_artifact_routes_a_figure_to_the_image_summary(
