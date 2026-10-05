@@ -17,7 +17,6 @@ from probreg.core.early_stopping import (
     EarlyStopper,
     EarlyStoppingDecision,
     EarlyStoppingState,
-    MetricSource,
     OptimizationMode,
 )
 from probreg.core.losses import (
@@ -98,7 +97,6 @@ __all__ = [
     "LoaderFactory",
     "Loss",
     "MetricRequirements",
-    "MetricSource",
     "MetricTag",
     "NegativeLogLikelihoodLoss",
     "OptimizationMode",
