@@ -9,7 +9,8 @@ import pytest
 from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint
-from probreg.core.early_stopping import EarlyStopper, MetricSource
+from probreg.core.early_stopping import EarlyStopper
+from probreg.core.naming import Split
 from probreg.core.losses import (
     NegativeLogLikelihoodLoss,
     SquaredErrorLoss,
@@ -434,7 +435,7 @@ def test_mean_stage_selects_existing_checkpoint() -> None:
         metric="loss",
         mode="min",
         patience=0,
-        source=MetricSource.TRAINING,
+        source=Split.TRAIN,
     )
     stage, state = make_mean_stage(
         learning_rate=0.0,
@@ -502,7 +503,7 @@ def test_finalized_mean_checkpoint_can_resume_variance_preparation() -> None:
         metric="loss",
         mode="min",
         patience=0,
-        source=MetricSource.TRAINING,
+        source=Split.TRAIN,
     )
     trained_stage, trained_state = make_mean_stage(
         learning_rate=0.0,

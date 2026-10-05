@@ -62,7 +62,8 @@ if str(_MODULE_DIR) not in sys.path:
 from tensorboard_tracker import TensorBoardTracker
 
 from probreg.core.checkpoints import InMemoryCheckpointStore
-from probreg.core.early_stopping import EarlyStopper, MetricSource, OptimizationMode
+from probreg.core.early_stopping import EarlyStopper, OptimizationMode
+from probreg.core.naming import Split
 from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EvaluationGrid,
@@ -295,7 +296,7 @@ def run_tracked_training(tracker: ExperimentTracker, *, epochs: int = EPOCHS) ->
         metric="loss",
         mode=OptimizationMode.MIN,
         patience=PATIENCE,
-        source=MetricSource.VALIDATION,
+        source=Split.VALIDATION,
     )
 
     tracker.log_params(

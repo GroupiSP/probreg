@@ -10,7 +10,8 @@ import pytest
 from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint
-from probreg.core.early_stopping import EarlyStopper, MetricSource
+from probreg.core.early_stopping import EarlyStopper
+from probreg.core.naming import Split
 from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EpochPredictionData,
@@ -315,7 +316,7 @@ def test_training_metric_stopping_saves_best_checkpoint_and_events() -> None:
         metric="loss",
         mode="min",
         patience=0,
-        source=MetricSource.TRAINING,
+        source=Split.TRAIN,
     )
 
     result = run_supervised(
@@ -352,9 +353,7 @@ def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs() -> Non
     store = MemoryCheckpointStore()
     # High patience so training keeps running (and keeps mutating ``state``)
     # for several epochs after the one-and-only improvement is checkpointed.
-    stopper = EarlyStopper(
-        metric="loss", mode="min", patience=5, source=MetricSource.TRAINING
-    )
+    stopper = EarlyStopper(metric="loss", mode="min", patience=5, source=Split.TRAIN)
 
     result = run_supervised(
         model=model,
