@@ -49,9 +49,29 @@ class ExperimentTracker(Protocol):
         """
         ...
 
-    def log_metrics(self, values: Mapping[str, float], *, step: int) -> None: ...
+    def log_metrics(self, values: Mapping[str, float], *, step: int) -> None:
+        """Record metric values at a step.
 
-    def log_artifact(self, name: str, value: Any) -> None: ...
+        Args:
+            values: Metric values keyed by the tag to record them under.
+            step: The step the metrics belong to.
+
+        Returns:
+            None.
+        """
+        ...
+
+    def log_artifact(self, name: str, value: Any) -> None:
+        """Record an artifact under a name.
+
+        Args:
+            name: The name to record the artifact under.
+            value: The artifact to record.
+
+        Returns:
+            None.
+        """
+        ...
 
 
 DEFAULT_EVENT_PREFIXES: Mapping[str, str] = MappingProxyType(

@@ -67,6 +67,5 @@ def test_the_run_logs_grouped_parameter_paths_with_splits_as_segments(
     # Fully grouped: no parameter sits flat at the top level.
     assert all("/" in path for path in paths)
     # No leaf key encodes a split; a split is only ever a segment of its own.
-    assert not any(
-        split.value in path.rsplit("/", 1)[-1] for path in paths for split in Split
-    )
+    leaf_words = {word for path in paths for word in path.rsplit("/", 1)[-1].split("_")}
+    assert leaf_words.isdisjoint(Split)

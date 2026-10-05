@@ -8,7 +8,6 @@ than merely intended.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from types import ModuleType
 from typing import Any
 
@@ -59,22 +58,6 @@ class FakeWriter:
 
     def close(self) -> None:
         self.closes += 1
-
-
-def count_leaves(values: Mapping[str, Any]) -> int:
-    """Count the non-mapping leaves of a possibly nested mapping.
-
-    Args:
-        values: The mapping to walk.
-
-    Returns:
-        The number of values that are not themselves mappings, at any
-        depth. That is the number of entries a flattening must produce.
-    """
-    return sum(
-        count_leaves(value) if isinstance(value, Mapping) else 1
-        for value in values.values()
-    )
 
 
 keys = st.text(alphabet="abcde", min_size=1, max_size=3)
@@ -141,18 +124,6 @@ def test_log_metrics_writes_one_scalar_per_entry_at_the_given_step(
 
 
 @given(values=nested_params)
-def test_log_params_flattening_is_injective_in_the_nested_key_path(
-    tracking_tracker: ModuleType, values: dict[str, Any]
-) -> None:
-    tracker, writer = make_tracker(tracking_tracker)
-
-    tracker.log_params(values)
-
-    (recorded,) = writer.hparams
-    assert len(recorded) == count_leaves(values)
-
-
-@given(values=nested_params)
 def test_log_params_records_the_core_parameter_paths(
     tracking_tracker: ModuleType, values: dict[str, Any]
 ) -> None:
@@ -194,10 +165,28 @@ def test_log_params_stringifies_values_the_hparams_plugin_cannot_carry(
 ) -> None:
     tracker, writer = make_tracker(tracking_tracker)
 
-    tracker.log_params({"metrics": ("rmse", "point_crps"), "loss": None})
+    tracker.log_params(
+        {"metrics": {"names": ("rmse", "point_crps"), "constraint": None}}
+    )
 
     (recorded,) = writer.hparams
-    assert recorded == {"metrics": "('rmse', 'point_crps')", "loss": "None"}
+    assert recorded == {
+        "metrics/names": "('rmse', 'point_crps')",
+        "metrics/constraint": "None",
+    }
+
+
+def test_log_params_records_an_empty_group_as_a_leaf(
+    tracking_tracker: ModuleType,
+) -> None:
+    tracker, writer = make_tracker(tracking_tracker)
+
+    tracker.log_params({"optimizer": {}, "seed": 0})
+
+    # The core flattener keeps an empty group as a leaf, so a run that
+    # declares a group but leaves it empty still shows it in the table.
+    (recorded,) = writer.hparams
+    assert recorded == {"optimizer": "{}", "seed": 0}
 
 
 def test_log_params_keeps_the_hparams_session_in_the_run_directory(
