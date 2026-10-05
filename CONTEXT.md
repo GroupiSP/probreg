@@ -7,7 +7,7 @@ One section per area. A term belongs in the training-and-tracking section when t
 ## Training and tracking
 
 **Training event**:
-A structured observation emitted at a named point in a stage's lifecycle, carrying that stage's metrics and the live training state. Not a log line: it has no format, and what it means is decided by whoever consumes it.
+A structured observation emitted at a named point in a stage's lifecycle, carrying the split it concerns, any metrics measured at that point, and the live training state. Not a log line: it has no format, and what it means is decided by whoever consumes it.
 _Avoid_: Log record, message
 
 **Event sink**:
@@ -21,6 +21,29 @@ _Avoid_: Logger, writer, backend
 **Run**:
 One execution of a training script, and the unit a tracker groups its records under. One tracked run maps to one TensorBoard run directory.
 _Avoid_: Experiment (a set of runs), trial
+
+**Decision event**:
+A training event that reports a judgement about a measurement already emitted (a new best model, an early stop) rather than a new measurement. It carries no metrics of its own, so recording a run never logs the same point twice.
+_Avoid_: Metric event
+
+**Metric name**:
+The one name a metric has, chosen by whoever computes it: bare `snake_case` such as `loss` or `rmse`. No other layer adds to it, so the same quantity has the same name on training and validation, in every stage.
+_Avoid_: Prefixed name, `training_loss`, `validation_loss`
+
+**Split**:
+The partition of data a metric was measured on: `train` or `validation`. A run knows the split of every metric it reports, so a metric's split is never inferred from the name of the event or of the metric.
+_Avoid_: Training (as a split), source, phase
+
+**Stage segment**:
+The leading part of a metric tag, naming the stage that produced the metric. Always present, including for a single-stage run, because two stages report against their own epoch counters and a tag without the stage lets one stage's curve overwrite the other's.
+
+**Metric tag**:
+The namespaced identity of a recorded metric, `stage/split/metric` (e.g. `mean/validation/loss`), with `/` as the only separator and no segment allowed to contain it. Built only where a run is observed, and the same string in a run's own metric history and in the experiment tracker.
+_Avoid_: Metric key, prefixed metric, `mean_training_loss`
+
+**Parameter path**:
+The identity of a recorded hyperparameter: its key path through a nested parameter mapping, joined with the same `/` as a metric tag. Each leaf key is a bare `snake_case` name, and a split is a path segment of its own, never part of a leaf key (`data/train/samples`, not `data/train_samples`).
+_Avoid_: Flat parameter name, hparam key
 
 ## CMAPSS example
 
