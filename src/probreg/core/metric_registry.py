@@ -249,14 +249,13 @@ class EpochMetric(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class RootMeanSquaredError:
-    """Epoch adapter for root mean squared error."""
+    """Epoch adapter for root mean squared error.
 
-    metric_name: str = "rmse"
+    Attributes:
+        name: Bare metric name the value is reported under. Defaults to ``rmse``.
+    """
 
-    @property
-    def name(self) -> str:
-        """Return the emitted metric name."""
-        return self.metric_name
+    name: str = "rmse"
 
     @property
     def requirements(self) -> MetricRequirements:
@@ -270,10 +269,15 @@ class RootMeanSquaredError:
 
 @dataclass(frozen=True, slots=True)
 class IntervalCoverage:
-    """Observed coverage of an explicitly labelled prediction interval."""
+    """Observed coverage of an explicitly labelled prediction interval.
+
+    Attributes:
+        level: Confidence level of the labelled interval, in ``(0, 1)``.
+        name: Bare metric name the value is reported under. Defaults to ``coverage``.
+    """
 
     level: float = 0.95
-    metric_name: str = "coverage"
+    name: str = "coverage"
 
     def __post_init__(self) -> None:
         """Validate the requested confidence level.
@@ -282,11 +286,6 @@ class IntervalCoverage:
             ValueError: If ``level`` is outside ``(0, 1)``.
         """
         MetricRequirements(interval_levels=frozenset({self.level}))
-
-    @property
-    def name(self) -> str:
-        """Return the emitted metric name."""
-        return self.metric_name
 
     @property
     def requirements(self) -> MetricRequirements:
@@ -301,10 +300,15 @@ class IntervalCoverage:
 
 @dataclass(frozen=True, slots=True)
 class WeightedSpread:
-    """Weighted spread for an interval and explicit numeric coordinate."""
+    """Weighted spread for an interval and explicit numeric coordinate.
+
+    Attributes:
+        level: Confidence level of the labelled interval, in ``(0, 1)``.
+        name: Bare metric name the value is reported under. Defaults to ``wsu``.
+    """
 
     level: float = 0.95
-    metric_name: str = "wsu"
+    name: str = "wsu"
 
     def __post_init__(self) -> None:
         """Validate the requested confidence level.
@@ -313,11 +317,6 @@ class WeightedSpread:
             ValueError: If ``level`` is outside ``(0, 1)``.
         """
         MetricRequirements(interval_levels=frozenset({self.level}))
-
-    @property
-    def name(self) -> str:
-        """Return the emitted metric name."""
-        return self.metric_name
 
     @property
     def requirements(self) -> MetricRequirements:
@@ -345,14 +344,13 @@ class WeightedSpread:
 
 @dataclass(frozen=True, slots=True)
 class PointContinuousRankedProbabilityScore:
-    """Mean point-CRPS across independent scalar scoring units."""
+    """Mean point-CRPS across independent scalar scoring units.
 
-    metric_name: str = "point_crps"
+    Attributes:
+        name: Bare metric name the value is reported under. Defaults to ``point_crps``.
+    """
 
-    @property
-    def name(self) -> str:
-        """Return the emitted metric name."""
-        return self.metric_name
+    name: str = "point_crps"
 
     @property
     def requirements(self) -> MetricRequirements:
@@ -380,14 +378,13 @@ class PointContinuousRankedProbabilityScore:
 
 @dataclass(frozen=True, slots=True)
 class ContinuousRankedProbabilityScore:
-    """Mean expected CRPS under per-unit empirical reference distributions."""
+    """Mean expected CRPS under per-unit empirical reference distributions.
 
-    metric_name: str = "crps"
+    Attributes:
+        name: Bare metric name the value is reported under. Defaults to ``crps``.
+    """
 
-    @property
-    def name(self) -> str:
-        """Return the emitted metric name."""
-        return self.metric_name
+    name: str = "crps"
 
     @property
     def requirements(self) -> MetricRequirements:
