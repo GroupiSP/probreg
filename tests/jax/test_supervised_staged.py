@@ -404,8 +404,8 @@ def test_mean_stage_prepares_trains_and_validates_lifecycle() -> None:
     assert state.optimizer_states["mean_optimizer"] is stage.optimizer
     assert state.parameter_roles["mean_model"] is ParameterRole.MEAN
     assert result.loss is not None and result.loss < initial_loss
-    assert len(state.metric_history["mean_training_loss"]) == 10
-    assert "training_loss" not in state.metric_history
+    assert len(state.metric_history["mean/train/loss"]) == 10
+    assert "supervised/train/loss" not in state.metric_history
     assert stage.validate(state).passed
 
 
@@ -449,12 +449,12 @@ def test_mean_stage_selects_existing_checkpoint() -> None:
 
     assert reference.key == "mean-best"
     assert reference.metadata == {"stage": "mean"}
-    assert "mean_training_loss" in store.load("mean-best").state.metric_history
+    assert "mean/train/loss" in store.load("mean-best").state.metric_history
 
 
 def test_mean_stage_restores_and_finalizes_best_checkpoint() -> None:
     store = MemoryCheckpointStore()
-    stopper = EarlyStopper(metric="validation_loss", mode="min", patience=0)
+    stopper = EarlyStopper(metric="loss", mode="min", patience=0)
 
     def validation(
         current_state: TrainingState,
@@ -464,7 +464,7 @@ def test_mean_stage_restores_and_finalizes_best_checkpoint() -> None:
         del current_state
         return ValidationResult(
             passed=True,
-            metrics={"validation_loss": float(epoch)},
+            metrics={"loss": float(epoch)},
         )
 
     stage, state = make_mean_stage(
@@ -485,8 +485,8 @@ def test_mean_stage_restores_and_finalizes_best_checkpoint() -> None:
     assert checkpoint.state.lifecycle_state is StageState.MEAN_READY
     assert checkpoint.metadata == {"stage": "mean", "stage_complete": True}
     assert int(stage.optimizer.step.get_value()) == 1
-    assert len(state.metric_history["mean_training_loss"]) == 1
-    assert result.loss == state.metric_history["mean_training_loss"][-1]
+    assert len(state.metric_history["mean/train/loss"]) == 1
+    assert result.loss == state.metric_history["mean/train/loss"][-1]
     assert all(
         jnp.array_equal(actual, expected)
         for actual, expected in zip(
@@ -606,9 +606,9 @@ def test_gamma_variance_stage_updates_variance_and_preserves_mean() -> None:
     assert state.lifecycle_state is StageState.VARIANCE_READY
     assert state.parameter_roles["variance_model"] is ParameterRole.VARIANCE
     assert "mean_model" in state.frozen_components
-    assert len(state.metric_history["mean_training_loss"]) == 100
-    assert len(state.metric_history["variance_training_loss"]) == 150
-    assert "training_loss" not in state.metric_history
+    assert len(state.metric_history["mean/train/loss"]) == 100
+    assert len(state.metric_history["variance/train/loss"]) == 150
+    assert "supervised/train/loss" not in state.metric_history
     assert {event.stage for event in events.events} == {"mean", "variance"}
     assert variance_stage.validate(state).passed
     assert all(
@@ -687,7 +687,7 @@ def test_gamma_variance_stage_builds_validation_from_residual_loader() -> None:
         ) -> ValidationResult:
             del current_state
             observed_targets.append(loader(split="validation", epoch=epoch)[0].targets)
-            return ValidationResult(passed=True, metrics={"validation_loss": 0.0})
+            return ValidationResult(passed=True, metrics={"loss": 0.0})
 
         return validation
 

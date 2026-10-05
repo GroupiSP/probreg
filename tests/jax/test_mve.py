@@ -64,8 +64,8 @@ def test_mve_training_decreases_loss_and_tracks_heteroscedastic_noise() -> None:
         epochs=100,
     )
 
-    initial_loss = result.state.metric_history["training_loss"][0]
-    final_loss = result.state.metric_history["training_loss"][-1]
+    initial_loss = result.state.metric_history["supervised/train/loss"][0]
+    final_loss = result.state.metric_history["supervised/train/loss"][-1]
     assert final_loss < initial_loss
 
     low_uncertainty_features = jnp.array([[-3.0]])

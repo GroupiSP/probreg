@@ -137,10 +137,11 @@ class PrintingEventSink:
     """An :class:`EventSink` that prints a one-line summary per event."""
 
     def on_event(self, event: TrainingEvent) -> None:
-        metrics = ", ".join(
-            f"{name}={value:.4f}" for name, value in event.metrics.items()
-        )
-        print(f"[{event.name}] epoch={event.step} {metrics}")
+        values = dict(event.metrics)
+        if "metric" in event.payload:
+            values[event.payload["metric"]] = event.payload["value"]
+        metrics = ", ".join(f"{name}={value:.4f}" for name, value in values.items())
+        print(f"[{event.name}] epoch={event.step} split={event.split} {metrics}")
 
 
 def main() -> None:
@@ -164,7 +165,7 @@ def main() -> None:
         loss=mean_squared_error,
     )
     early_stopper = EarlyStopper(
-        metric="validation_loss",
+        metric="loss",
         mode=OptimizationMode.MIN,
         patience=5,
         source=Split.VALIDATION,

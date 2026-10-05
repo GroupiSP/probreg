@@ -39,13 +39,13 @@ def test_maximizing_metric_accepts_improvements_above_min_delta() -> None:
 
 
 def test_expects_validation_and_monitored_metric_name_reflect_configuration() -> None:
-    validation_stopper = EarlyStopper(metric="validation_loss", mode="min", patience=0)
+    validation_stopper = EarlyStopper(metric="rmse", mode="min", patience=0)
     training_stopper = EarlyStopper(
         metric="loss", mode="min", patience=0, source=Split.TRAIN
     )
 
     assert validation_stopper.expects_validation() is True
-    assert validation_stopper.monitored_metric_name() == "validation_loss"
+    assert validation_stopper.monitored_metric_name() == "rmse"
     assert training_stopper.expects_validation() is False
     assert training_stopper.monitored_metric_name() == "loss"
 

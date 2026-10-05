@@ -18,6 +18,7 @@ from probreg.core.losses import (
     SquaredErrorLoss,
     add_epsilon,
 )
+from probreg.core.naming import Split, parse_metric_tag
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink
 from probreg.core.types import (
@@ -223,7 +224,6 @@ class MeanStage:
             stage=self.name,
             model_name=self.model_name,
             optimizer_name=self.optimizer_name,
-            metric_history_prefix=self.name,
             metrics=self.options.metrics,
         )
         if result.loss is None or not math.isfinite(result.loss):
@@ -442,7 +442,6 @@ class GammaVarianceStage:
             stage=self.name,
             model_name=self.model_name,
             optimizer_name=self.optimizer_name,
-            metric_history_prefix=self.name,
             metrics=self.options.metrics,
         )
         if result.loss is None or not math.isfinite(result.loss):
@@ -520,13 +519,25 @@ def _latest_training_metrics(
     state: TrainingState,
     stage_name: str,
 ) -> dict[str, float]:
-    """Return the latest stage training metrics from persisted history."""
-    prefix = f"{stage_name}_training_"
-    metrics = {
-        name.removeprefix(prefix): values[-1]
-        for name, values in state.metric_history.items()
-        if name.startswith(prefix) and values
-    }
+    """Return the latest stage training metrics from persisted history.
+
+    Args:
+        state: State whose ``metric_history`` is keyed by metric tags.
+        stage_name: Stage whose training metrics to return.
+
+    Returns:
+        The last recorded value of every training metric of the stage,
+        keyed by bare metric name.
+
+    Raises:
+        ValueError: If a history key is not a metric tag, or the stage
+            recorded no training loss.
+    """
+    metrics = {}
+    for tag, values in state.metric_history.items():
+        parsed = parse_metric_tag(tag)
+        if parsed.stage == stage_name and parsed.split is Split.TRAIN and values:
+            metrics[parsed.metric] = values[-1]
     if "loss" not in metrics:
         raise ValueError("selected checkpoint does not contain a training loss.")
     return metrics

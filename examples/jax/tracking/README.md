@@ -86,14 +86,14 @@ library's bridge from training events to a tracker, passed **alongside** the
 example's own printing event sink: `event_sinks` is a sequence, and adding a
 tracker displaces nothing a reader already sees in the terminal.
 
-The sink tags every metric `<stage>/<event prefix><metric>`, with the stage
-segment unconditional so that two stages of a staged run cannot overwrite each
-other's curves. The validation strategy's metric prefix is cleared here so that
-the tracker owns the whole tag, which yields matched `supervised/train/loss` and
+The sink tags every metric with its metric tag, `<stage>/<split>/<metric>`,
+built from the event's stage and split and the metric's bare name. The stage
+segment is always present, so that two stages of a staged run cannot overwrite
+each other's curves. This run yields matched `supervised/train/loss` and
 `supervised/validation/loss` tags — TensorBoard renders those as two series on
-one chart, where overfitting is visible without switching charts. The cost of
-clearing that prefix is that `state.metric_history` records validation metrics
-unprefixed, which is why the printing sink reads them without a prefix.
+one chart, where overfitting is visible without switching charts. The same tags
+key `state.metric_history`, which is where the printing sink reads the training
+metrics from.
 
 Before training, the script logs its hyperparameters as one nested mapping,
 fully grouped so that every one is recorded under a parameter path:

@@ -154,7 +154,7 @@ def test_fixed_epoch_training_without_validation_updates_parameters_and_rng() ->
         epochs=3,
     )
 
-    assert len(result.state.metric_history["training_loss"]) == 3
+    assert len(result.state.metric_history["supervised/train/loss"]) == 3
     assert result.loss is not None
     assert not bool(jnp.array_equal(initial_key, result.state.rng_state))
     assert int(optimizer.step.get_value()) == 3
@@ -198,7 +198,7 @@ def test_run_supervised_default_registration_names_remain_compatible() -> None:
     assert result.state.optimizer_states == {"optimizer": optimizer}
 
 
-def test_run_supervised_optionally_namespaces_persisted_history_only() -> None:
+def test_run_supervised_tags_history_with_its_stage_and_keeps_events_bare() -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
     events = EventCollector()
     validation = HeldOutValidation(model=model, loader=loader, loss=squared_error)
@@ -212,16 +212,16 @@ def test_run_supervised_optionally_namespaces_persisted_history_only() -> None:
         epochs=1,
         validation=validation,
         event_sinks=[events],
-        metric_history_prefix="mean",
+        stage="mean",
     )
 
     assert set(result.state.metric_history) == {
-        "mean_training_loss",
-        "mean_validation_loss",
+        "mean/train/loss",
+        "mean/validation/loss",
     }
     assert result.metrics == {"loss": result.loss}
     assert events.events[0].metrics.keys() == {"loss"}
-    assert events.events[1].metrics.keys() == {"validation_loss"}
+    assert events.events[1].metrics.keys() == {"loss"}
 
 
 def test_make_train_step_without_registered_metrics_returns_loss_mapping() -> None:
@@ -332,7 +332,7 @@ def test_training_metric_stopping_saves_best_checkpoint_and_events() -> None:
         checkpoint_key="mean-best",
     )
 
-    assert len(result.state.metric_history["training_loss"]) == 2
+    assert len(result.state.metric_history["supervised/train/loss"]) == 2
     assert store.exists("mean-best")
     checkpoint = store.load("mean-best")
     assert checkpoint.epoch == 0
@@ -371,19 +371,19 @@ def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs() -> Non
     # The checkpoint was saved after epoch 0; its frozen state must only
     # contain that single observation, even though the live state keeps
     # accumulating history for all 3 epochs.
-    assert checkpoint.state.metric_history["training_loss"] == [
-        result.state.metric_history["training_loss"][0]
+    assert checkpoint.state.metric_history["supervised/train/loss"] == [
+        result.state.metric_history["supervised/train/loss"][0]
     ]
-    assert len(result.state.metric_history["training_loss"]) == 3
+    assert len(result.state.metric_history["supervised/train/loss"]) == 3
 
     # Mutating the live training state after the fact (as further training,
     # or a resumed run, would) must not leak into the already-saved
     # checkpoint's state.
-    result.state.metric_history["training_loss"].append(999.0)
+    result.state.metric_history["supervised/train/loss"].append(999.0)
     result.state.checkpoint_registry["late"] = object()
 
-    assert checkpoint.state.metric_history["training_loss"] == [
-        result.state.metric_history["training_loss"][0]
+    assert checkpoint.state.metric_history["supervised/train/loss"] == [
+        result.state.metric_history["supervised/train/loss"][0]
     ]
     assert "late" not in checkpoint.state.checkpoint_registry
 
@@ -397,7 +397,7 @@ def test_held_out_validation_drives_validation_metric_stopping() -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
     validation = HeldOutValidation(model=model, loader=loader, loss=squared_error)
     stopper = EarlyStopper(
-        metric="validation_loss", mode="min", patience=0, source=Split.VALIDATION
+        metric="loss", mode="min", patience=0, source=Split.VALIDATION
     )
 
     result = run_supervised(
@@ -411,7 +411,7 @@ def test_held_out_validation_drives_validation_metric_stopping() -> None:
         early_stopper=stopper,
     )
 
-    assert len(result.state.metric_history["validation_loss"]) == 2
+    assert len(result.state.metric_history["supervised/validation/loss"]) == 2
 
 
 def test_custom_fold_validation_strategy_is_accepted() -> None:
@@ -437,13 +437,16 @@ def test_custom_fold_validation_strategy_is_accepted() -> None:
         validation=fold_validation,
     )
 
-    assert result.state.metric_history["fold_1_loss"] == [0.0, 1.0]
+    assert result.state.metric_history["supervised/validation/fold_1_loss"] == [
+        0.0,
+        1.0,
+    ]
 
 
 def test_validation_stopping_requires_a_validation_strategy() -> None:
     model, optimizer, state = make_components()
     stopper = EarlyStopper(
-        metric="validation_loss", mode="min", patience=1, source=Split.VALIDATION
+        metric="loss", mode="min", patience=1, source=Split.VALIDATION
     )
 
     with pytest.raises(ValueError, match="requires a validation strategy"):
@@ -489,9 +492,9 @@ def test_run_supervised_records_registered_batch_and_epoch_metrics() -> None:
     )
 
     assert set(result.metrics) == {"loss", "mae", "rmse"}
-    assert len(result.state.metric_history["training_loss"]) == 2
-    assert len(result.state.metric_history["training_mae"]) == 2
-    assert len(result.state.metric_history["training_rmse"]) == 2
+    assert len(result.state.metric_history["supervised/train/loss"]) == 2
+    assert len(result.state.metric_history["supervised/train/mae"]) == 2
+    assert len(result.state.metric_history["supervised/train/rmse"]) == 2
     assert all(
         {"loss", "mae", "rmse"} <= set(event.metrics)
         for event in events.events
@@ -519,7 +522,7 @@ def test_run_supervised_reports_epoch_metric_under_its_declared_name() -> None:
     assert set(result.metrics) == {"loss", "root_mse"}
 
 
-def test_held_out_validation_prefixes_registered_metrics() -> None:
+def test_held_out_validation_returns_registered_metrics_under_bare_names() -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
     validation = HeldOutValidation(
         model=model,
@@ -542,9 +545,9 @@ def test_held_out_validation_prefixes_registered_metrics() -> None:
         validation=validation,
     )
 
-    assert len(result.state.metric_history["validation_loss"]) == 2
-    assert len(result.state.metric_history["validation_mae"]) == 2
-    assert len(result.state.metric_history["validation_rmse"]) == 2
+    assert len(result.state.metric_history["supervised/validation/loss"]) == 2
+    assert len(result.state.metric_history["supervised/validation/mae"]) == 2
+    assert len(result.state.metric_history["supervised/validation/rmse"]) == 2
 
 
 def test_metric_suite_rejects_reserved_and_duplicate_names() -> None:

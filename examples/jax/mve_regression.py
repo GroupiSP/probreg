@@ -43,7 +43,7 @@ from probreg.core.metric_registry import (
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
-from probreg.core.naming import Split
+from probreg.core.naming import Split, metric_tag
 from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import Batch
@@ -146,14 +146,18 @@ class PrintingEventSink:
         if event.name != "validation_end" or event.step % self.every != 0:
             return
         history = event.state.metric_history
+        train = {
+            name: history[metric_tag(event.stage, Split.TRAIN, name)][-1]
+            for name in ("loss", "rmse", "point_crps")
+        }
         print(
             f"epoch={event.step} "
-            f"training_loss={history['training_loss'][-1]:.4f} "
-            f"training_rmse={history['training_rmse'][-1]:.4f} "
-            f"training_point_crps={history['training_point_crps'][-1]:.4f} "
-            f"validation_loss={event.metrics['validation_loss']:.4f} "
-            f"validation_rmse={event.metrics['validation_rmse']:.4f} "
-            f"validation_point_crps={event.metrics['validation_point_crps']:.4f}"
+            f"train/loss={train['loss']:.4f} "
+            f"train/rmse={train['rmse']:.4f} "
+            f"train/point_crps={train['point_crps']:.4f} "
+            f"validation/loss={event.metrics['loss']:.4f} "
+            f"validation/rmse={event.metrics['rmse']:.4f} "
+            f"validation/point_crps={event.metrics['point_crps']:.4f}"
         )
 
 
@@ -242,7 +246,7 @@ def main() -> None:
         metrics=metric_suite,
     )
     early_stopper = EarlyStopper(
-        metric="validation_loss",
+        metric="loss",
         mode=OptimizationMode.MIN,
         patience=5,
         source=Split.VALIDATION,
@@ -266,14 +270,14 @@ def main() -> None:
     print(f"Final training loss: {result.loss:.4f}")
     print(f"Final training RMSE: {result.metrics['rmse']:.4f}")
     print(f"Final training point-CRPS: {result.metrics['point_crps']:.4f}")
-    print(
-        "Final validation RMSE: "
-        f"{result.state.metric_history['validation_rmse'][-1]:.4f}"
-    )
-    print(
-        "Final validation point-CRPS: "
-        f"{result.state.metric_history['validation_point_crps'][-1]:.4f}"
-    )
+    final_validation = {
+        name: result.state.metric_history[
+            metric_tag("supervised", Split.VALIDATION, name)
+        ][-1]
+        for name in ("rmse", "point_crps")
+    }
+    print(f"Final validation RMSE: {final_validation['rmse']:.4f}")
+    print(f"Final validation point-CRPS: {final_validation['point_crps']:.4f}")
     print(f"Final training metrics: {result.metrics}")
 
     low_uncertainty_prediction = model(jnp.array([[-3.0]]))

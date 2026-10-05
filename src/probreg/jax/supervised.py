@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 
 import jax
 from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
+from probreg.core.naming import Split, metric_tag
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink, TrainingEvent
 from probreg.core.types import PyTree, StageResult, TrainingState
@@ -99,7 +101,6 @@ def run_supervised(
     stage: str = "supervised",
     model_name: str = "model",
     optimizer_name: str = "optimizer",
-    metric_history_prefix: str | None = None,
     metrics: MetricSuite | None = None,
 ) -> StageResult:
     """Train a single NNX model for a fixed or early-stopped number of epochs.
@@ -126,21 +127,21 @@ def run_supervised(
             checkpoint when ``early_stopper`` reports an improvement.
         checkpoint_key: The key under which the best checkpoint is
             saved. Defaults to ``"best"``.
-        stage: The stage name recorded on ``state`` and emitted events.
-            Defaults to ``"supervised"``.
+        stage: The stage name recorded on ``state`` and emitted events,
+            and the stage segment of every metric tag recorded in
+            ``state.metric_history``. Defaults to ``"supervised"``.
         model_name: Name under which ``model`` is registered in ``state``.
             Defaults to ``"model"``.
         optimizer_name: Name under which ``optimizer`` is registered in
             ``state``. Defaults to ``"optimizer"``.
-        metric_history_prefix: Optional namespace prepended only to metrics
-            persisted in ``state.metric_history``. Event and early-stopping
-            metric names remain unchanged.
         metrics: Optional registered batch/epoch metrics for training. When
             omitted, only loss is collected.
 
     Returns:
         A :class:`StageResult` with the final ``state``, the last
-        recorded training metrics, and the final training loss.
+        recorded training metrics under their bare names, and the final
+        training loss. ``state.metric_history`` records every metric
+        under its metric tag ``stage/split/metric``.
 
     Raises:
         ValueError: If ``epochs`` is not positive, if ``early_stopper``
@@ -179,21 +180,13 @@ def run_supervised(
             metrics=metric_suite,
         )
         latest_metrics = epoch_metrics
-        training_history_metrics = {
-            f"training_{name}": value for name, value in epoch_metrics.items()
-        }
-        _record_metrics(
-            state,
-            metric_history_prefix,
-            training_history_metrics,
-        )
-        _emit(event_sinks, "epoch_end", stage, epoch, epoch_metrics, state)
+        _record_metrics(state, stage, Split.TRAIN, epoch_metrics)
+        _emit(event_sinks, "epoch_end", stage, Split.TRAIN, epoch, epoch_metrics, state)
 
         validation_metrics = _run_validation_epoch(
             validation=validation,
             state=state,
             stage=stage,
-            metric_history_prefix=metric_history_prefix,
             epoch=epoch,
             event_sinks=event_sinks,
         )
@@ -305,7 +298,6 @@ def _run_validation_epoch(
     validation: ValidationStrategy | None,
     state: TrainingState,
     stage: str,
-    metric_history_prefix: str | None,
     epoch: int,
     event_sinks: Sequence[EventSink],
 ) -> Mapping[str, float]:
@@ -314,8 +306,7 @@ def _run_validation_epoch(
     Args:
         validation: Optional validation strategy.
         state: The live training state.
-        stage: Stage name used in emitted events.
-        metric_history_prefix: Optional persisted-history namespace.
+        stage: Stage name used in emitted events and metric tags.
         epoch: Epoch index being validated.
         event_sinks: Event sinks notified on validation completion.
 
@@ -327,8 +318,16 @@ def _run_validation_epoch(
 
     validation_result = validation(state, epoch=epoch)
     validation_metrics = validation_result.metrics
-    _record_metrics(state, metric_history_prefix, validation_metrics)
-    _emit(event_sinks, "validation_end", stage, epoch, validation_metrics, state)
+    _record_metrics(state, stage, Split.VALIDATION, validation_metrics)
+    _emit(
+        event_sinks,
+        "validation_end",
+        stage,
+        Split.VALIDATION,
+        epoch,
+        validation_metrics,
+        state,
+    )
     return validation_metrics
 
 
@@ -401,7 +400,10 @@ def _should_stop_early(
     if metric_name not in monitored_metrics:
         raise ValueError(f"monitored metric {metric_name!r} was not produced.")
 
-    decision = early_stopper.observe(monitored_metrics[metric_name], epoch=epoch)
+    value = monitored_metrics[metric_name]
+    decision = early_stopper.observe(value, epoch=epoch)
+    split = decision.state.source
+    payload = {"metric": metric_name, "value": value}
     if decision.improved:
         _save_checkpoint(
             checkpoint_store,
@@ -412,37 +414,40 @@ def _should_stop_early(
             epoch,
             decision.state,
         )
-        _emit(event_sinks, "best_model", stage, epoch, monitored_metrics, state)
+        _emit(event_sinks, "best_model", stage, split, epoch, {}, state, payload)
     if decision.should_stop:
-        _emit(event_sinks, "early_stop", stage, epoch, monitored_metrics, state)
+        _emit(event_sinks, "early_stop", stage, split, epoch, {}, state, payload)
     return decision.should_stop
 
 
 def _record_metrics(
     state: TrainingState,
-    prefix: str | None,
+    stage: str,
+    split: Split,
     metrics: Mapping[str, float],
 ) -> None:
-    """Append metric values to ``state.metric_history`` in place.
+    """Append metric values to ``state.metric_history`` under their tags.
 
     Args:
         state: The training state whose ``metric_history`` is updated.
-        prefix: Optional prefix joined to each metric name with an underscore.
-        metrics: Mapping of metric name to the value observed this
+        stage: Stage that produced the metrics.
+        split: Split the metrics were measured on.
+        metrics: Mapping of bare metric name to the value observed this
             epoch.
     """
     for name, value in metrics.items():
-        metric_name = f"{prefix}_{name}" if prefix is not None else name
-        state.record_metric(metric_name, value)
+        state.record_metric(metric_tag(stage, split, name), value)
 
 
 def _emit(
     sinks: Sequence[EventSink],
     name: str,
     stage: str,
+    split: Split,
     epoch: int,
     metrics: Mapping[str, float],
     state: TrainingState,
+    payload: Mapping[str, Any] | None = None,
 ) -> None:
     """Build a training event and dispatch it to every sink.
 
@@ -450,17 +455,22 @@ def _emit(
         sinks: The event sinks to notify.
         name: The event name, e.g. ``"epoch_end"`` or ``"early_stop"``.
         stage: The stage name associated with the event.
+        split: The split the event concerns.
         epoch: The epoch at which the event occurred.
-        metrics: The metrics associated with the event.
+        metrics: The metrics associated with the event, keyed by bare
+            metric name.
         state: The training state associated with the event.
+        payload: Event-specific data. Defaults to an empty mapping.
     """
     event = TrainingEvent(
         name=name,
         stage=stage,
+        split=split,
         iteration=state.outer_iteration,
         step=epoch,
         metrics=metrics,
         state=state,
+        payload={} if payload is None else payload,
     )
     for sink in sinks:
         sink.on_event(event)
