@@ -165,8 +165,9 @@ def plot_predictions(
 ) -> None:
     """Plot validation targets against the mean and its predictive interval.
 
-    The band is the 95% predictive interval ``loc ± 1.96 * scale`` of the
-    Gaussian predictive distribution.
+    The band is the 95% predictive interval: the mean plus or minus
+    ``INTERVAL_MULTIPLIER`` standard deviations, which for the Gaussian
+    head is ``loc ± 1.96 * scale``.
 
     Args:
         model: An NNX module mapping inputs directly to a
@@ -183,16 +184,17 @@ def plot_predictions(
     y = np.asarray(targets[order].squeeze(-1))
 
     prediction = model(sorted_inputs)
-    loc = np.asarray(prediction.loc.squeeze(-1))
-    half_width = INTERVAL_MULTIPLIER * np.asarray(prediction.scale.squeeze(-1))
+    mean = np.asarray(prediction.mean().squeeze(-1))
+    scale = np.asarray(jnp.sqrt(prediction.variance()).squeeze(-1))
+    half_width = INTERVAL_MULTIPLIER * scale
 
     _, ax = plt.subplots()
     ax.scatter(x, y, s=10, alpha=0.6, label="validation data")
-    ax.plot(x, loc, color="C1", label="predicted mean")
+    ax.plot(x, mean, color="C1", label="predicted mean")
     ax.fill_between(
         x,
-        loc - half_width,
-        loc + half_width,
+        mean - half_width,
+        mean + half_width,
         color="C1",
         alpha=0.2,
         label="95% predictive interval",
