@@ -26,6 +26,10 @@ _Avoid_: Experiment (a set of runs), trial
 A training event that reports a judgement about a measurement already emitted (a new best model, an early stop) rather than a new measurement. It carries no metrics of its own, so recording a run never logs the same point twice.
 _Avoid_: Metric event
 
+**Decision**:
+The measurement a decision event judged: the monitored metric's bare name and its value at that step. It is what the judgement was made on, not the judgement itself, which the event's name carries (`best_model`, `early_stop`).
+_Avoid_: Payload, verdict (the early stopper's own result)
+
 **Metric name**:
 The one name a metric has, chosen by whoever computes it: bare `snake_case` such as `loss` or `rmse`. No other layer adds to it, so the same quantity has the same name on training and validation, in every stage.
 _Avoid_: Prefixed name, `training_loss`, `validation_loss`

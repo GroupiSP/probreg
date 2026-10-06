@@ -55,6 +55,7 @@ from probreg.core.protocols import (
 )
 from probreg.core.stages import StageState, TrainingStage, validate_transition
 from probreg.core.tracking import (
+    Decision,
     EventSink,
     ExperimentTracker,
     TrackerEventSink,
@@ -80,6 +81,7 @@ __all__ = [
     "CheckpointStore",
     "ContinuousRankedProbabilityScore",
     "Dataset",
+    "Decision",
     "DistributionHead",
     "DistributionLoss",
     "EarlyStopper",

@@ -23,7 +23,7 @@ from probreg.core.metric_registry import (
 )
 from probreg.core.naming import Split
 from probreg.core.protocols import LoaderFactory
-from probreg.core.tracking import TrackerEventSink
+from probreg.core.tracking import Decision, TrackerEventSink
 from probreg.core.types import Batch, StageResult, TrainingState, ValidationResult
 from probreg.jax import (
     BatchMetricSpec,
@@ -733,10 +733,23 @@ def test_decision_events_name_the_train_split_when_the_stopper_reads_it(
     assert [event.name for event in decisions] == ["best_model", "early_stop"]
     assert all(event.split is Split.TRAIN for event in decisions)
     history = result.state.metric_history["supervised/train/loss"]
-    assert [event.payload for event in decisions] == [
-        {"metric": "loss", "value": history[0]},
-        {"metric": "loss", "value": history[1]},
+    assert [event.decision for event in decisions] == [
+        Decision(metric="loss", value=history[0]),
+        Decision(metric="loss", value=history[1]),
     ]
+
+
+def test_only_decision_events_carry_a_decision(
+    in_memory_tracker: Tracker, supervised_run: Run
+) -> None:
+    recorder = in_memory_tracker()
+    stopper = EarlyStopper(metric="loss", mode="min", patience=0)
+
+    supervised_run(recorder, learning_rate=0.0, epochs=4, early_stopper=stopper)
+
+    assert recorder.events
+    for event in recorder.events:
+        assert (event.decision is not None) == (event.name in DECISION_EVENTS)
 
 
 def test_decision_events_carry_no_metrics_and_add_no_tracker_series(
@@ -758,9 +771,9 @@ def test_decision_events_carry_no_metrics_and_add_no_tracker_series(
     assert {event.name for event in decisions} == DECISION_EVENTS
     assert all(event.metrics == {} for event in decisions)
     history = result.state.metric_history["supervised/validation/loss"]
-    assert [event.payload for event in decisions] == [
-        {"metric": "loss", "value": history[0]},
-        {"metric": "loss", "value": history[1]},
+    assert [event.decision for event in decisions] == [
+        Decision(metric="loss", value=history[0]),
+        Decision(metric="loss", value=history[1]),
     ]
     measured = sum(len(event.metrics) for event in recorder.events)
     assert sum(len(values) for values, _ in tracker.metrics) == measured

@@ -191,15 +191,15 @@ class PrintingEventSink:
             name: history[metric_tag(event.stage, Split.TRAIN, name)][-1]
             for name in ("loss", "rmse", "point_crps")
         }
-        print(
-            f"epoch={event.step} "
-            f"train/loss={train['loss']:.4f} "
-            f"train/rmse={train['rmse']:.4f} "
-            f"train/point_crps={train['point_crps']:.4f} "
-            f"validation/loss={event.metrics['loss']:.4f} "
-            f"validation/rmse={event.metrics['rmse']:.4f} "
-            f"validation/point_crps={event.metrics['point_crps']:.4f}"
+        measured = (
+            *((Split.TRAIN, name, value) for name, value in train.items()),
+            *((Split.VALIDATION, name, event.metrics[name]) for name in train),
         )
+        labels = " ".join(
+            f"{metric_tag(event.stage, split, name)}={value:.4f}"
+            for split, name, value in measured
+        )
+        print(f"epoch={event.step} {labels}")
 
 
 def plot_predictions(

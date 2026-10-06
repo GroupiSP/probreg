@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
 
 import jax
 from flax import nnx
@@ -12,7 +11,7 @@ from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.naming import Split, metric_tag
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
-from probreg.core.tracking import EventSink, TrainingEvent
+from probreg.core.tracking import Decision, EventSink, TrainingEvent
 from probreg.core.types import PyTree, StageResult, TrainingState
 from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.metrics import (
@@ -181,7 +180,15 @@ def run_supervised(
         )
         latest_metrics = epoch_metrics
         _record_metrics(state, stage, Split.TRAIN, epoch_metrics)
-        _emit(event_sinks, "epoch_end", stage, Split.TRAIN, epoch, epoch_metrics, state)
+        _emit(
+            event_sinks,
+            "epoch_end",
+            stage=stage,
+            split=Split.TRAIN,
+            epoch=epoch,
+            state=state,
+            metrics=epoch_metrics,
+        )
 
         validation_metrics = _run_validation_epoch(
             validation=validation,
@@ -322,11 +329,11 @@ def _run_validation_epoch(
     _emit(
         event_sinks,
         "validation_end",
-        stage,
-        Split.VALIDATION,
-        epoch,
-        validation_metrics,
-        state,
+        stage=stage,
+        split=Split.VALIDATION,
+        epoch=epoch,
+        state=state,
+        metrics=validation_metrics,
     )
     return validation_metrics
 
@@ -401,10 +408,10 @@ def _should_stop_early(
         raise ValueError(f"monitored metric {metric_name!r} was not produced.")
 
     value = monitored_metrics[metric_name]
-    decision = early_stopper.observe(value, epoch=epoch)
-    split = decision.state.source
-    payload = {"metric": metric_name, "value": value}
-    if decision.improved:
+    verdict = early_stopper.observe(value, epoch=epoch)
+    split = verdict.state.source
+    decision = Decision(metric=metric_name, value=value)
+    if verdict.improved:
         _save_checkpoint(
             checkpoint_store,
             checkpoint_key,
@@ -412,12 +419,28 @@ def _should_stop_early(
             model,
             optimizer,
             epoch,
-            decision.state,
+            verdict.state,
         )
-        _emit(event_sinks, "best_model", stage, split, epoch, {}, state, payload)
-    if decision.should_stop:
-        _emit(event_sinks, "early_stop", stage, split, epoch, {}, state, payload)
-    return decision.should_stop
+        _emit(
+            event_sinks,
+            "best_model",
+            stage=stage,
+            split=split,
+            epoch=epoch,
+            state=state,
+            decision=decision,
+        )
+    if verdict.should_stop:
+        _emit(
+            event_sinks,
+            "early_stop",
+            stage=stage,
+            split=split,
+            epoch=epoch,
+            state=state,
+            decision=decision,
+        )
+    return verdict.should_stop
 
 
 def _record_metrics(
@@ -442,12 +465,13 @@ def _record_metrics(
 def _emit(
     sinks: Sequence[EventSink],
     name: str,
+    *,
     stage: str,
     split: Split,
     epoch: int,
-    metrics: Mapping[str, float],
     state: TrainingState,
-    payload: Mapping[str, Any] | None = None,
+    metrics: Mapping[str, float] | None = None,
+    decision: Decision | None = None,
 ) -> None:
     """Build a training event and dispatch it to every sink.
 
@@ -457,10 +481,11 @@ def _emit(
         stage: The stage name associated with the event.
         split: The split the event concerns.
         epoch: The epoch at which the event occurred.
-        metrics: The metrics associated with the event, keyed by bare
-            metric name.
         state: The training state associated with the event.
-        payload: Event-specific data. Defaults to an empty mapping.
+        metrics: The metrics measured at this point, keyed by bare metric
+            name. Defaults to none, as for a decision event.
+        decision: The measurement a decision event judged. Defaults to
+            ``None``, as for an event that reports measurements.
     """
     event = TrainingEvent(
         name=name,
@@ -468,9 +493,9 @@ def _emit(
         split=split,
         iteration=state.outer_iteration,
         step=epoch,
-        metrics=metrics,
+        metrics={} if metrics is None else metrics,
         state=state,
-        payload={} if payload is None else payload,
+        decision=decision,
     )
     for sink in sinks:
         sink.on_event(event)
