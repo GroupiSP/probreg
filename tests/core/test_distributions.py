@@ -13,29 +13,6 @@ from probreg.core.distributions import (
 from probreg.core.types import Batch
 
 
-class ExampleDistribution:
-    batch_shape = (2,)
-    event_shape = ()
-
-    def log_prob(self, targets: Any) -> np.ndarray:
-        return -(np.asarray(targets, dtype=float) ** 2)
-
-    def sample(self, key: Any, sample_shape: tuple[int, ...] = ()) -> np.ndarray:
-        del key
-        return np.zeros(sample_shape + self.batch_shape)
-
-    def mean(self) -> np.ndarray:
-        return np.zeros(self.batch_shape)
-
-    def variance(self) -> np.ndarray:
-        return np.ones(self.batch_shape)
-
-
-def example_head(features: Any) -> ExampleDistribution:
-    del features
-    return ExampleDistribution()
-
-
 def example_likelihood(prediction: PredictiveDistribution, targets: Any) -> np.ndarray:
     return prediction.log_prob(targets)
 
@@ -44,8 +21,14 @@ def example_loss(prediction: PredictiveDistribution, batch: Batch) -> np.ndarray
     return -prediction.log_prob(batch.targets)
 
 
-def test_distribution_protocols_support_distribution_valued_predictions() -> None:
-    distribution: PredictiveDistribution = ExampleDistribution()
+def test_distribution_protocols_support_distribution_valued_predictions(
+    example_distribution: type[Any],
+) -> None:
+    def example_head(features: Any) -> PredictiveDistribution:
+        del features
+        return example_distribution()
+
+    distribution: PredictiveDistribution = example_distribution()
     head: DistributionHead = example_head
     likelihood: Likelihood = example_likelihood
     loss: Loss = example_loss
