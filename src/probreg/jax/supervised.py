@@ -408,10 +408,10 @@ def _should_stop_early(
         raise ValueError(f"monitored metric {metric_name!r} was not produced.")
 
     value = monitored_metrics[metric_name]
-    decision = early_stopper.observe(value, epoch=epoch)
-    split = decision.state.source
-    judged = Decision(metric=metric_name, value=value)
-    if decision.improved:
+    verdict = early_stopper.observe(value, epoch=epoch)
+    split = verdict.state.source
+    decision = Decision(metric=metric_name, value=value)
+    if verdict.improved:
         _save_checkpoint(
             checkpoint_store,
             checkpoint_key,
@@ -419,7 +419,7 @@ def _should_stop_early(
             model,
             optimizer,
             epoch,
-            decision.state,
+            verdict.state,
         )
         _emit(
             event_sinks,
@@ -428,9 +428,9 @@ def _should_stop_early(
             split=split,
             epoch=epoch,
             state=state,
-            decision=judged,
+            decision=decision,
         )
-    if decision.should_stop:
+    if verdict.should_stop:
         _emit(
             event_sinks,
             "early_stop",
@@ -438,9 +438,9 @@ def _should_stop_early(
             split=split,
             epoch=epoch,
             state=state,
-            decision=judged,
+            decision=decision,
         )
-    return decision.should_stop
+    return verdict.should_stop
 
 
 def _record_metrics(
