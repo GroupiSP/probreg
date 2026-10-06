@@ -522,6 +522,33 @@ def test_mean_stage_restores_and_finalizes_best_checkpoint(
     )
 
 
+def test_mean_stage_restore_skips_history_keys_that_are_not_tags(
+    make_mean_stage: MakeMeanStage,
+) -> None:
+    stopper = EarlyStopper(metric="loss", mode="min", patience=0)
+
+    def validation(
+        current_state: TrainingState,
+        *,
+        epoch: int,
+    ) -> ValidationResult:
+        del current_state
+        return ValidationResult(passed=True, metrics={"loss": float(epoch)})
+
+    stage, state = make_mean_stage(
+        checkpoint_store=InMemoryCheckpointStore(),
+        early_stopper=stopper,
+        validation=validation,
+    )
+    stage.prepare(state)
+    state.metric_history["lr"] = [0.1]
+
+    result = stage.train(state)
+
+    assert set(result.metrics) == {"loss"}
+    assert result.loss == state.metric_history["mean/train/loss"][-1]
+
+
 def test_finalized_mean_checkpoint_can_resume_variance_preparation(
     make_mean_stage: MakeMeanStage,
     linear_model: type[Any],

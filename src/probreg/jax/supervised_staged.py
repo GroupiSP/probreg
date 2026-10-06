@@ -521,6 +521,9 @@ def _latest_training_metrics(
 ) -> dict[str, float]:
     """Return the latest stage training metrics from persisted history.
 
+    History keys that are not metric tags, such as ones a caller recorded
+    directly, are skipped.
+
     Args:
         state: State whose ``metric_history`` is keyed by metric tags.
         stage_name: Stage whose training metrics to return.
@@ -530,12 +533,14 @@ def _latest_training_metrics(
         keyed by bare metric name.
 
     Raises:
-        ValueError: If a history key is not a metric tag, or the stage
-            recorded no training loss.
+        ValueError: If the stage recorded no training loss.
     """
     metrics = {}
     for tag, values in state.metric_history.items():
-        parsed = parse_metric_tag(tag)
+        try:
+            parsed = parse_metric_tag(tag)
+        except ValueError:
+            continue
         if parsed.stage == stage_name and parsed.split is Split.TRAIN and values:
             metrics[parsed.metric] = values[-1]
     if "loss" not in metrics:
