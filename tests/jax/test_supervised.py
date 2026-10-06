@@ -9,6 +9,8 @@ import numpy as np
 import optax
 import pytest
 from flax import nnx
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from probreg.core.checkpoints import InMemoryCheckpointStore
 from probreg.core.early_stopping import EarlyStopper
@@ -44,6 +46,7 @@ DECISION_EVENTS = {"best_model", "early_stop"}
 
 Tracker = Callable[[], Any]
 Run = Callable[..., StageResult]
+MakeComponents = Callable[..., tuple[Any, nnx.Optimizer, TrainingState]]
 
 
 def linear_predictor(
@@ -92,12 +95,20 @@ def training_flag_metric(
 @pytest.fixture(scope="session")
 def make_components(
     linear_model: type[Any],
-) -> Callable[..., tuple[Any, nnx.Optimizer, TrainingState]]:
+) -> MakeComponents:
     """Return a factory of a linear model, its SGD optimizer and fresh state."""
 
     def make(
         learning_rate: float = 0.1,
     ) -> tuple[Any, nnx.Optimizer, TrainingState]:
+        """Build a fresh linear model, its SGD optimizer and training state.
+
+        Args:
+            learning_rate: The SGD learning rate.
+
+        Returns:
+            The model, its optimizer and a training state seeded with key 1.
+        """
         model = linear_model(rngs=nnx.Rngs(0))
         optimizer = create_optimizer(model, optax.sgd(learning_rate))
         state = initialize_training_state(model, optimizer, rng_key=jax.random.key(1))
@@ -107,7 +118,7 @@ def make_components(
 
 
 def test_fixed_epoch_training_without_validation_updates_parameters_and_rng(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -130,7 +141,7 @@ def test_fixed_epoch_training_without_validation_updates_parameters_and_rng(
 
 
 def test_run_supervised_registers_named_model_and_optimizer(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -156,7 +167,7 @@ def test_run_supervised_registers_named_model_and_optimizer(
 
 
 def test_run_supervised_default_registration_names_remain_compatible(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -176,10 +187,10 @@ def test_run_supervised_default_registration_names_remain_compatible(
 
 
 def test_run_supervised_tags_history_with_its_stage_and_keeps_events_bare(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
-    in_memory_tracker: Callable[[], Any],
+    in_memory_tracker: Tracker,
 ) -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
     events = in_memory_tracker()
@@ -208,7 +219,7 @@ def test_run_supervised_tags_history_with_its_stage_and_keeps_events_bare(
 
 
 def test_make_train_step_without_registered_metrics_returns_loss_mapping(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
 ) -> None:
     model, optimizer, _ = make_components()
@@ -227,7 +238,7 @@ def test_make_train_step_without_registered_metrics_returns_loss_mapping(
 
 
 def test_make_train_step_evaluates_batch_metrics_in_inference_mode(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
 ) -> None:
     model, optimizer, _ = make_components()
@@ -249,7 +260,7 @@ def test_make_train_step_evaluates_batch_metrics_in_inference_mode(
 
 
 def test_evaluate_loader_without_registered_metrics_returns_loss_mapping(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -267,7 +278,7 @@ def test_evaluate_loader_without_registered_metrics_returns_loss_mapping(
 
 
 def test_evaluate_loader_without_loss_omits_loss_and_scores_metrics(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     constant_loader: LoaderFactory,
 ) -> None:
     model, _, state = make_components()
@@ -288,7 +299,7 @@ def test_evaluate_loader_without_loss_omits_loss_and_scores_metrics(
 
 
 def test_evaluate_loader_with_loss_and_metrics_includes_both(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -309,10 +320,10 @@ def test_evaluate_loader_with_loss_and_metrics_includes_both(
 
 
 def test_training_metric_stopping_saves_best_checkpoint_and_events(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
-    in_memory_tracker: Callable[[], Any],
+    in_memory_tracker: Tracker,
 ) -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
     store = InMemoryCheckpointStore()
@@ -352,7 +363,7 @@ def test_training_metric_stopping_saves_best_checkpoint_and_events(
 
 
 def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -403,7 +414,7 @@ def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs(
 
 
 def test_held_out_validation_drives_validation_metric_stopping(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -430,7 +441,7 @@ def test_held_out_validation_drives_validation_metric_stopping(
 
 
 def test_custom_fold_validation_strategy_is_accepted(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -463,7 +474,7 @@ def test_custom_fold_validation_strategy_is_accepted(
 
 
 def test_validation_stopping_requires_a_validation_strategy(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -495,10 +506,10 @@ def test_split_key_is_reproducible() -> None:
 
 
 def test_run_supervised_records_registered_batch_and_epoch_metrics(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
-    in_memory_tracker: Callable[[], Any],
+    in_memory_tracker: Tracker,
 ) -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
     events = in_memory_tracker()
@@ -531,7 +542,7 @@ def test_run_supervised_records_registered_batch_and_epoch_metrics(
 
 
 def test_run_supervised_reports_epoch_metric_under_its_declared_name(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -555,7 +566,7 @@ def test_run_supervised_reports_epoch_metric_under_its_declared_name(
 
 
 def test_held_out_validation_returns_registered_metrics_under_bare_names(
-    make_components: Callable[..., tuple[Any, nnx.Optimizer, TrainingState]],
+    make_components: MakeComponents,
     squared_error: SupervisedLoss,
     constant_loader: LoaderFactory,
 ) -> None:
@@ -670,6 +681,20 @@ def test_run_with_the_default_stage_records_supervised_tags(
     assert tracker.tags == {"supervised/train/loss"}
     assert set(result.state.metric_history) == {"supervised/train/loss"}
     assert len(result.state.metric_history["supervised/train/loss"]) == 3
+
+
+@given(epochs=st.integers(min_value=1, max_value=4), validate=st.booleans())
+@settings(deadline=None, max_examples=6)
+def test_a_default_stage_run_keeps_event_and_result_metrics_bare(
+    in_memory_tracker: Tracker, supervised_run: Run, epochs: int, validate: bool
+) -> None:
+    recorder = in_memory_tracker()
+
+    result = supervised_run(recorder, epochs=epochs, validate=validate)
+
+    assert len(recorder.events) == epochs * (2 if validate else 1)
+    assert all(set(event.metrics) == {"loss"} for event in recorder.events)
+    assert result.metrics == {"loss": result.loss}
 
 
 def test_events_carry_the_split_they_concern(

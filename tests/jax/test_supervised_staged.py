@@ -41,6 +41,10 @@ from probreg.jax.supervised_staged import (
     materialize_residual_loader,
 )
 
+Tracker = Callable[[], Any]
+MakeMeanStage = Callable[..., tuple[MeanStage, TrainingState]]
+StagedRun = Callable[..., tuple[TrainingState, StageResult, StageResult]]
+
 
 class SqueezedLinearModel(nnx.Module):
     def __init__(self, *, rngs: nnx.Rngs) -> None:
@@ -353,7 +357,7 @@ def mean_loader(*, split: str, epoch: int) -> list[Batch]:
 @pytest.fixture(scope="session")
 def make_mean_stage(
     linear_model: type[Any],
-) -> Callable[..., tuple[MeanStage, TrainingState]]:
+) -> MakeMeanStage:
     """Return a factory of a mean stage on a linear model, and fresh state."""
 
     def make(
@@ -363,6 +367,17 @@ def make_mean_stage(
         early_stopper: EarlyStopper | None = None,
         validation: ValidationStrategy | None = None,
     ) -> tuple[MeanStage, TrainingState]:
+        """Build a ten-epoch mean stage on `mean_loader`, and fresh state.
+
+        Args:
+            learning_rate: The SGD learning rate.
+            checkpoint_store: Where the stage saves its best checkpoint, if anywhere.
+            early_stopper: The stage's early stopper, if any.
+            validation: The stage's validation strategy, if any.
+
+        Returns:
+            The unprepared stage and a training state seeded with key 1.
+        """
         model = linear_model(rngs=nnx.Rngs(0))
         optimizer = create_optimizer(model, optax.sgd(learning_rate))
         stage = MeanStage(
@@ -383,7 +398,7 @@ def make_mean_stage(
 
 
 def test_mean_stage_prepares_trains_and_validates_lifecycle(
-    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+    make_mean_stage: MakeMeanStage,
 ) -> None:
     stage, state = make_mean_stage()
 
@@ -412,7 +427,7 @@ def test_mean_stage_prepares_trains_and_validates_lifecycle(
 
 
 def test_mean_stage_rejects_invalid_lifecycle_without_advancing_state(
-    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+    make_mean_stage: MakeMeanStage,
 ) -> None:
     stage, state = make_mean_stage()
     state.lifecycle_state = StageState.VARIANCE_READY
@@ -424,7 +439,7 @@ def test_mean_stage_rejects_invalid_lifecycle_without_advancing_state(
 
 
 def test_mean_stage_rejects_conflicting_parameter_role(
-    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+    make_mean_stage: MakeMeanStage,
 ) -> None:
     stage, state = make_mean_stage()
     state.parameter_roles["mean_model"] = ParameterRole.VARIANCE
@@ -436,7 +451,7 @@ def test_mean_stage_rejects_conflicting_parameter_role(
 
 
 def test_mean_stage_selects_existing_checkpoint(
-    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+    make_mean_stage: MakeMeanStage,
 ) -> None:
     store = InMemoryCheckpointStore()
     stopper = EarlyStopper(
@@ -461,7 +476,7 @@ def test_mean_stage_selects_existing_checkpoint(
 
 
 def test_mean_stage_restores_and_finalizes_best_checkpoint(
-    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+    make_mean_stage: MakeMeanStage,
 ) -> None:
     store = InMemoryCheckpointStore()
     stopper = EarlyStopper(metric="loss", mode="min", patience=0)
@@ -508,7 +523,7 @@ def test_mean_stage_restores_and_finalizes_best_checkpoint(
 
 
 def test_finalized_mean_checkpoint_can_resume_variance_preparation(
-    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+    make_mean_stage: MakeMeanStage,
     linear_model: type[Any],
 ) -> None:
     store = InMemoryCheckpointStore()
@@ -554,7 +569,7 @@ def test_finalized_mean_checkpoint_can_resume_variance_preparation(
 
 
 def test_mean_stage_rejects_missing_checkpoint(
-    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+    make_mean_stage: MakeMeanStage,
 ) -> None:
     stage, state = make_mean_stage()
 
@@ -574,7 +589,7 @@ def make_two_step_loader(
 
 
 def test_gamma_variance_stage_updates_variance_and_preserves_mean(
-    in_memory_tracker: Callable[[], Any], linear_model: type[Any]
+    in_memory_tracker: Tracker, linear_model: type[Any]
 ) -> None:
     data_key, mean_key, variance_key, rng_key = jax.random.split(
         jax.random.key(20),
@@ -690,7 +705,7 @@ def test_gamma_variance_stage_requires_mean_role(linear_model: type[Any]) -> Non
 
 
 def test_gamma_variance_stage_builds_validation_from_residual_loader(
-    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+    make_mean_stage: MakeMeanStage,
 ) -> None:
     mean_stage, state = make_mean_stage()
     mean_stage.prepare(state)
@@ -725,10 +740,20 @@ def test_gamma_variance_stage_builds_validation_from_residual_loader(
     assert bool(jnp.all(observed_targets[0] >= 0.0))
 
 
+def offset_validation_loader(*, split: str, epoch: int) -> list[Batch]:
+    """`mean_loader`, with validation targets shifted by 0.5.
+
+    The shift keeps validation loss distinct from train loss, so a test reading either
+    split cannot pass by reading the other.
+    """
+    offset = 0.5 if split == Split.VALIDATION else 0.0
+    (batch,) = mean_loader(split=split, epoch=epoch)
+    assert batch.targets is not None
+    return [Batch(inputs=batch.inputs, targets=batch.targets + offset)]
+
+
 @pytest.fixture(scope="session")
-def staged_run(
-    linear_model: type[Any], squared_error: SupervisedLoss
-) -> Callable[..., tuple[TrainingState, StageResult, StageResult]]:
+def staged_run(linear_model: type[Any], squared_error: SupervisedLoss) -> StagedRun:
     """Return a driver of a real staged mean-then-variance run."""
 
     def run(
@@ -753,12 +778,14 @@ def staged_run(
         mean_stage = MeanStage(
             model=mean_model,
             optimizer=create_optimizer(mean_model, optax.sgd(learning_rate)),
-            train_loader=mean_loader,
+            train_loader=offset_validation_loader,
             options=SupervisedStageOptions(
                 epochs=4,
                 validation=(
                     HeldOutValidation(
-                        model=mean_model, loader=mean_loader, loss=squared_error
+                        model=mean_model,
+                        loader=offset_validation_loader,
+                        loss=squared_error,
                     )
                     if validate
                     else None
@@ -776,7 +803,7 @@ def staged_run(
         variance_stage = GammaVarianceStage(
             model=variance_model,
             optimizer=create_optimizer(variance_model, optax.sgd(0.01)),
-            source_loader=mean_loader,
+            source_loader=offset_validation_loader,
             options=SupervisedStageOptions(epochs=3, event_sinks=sinks),
             validation_factory=(
                 (
@@ -798,8 +825,8 @@ def staged_run(
 
 
 def test_the_two_stages_of_a_staged_run_never_share_a_tag(
-    in_memory_tracker: Callable[[], Any],
-    staged_run: Callable[..., tuple[TrainingState, StageResult, StageResult]],
+    in_memory_tracker: Tracker,
+    staged_run: StagedRun,
 ) -> None:
     recorder = in_memory_tracker()
     tracker = in_memory_tracker()
@@ -823,7 +850,7 @@ def test_the_two_stages_of_a_staged_run_never_share_a_tag(
 
 @pytest.mark.parametrize("validate", [False, True])
 def test_staged_run_without_a_stopper_returns_bare_train_only_metrics(
-    staged_run: Callable[..., tuple[TrainingState, StageResult, StageResult]],
+    staged_run: StagedRun,
     validate: bool,
 ) -> None:
     state, mean_result, _ = staged_run(validate=validate)
@@ -835,7 +862,7 @@ def test_staged_run_without_a_stopper_returns_bare_train_only_metrics(
 @given(source=st.sampled_from(Split), validate=st.booleans())
 @settings(deadline=None, max_examples=4)
 def test_staged_restore_returns_bare_train_only_metrics(
-    staged_run: Callable[..., tuple[TrainingState, StageResult, StageResult]],
+    staged_run: StagedRun,
     source: Split,
     validate: bool,
 ) -> None:

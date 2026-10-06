@@ -13,13 +13,17 @@ double per example without tripping Hypothesis's
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from probreg.core.early_stopping import EarlyStopper
+from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import EventSink, TrainingEvent
 from probreg.core.types import StageResult
+
+if TYPE_CHECKING:
+    from probreg.jax import SupervisedLoss
 
 
 class InMemoryTracker:
@@ -62,7 +66,11 @@ def in_memory_tracker() -> type[InMemoryTracker]:
 
 @pytest.fixture(scope="session")
 def linear_model() -> type[Any]:
-    """A one-input, one-output linear NNX model class."""
+    """A one-input, one-output linear NNX model class.
+
+    Typed loosely because tests reach into its `linear` layer, which an
+    `nnx.Module` annotation would not admit.
+    """
     _require_jax_backend()
     import jax
     from flax import nnx
@@ -78,7 +86,7 @@ def linear_model() -> type[Any]:
 
 
 @pytest.fixture(scope="session")
-def squared_error() -> Callable[..., Any]:
+def squared_error() -> SupervisedLoss:
     """The optionally weighted mean squared error, as a supervised loss."""
     _require_jax_backend()
     import jax
@@ -103,7 +111,7 @@ def squared_error() -> Callable[..., Any]:
 
 
 @pytest.fixture(scope="session")
-def constant_loader() -> Callable[..., Any]:
+def constant_loader() -> LoaderFactory:
     """A loader of one constant batch, with a different target per split.
 
     The train target is 2 and every other split's is 1, so a model fitted on the train
@@ -125,8 +133,8 @@ def constant_loader() -> Callable[..., Any]:
 @pytest.fixture(scope="session")
 def supervised_run(
     linear_model: type[Any],
-    squared_error: Callable[..., Any],
-    constant_loader: Callable[..., Any],
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
 ) -> Callable[..., StageResult]:
     """Return a driver of a real `run_supervised` call on a linear model."""
     _require_jax_backend()
