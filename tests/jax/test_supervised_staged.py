@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import optax
 import pytest
 from flax import nnx
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from probreg.core.checkpoints import Checkpoint
+from probreg.core.checkpoints import CheckpointStore, InMemoryCheckpointStore
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.losses import (
     NegativeLogLikelihoodLoss,
@@ -17,14 +21,16 @@ from probreg.core.losses import (
 )
 from probreg.core.naming import Split
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
-from probreg.core.tracking import TrainingEvent
+from probreg.core.tracking import EventSink, TrackerEventSink
 from probreg.core.types import (
     Batch,
     ParameterRole,
+    StageResult,
     StageState,
     TrainingState,
     ValidationResult,
 )
+from probreg.jax import HeldOutValidation, SupervisedLoss
 from probreg.jax.distributions import GammaHead
 from probreg.jax.losses import make_supervised_loss
 from probreg.jax.state import create_optimizer, restore_checkpoint
@@ -36,15 +42,10 @@ from probreg.jax.supervised_staged import (
 )
 
 
-class LinearModel(nnx.Module):
+class SqueezedLinearModel(nnx.Module):
     def __init__(self, *, rngs: nnx.Rngs) -> None:
         self.linear = nnx.Linear(1, 1, rngs=rngs)
 
-    def __call__(self, inputs: jax.Array) -> jax.Array:
-        return self.linear(inputs)
-
-
-class SqueezedLinearModel(LinearModel):
     def __call__(self, inputs: jax.Array) -> jax.Array:
         return self.linear(inputs).squeeze(-1)
 
@@ -83,30 +84,10 @@ class DropoutMeanModel(nnx.Module):
         return self.dropout(inputs)
 
 
-class MemoryCheckpointStore:
-    def __init__(self) -> None:
-        self.values: dict[str, Checkpoint] = {}
-
-    def save(self, key: str, checkpoint: Checkpoint) -> None:
-        self.values[key] = checkpoint
-
-    def load(self, key: str) -> Checkpoint:
-        return self.values[key]
-
-    def exists(self, key: str) -> bool:
-        return key in self.values
-
-
-class EventCollector:
-    def __init__(self) -> None:
-        self.events: list[TrainingEvent] = []
-
-    def on_event(self, event: TrainingEvent) -> None:
-        self.events.append(event)
-
-
-def test_mean_squared_error_loss_supports_weights_and_reduction() -> None:
-    model = LinearModel(rngs=nnx.Rngs(0))
+def test_mean_squared_error_loss_supports_weights_and_reduction(
+    linear_model: type[Any],
+) -> None:
+    model = linear_model(rngs=nnx.Rngs(0))
     model.linear.kernel[...] = 2.0
     model.linear.bias[...] = 0.0
     loss = make_supervised_loss(SquaredErrorLoss(), reduction=jnp.sum)
@@ -142,12 +123,14 @@ def test_gamma_residual_loss_supports_weights_and_reduction() -> None:
     assert value == pytest.approx(float(expected))
 
 
-def test_supervised_loss_rejects_mismatched_sample_weight_batch() -> None:
+def test_supervised_loss_rejects_mismatched_sample_weight_batch(
+    linear_model: type[Any],
+) -> None:
     loss = make_supervised_loss(SquaredErrorLoss())
 
     with pytest.raises(ValueError, match="matching batch sizes"):
         loss(
-            LinearModel(rngs=nnx.Rngs(0)),
+            linear_model(rngs=nnx.Rngs(0)),
             jnp.ones((2, 1)),
             jnp.ones((2, 1)),
             jnp.ones((3,)),
@@ -194,8 +177,10 @@ def test_gamma_residual_loss_has_finite_gradient_at_zero() -> None:
     assert bool(jnp.all(jnp.isfinite(gradient)))
 
 
-def test_materialize_residual_loader_caches_exact_detached_residuals() -> None:
-    model = LinearModel(rngs=nnx.Rngs(0))
+def test_materialize_residual_loader_caches_exact_detached_residuals(
+    linear_model: type[Any],
+) -> None:
+    model = linear_model(rngs=nnx.Rngs(0))
     model.linear.kernel[...] = 2.0
     model.linear.bias[...] = 0.0
     calls: list[tuple[str, int]] = []
@@ -229,8 +214,10 @@ def test_materialize_residual_loader_caches_exact_detached_residuals() -> None:
     assert first[0].metadata is metadata
 
 
-def test_materialized_residual_targets_stop_source_target_gradients() -> None:
-    model = LinearModel(rngs=nnx.Rngs(0))
+def test_materialized_residual_targets_stop_source_target_gradients(
+    linear_model: type[Any],
+) -> None:
+    model = linear_model(rngs=nnx.Rngs(0))
     model.linear.kernel[...] = 0.0
     model.linear.bias[...] = 0.0
 
@@ -282,40 +269,43 @@ def test_materialize_residual_loader_uses_inference_clone() -> None:
     ],
 )
 def test_materialize_residual_loader_rejects_invalid_splits(
-    splits: tuple[str, ...],
-    message: str,
+    linear_model: type[Any], splits: tuple[str, ...], message: str
 ) -> None:
     with pytest.raises(ValueError, match=message):
         materialize_residual_loader(
-            LinearModel(rngs=nnx.Rngs(0)),
+            linear_model(rngs=nnx.Rngs(0)),
             lambda **kwargs: [],
             splits=splits,
         )
 
 
-def test_materialize_residual_loader_rejects_empty_source_split() -> None:
+def test_materialize_residual_loader_rejects_empty_source_split(
+    linear_model: type[Any],
+) -> None:
     with pytest.raises(ValueError, match="at least one batch"):
         materialize_residual_loader(
-            LinearModel(rngs=nnx.Rngs(0)),
+            linear_model(rngs=nnx.Rngs(0)),
             lambda **kwargs: [],
             splits=("train",),
         )
 
 
-def test_materialize_residual_loader_requires_targets() -> None:
+def test_materialize_residual_loader_requires_targets(linear_model: type[Any]) -> None:
     def source_loader(*, split: str, epoch: int) -> list[Batch]:
         del split, epoch
         return [Batch(inputs=jnp.ones((1, 1)))]
 
     with pytest.raises(ValueError, match="provide targets"):
         materialize_residual_loader(
-            LinearModel(rngs=nnx.Rngs(0)),
+            linear_model(rngs=nnx.Rngs(0)),
             source_loader,
             splits=("train",),
         )
 
 
-def test_materialize_residual_loader_requires_matching_shapes() -> None:
+def test_materialize_residual_loader_requires_matching_shapes(
+    linear_model: type[Any],
+) -> None:
     def source_loader(*, split: str, epoch: int) -> list[Batch]:
         del split, epoch
         return [
@@ -327,19 +317,21 @@ def test_materialize_residual_loader_requires_matching_shapes() -> None:
 
     with pytest.raises(ValueError, match="matching shapes"):
         materialize_residual_loader(
-            LinearModel(rngs=nnx.Rngs(0)),
+            linear_model(rngs=nnx.Rngs(0)),
             source_loader,
             splits=("train",),
         )
 
 
-def test_materialized_residual_loader_rejects_unknown_split() -> None:
+def test_materialized_residual_loader_rejects_unknown_split(
+    linear_model: type[Any],
+) -> None:
     def source_loader(*, split: str, epoch: int) -> list[Batch]:
         del split, epoch
         return [Batch(inputs=jnp.ones((1, 1)), targets=jnp.ones((1, 1)))]
 
     loader = materialize_residual_loader(
-        LinearModel(rngs=nnx.Rngs(0)),
+        linear_model(rngs=nnx.Rngs(0)),
         source_loader,
         splits=("train",),
     )
@@ -358,31 +350,41 @@ def mean_loader(*, split: str, epoch: int) -> list[Batch]:
     ]
 
 
+@pytest.fixture(scope="session")
 def make_mean_stage(
-    *,
-    learning_rate: float = 0.1,
-    checkpoint_store: MemoryCheckpointStore | None = None,
-    early_stopper: EarlyStopper | None = None,
-    validation: ValidationStrategy | None = None,
-) -> tuple[MeanStage, TrainingState]:
-    model = LinearModel(rngs=nnx.Rngs(0))
-    optimizer = create_optimizer(model, optax.sgd(learning_rate))
-    stage = MeanStage(
-        model=model,
-        optimizer=optimizer,
-        train_loader=mean_loader,
-        options=SupervisedStageOptions(
-            epochs=10,
-            checkpoint_store=checkpoint_store,
-            checkpoint_key="mean-best",
-            early_stopper=early_stopper,
-            validation=validation,
-        ),
-    )
-    return stage, TrainingState(rng_state=jax.random.key(1))
+    linear_model: type[Any],
+) -> Callable[..., tuple[MeanStage, TrainingState]]:
+    """Return a factory of a mean stage on a linear model, and fresh state."""
+
+    def make(
+        *,
+        learning_rate: float = 0.1,
+        checkpoint_store: CheckpointStore | None = None,
+        early_stopper: EarlyStopper | None = None,
+        validation: ValidationStrategy | None = None,
+    ) -> tuple[MeanStage, TrainingState]:
+        model = linear_model(rngs=nnx.Rngs(0))
+        optimizer = create_optimizer(model, optax.sgd(learning_rate))
+        stage = MeanStage(
+            model=model,
+            optimizer=optimizer,
+            train_loader=mean_loader,
+            options=SupervisedStageOptions(
+                epochs=10,
+                checkpoint_store=checkpoint_store,
+                checkpoint_key="mean-best",
+                early_stopper=early_stopper,
+                validation=validation,
+            ),
+        )
+        return stage, TrainingState(rng_state=jax.random.key(1))
+
+    return make
 
 
-def test_mean_stage_prepares_trains_and_validates_lifecycle() -> None:
+def test_mean_stage_prepares_trains_and_validates_lifecycle(
+    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+) -> None:
     stage, state = make_mean_stage()
 
     stage.prepare(state)
@@ -409,7 +411,9 @@ def test_mean_stage_prepares_trains_and_validates_lifecycle() -> None:
     assert stage.validate(state).passed
 
 
-def test_mean_stage_rejects_invalid_lifecycle_without_advancing_state() -> None:
+def test_mean_stage_rejects_invalid_lifecycle_without_advancing_state(
+    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+) -> None:
     stage, state = make_mean_stage()
     state.lifecycle_state = StageState.VARIANCE_READY
 
@@ -419,7 +423,9 @@ def test_mean_stage_rejects_invalid_lifecycle_without_advancing_state() -> None:
     assert state.lifecycle_state is StageState.VARIANCE_READY
 
 
-def test_mean_stage_rejects_conflicting_parameter_role() -> None:
+def test_mean_stage_rejects_conflicting_parameter_role(
+    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+) -> None:
     stage, state = make_mean_stage()
     state.parameter_roles["mean_model"] = ParameterRole.VARIANCE
 
@@ -429,8 +435,10 @@ def test_mean_stage_rejects_conflicting_parameter_role() -> None:
     assert state.lifecycle_state is StageState.NEW
 
 
-def test_mean_stage_selects_existing_checkpoint() -> None:
-    store = MemoryCheckpointStore()
+def test_mean_stage_selects_existing_checkpoint(
+    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+) -> None:
+    store = InMemoryCheckpointStore()
     stopper = EarlyStopper(
         metric="loss",
         mode="min",
@@ -452,8 +460,10 @@ def test_mean_stage_selects_existing_checkpoint() -> None:
     assert "mean/train/loss" in store.load("mean-best").state.metric_history
 
 
-def test_mean_stage_restores_and_finalizes_best_checkpoint() -> None:
-    store = MemoryCheckpointStore()
+def test_mean_stage_restores_and_finalizes_best_checkpoint(
+    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+) -> None:
+    store = InMemoryCheckpointStore()
     stopper = EarlyStopper(metric="loss", mode="min", patience=0)
 
     def validation(
@@ -497,8 +507,11 @@ def test_mean_stage_restores_and_finalizes_best_checkpoint() -> None:
     )
 
 
-def test_finalized_mean_checkpoint_can_resume_variance_preparation() -> None:
-    store = MemoryCheckpointStore()
+def test_finalized_mean_checkpoint_can_resume_variance_preparation(
+    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+    linear_model: type[Any],
+) -> None:
+    store = InMemoryCheckpointStore()
     stopper = EarlyStopper(
         metric="loss",
         mode="min",
@@ -513,7 +526,7 @@ def test_finalized_mean_checkpoint_can_resume_variance_preparation() -> None:
     trained_stage.prepare(trained_state)
     trained_stage.train(trained_state)
 
-    resumed_model = LinearModel(rngs=nnx.Rngs(8))
+    resumed_model = linear_model(rngs=nnx.Rngs(8))
     resumed_optimizer = create_optimizer(resumed_model, optax.sgd(0.0))
     resumed_state = TrainingState(rng_state=jax.random.key(9))
     restore_checkpoint(
@@ -540,7 +553,9 @@ def test_finalized_mean_checkpoint_can_resume_variance_preparation() -> None:
     assert "mean_model" in resumed_state.frozen_components
 
 
-def test_mean_stage_rejects_missing_checkpoint() -> None:
+def test_mean_stage_rejects_missing_checkpoint(
+    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+) -> None:
     stage, state = make_mean_stage()
 
     with pytest.raises(ValueError, match="not available"):
@@ -558,7 +573,9 @@ def make_two_step_loader(
     return loader
 
 
-def test_gamma_variance_stage_updates_variance_and_preserves_mean() -> None:
+def test_gamma_variance_stage_updates_variance_and_preserves_mean(
+    in_memory_tracker: Callable[[], Any], linear_model: type[Any]
+) -> None:
     data_key, mean_key, variance_key, rng_key = jax.random.split(
         jax.random.key(20),
         4,
@@ -570,9 +587,9 @@ def test_gamma_variance_stage_updates_variance_and_preserves_mean() -> None:
         inputs.shape,
     )
     source_loader = make_two_step_loader(inputs, targets)
-    events = EventCollector()
+    events = in_memory_tracker()
 
-    mean_model = LinearModel(rngs=nnx.Rngs(mean_key))
+    mean_model = linear_model(rngs=nnx.Rngs(mean_key))
     mean_optimizer = create_optimizer(mean_model, optax.adam(0.05))
     state = TrainingState(rng_state=rng_key)
     mean_stage = MeanStage(
@@ -649,8 +666,8 @@ def test_gamma_variance_stage_requires_ready_mean() -> None:
     assert state.lifecycle_state is StageState.NEW
 
 
-def test_gamma_variance_stage_requires_mean_role() -> None:
-    mean_model = LinearModel(rngs=nnx.Rngs(0))
+def test_gamma_variance_stage_requires_mean_role(linear_model: type[Any]) -> None:
+    mean_model = linear_model(rngs=nnx.Rngs(0))
     variance_model = GammaHead(1, 1, rngs=nnx.Rngs(1))
     state = TrainingState(
         model_components={"mean_model": mean_model},
@@ -672,7 +689,9 @@ def test_gamma_variance_stage_requires_mean_role() -> None:
     assert "variance_model" not in state.model_components
 
 
-def test_gamma_variance_stage_builds_validation_from_residual_loader() -> None:
+def test_gamma_variance_stage_builds_validation_from_residual_loader(
+    make_mean_stage: Callable[..., tuple[MeanStage, TrainingState]],
+) -> None:
     mean_stage, state = make_mean_stage()
     mean_stage.prepare(state)
     mean_stage.train(state)
@@ -704,3 +723,132 @@ def test_gamma_variance_stage_builds_validation_from_residual_loader() -> None:
 
     assert len(observed_targets) == 1
     assert bool(jnp.all(observed_targets[0] >= 0.0))
+
+
+@pytest.fixture(scope="session")
+def staged_run(
+    linear_model: type[Any], squared_error: SupervisedLoss
+) -> Callable[..., tuple[TrainingState, StageResult, StageResult]]:
+    """Return a driver of a real staged mean-then-variance run."""
+
+    def run(
+        *sinks: EventSink,
+        early_stopper: EarlyStopper | None = None,
+        validate: bool = True,
+        learning_rate: float = 0.1,
+    ) -> tuple[TrainingState, StageResult, StageResult]:
+        """Train a mean stage, then a Gamma variance stage on its residuals.
+
+        Args:
+            *sinks: The event sinks to attach to both stages.
+            early_stopper: The mean stage's early stopper, if any.
+            validate: Whether both stages validate every epoch.
+            learning_rate: The mean stage's SGD learning rate.
+
+        Returns:
+            The shared training state and the two stages' results.
+        """
+        mean_model = linear_model(rngs=nnx.Rngs(0))
+        state = TrainingState(rng_state=jax.random.key(1))
+        mean_stage = MeanStage(
+            model=mean_model,
+            optimizer=create_optimizer(mean_model, optax.sgd(learning_rate)),
+            train_loader=mean_loader,
+            options=SupervisedStageOptions(
+                epochs=4,
+                validation=(
+                    HeldOutValidation(
+                        model=mean_model, loader=mean_loader, loss=squared_error
+                    )
+                    if validate
+                    else None
+                ),
+                early_stopper=early_stopper,
+                event_sinks=sinks,
+                checkpoint_store=InMemoryCheckpointStore(),
+                checkpoint_key="mean-best",
+            ),
+        )
+        mean_stage.prepare(state)
+        mean_result = mean_stage.train(state)
+
+        variance_model = GammaHead(1, 1, rngs=nnx.Rngs(2))
+        variance_stage = GammaVarianceStage(
+            model=variance_model,
+            optimizer=create_optimizer(variance_model, optax.sgd(0.01)),
+            source_loader=mean_loader,
+            options=SupervisedStageOptions(epochs=3, event_sinks=sinks),
+            validation_factory=(
+                (
+                    lambda residuals: HeldOutValidation(
+                        model=variance_model,
+                        loader=residuals,
+                        loss=variance_stage.loss,
+                    )
+                )
+                if validate
+                else None
+            ),
+        )
+        variance_stage.prepare(state)
+        variance_result = variance_stage.train(state)
+        return state, mean_result, variance_result
+
+    return run
+
+
+def test_the_two_stages_of_a_staged_run_never_share_a_tag(
+    in_memory_tracker: Callable[[], Any],
+    staged_run: Callable[..., tuple[TrainingState, StageResult, StageResult]],
+) -> None:
+    recorder = in_memory_tracker()
+    tracker = in_memory_tracker()
+
+    state, _, _ = staged_run(recorder, TrackerEventSink(tracker))
+
+    expected = {
+        "mean/train/loss",
+        "mean/validation/loss",
+        "variance/train/loss",
+        "variance/validation/loss",
+    }
+    assert {
+        f"{event.stage}/{event.split}/{metric}"
+        for event in recorder.events
+        for metric in event.metrics
+    } == expected
+    assert tracker.tags == expected
+    assert set(state.metric_history) == expected
+
+
+@pytest.mark.parametrize("validate", [False, True])
+def test_staged_run_without_a_stopper_returns_bare_train_only_metrics(
+    staged_run: Callable[..., tuple[TrainingState, StageResult, StageResult]],
+    validate: bool,
+) -> None:
+    state, mean_result, _ = staged_run(validate=validate)
+
+    assert set(mean_result.metrics) == {"loss"}
+    assert mean_result.loss == state.metric_history["mean/train/loss"][-1]
+
+
+@given(source=st.sampled_from(Split), validate=st.booleans())
+@settings(deadline=None, max_examples=4)
+def test_staged_restore_returns_bare_train_only_metrics(
+    staged_run: Callable[..., tuple[TrainingState, StageResult, StageResult]],
+    source: Split,
+    validate: bool,
+) -> None:
+    # A zero learning rate makes epoch 0 the best, so the stopper halts at
+    # epoch 1 and the stage restores the epoch-0 checkpoint.
+    validate = validate or source is Split.VALIDATION
+    stopper = EarlyStopper(metric="loss", mode="min", patience=0, source=source)
+
+    state, mean_result, _ = staged_run(
+        early_stopper=stopper, validate=validate, learning_rate=0.0
+    )
+
+    restored_history = state.metric_history["mean/train/loss"]
+    assert len(restored_history) == 1
+    assert set(mean_result.metrics) == {"loss"}
+    assert mean_result.loss == restored_history[-1]
