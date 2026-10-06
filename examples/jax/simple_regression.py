@@ -138,8 +138,8 @@ class PrintingEventSink:
 
     def on_event(self, event: TrainingEvent) -> None:
         values = dict(event.metrics)
-        if "metric" in event.payload:
-            values[event.payload["metric"]] = event.payload["value"]
+        if event.decision is not None:
+            values[event.decision.metric] = event.decision.value
         metrics = ", ".join(f"{name}={value:.4f}" for name, value in values.items())
         print(f"[{event.name}] epoch={event.step} split={event.split} {metrics}")
 

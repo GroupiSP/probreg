@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from probreg.core.naming import Split, metric_tag
 from probreg.core.types import TrainingState
+
+
+@dataclass(frozen=True)
+class Decision:
+    """The measurement a decision event judged.
+
+    Attributes:
+        metric: Bare name of the monitored metric.
+        value: The metric's value at the step the decision was made.
+    """
+
+    metric: str
+    value: float
 
 
 @dataclass(frozen=True)
@@ -26,8 +39,8 @@ class TrainingEvent:
         metrics: Metrics measured at this point, keyed by bare metric
             name. Empty for a decision event.
         state: The live training state.
-        payload: Event-specific data. A decision event carries
-            ``{"metric": <metric name>, "value": <value>}``.
+        decision: The measurement a decision event judged, or ``None``
+            for an event that reports measurements.
     """
 
     name: str
@@ -37,7 +50,7 @@ class TrainingEvent:
     step: int
     metrics: Mapping[str, float]
     state: TrainingState
-    payload: Mapping[str, Any] = field(default_factory=dict)
+    decision: Decision | None = None
 
 
 class EventSink(Protocol):

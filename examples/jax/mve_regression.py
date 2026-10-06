@@ -61,6 +61,9 @@ from probreg.jax import (
 INTERVAL_MULTIPLIER = 1.96
 """Half-width of the 95% predictive interval, in predictive scales."""
 
+STAGE = "mve"
+"""Stage the model is trained in, and the stage segment of its metric tags."""
+
 
 def make_dataset(*, num_samples: int, key: jax.Array) -> tuple[jax.Array, jax.Array]:
     """Sample inputs and noisy targets from ``y = 2x + noise``.
@@ -150,15 +153,15 @@ class PrintingEventSink:
             name: history[metric_tag(event.stage, Split.TRAIN, name)][-1]
             for name in ("loss", "rmse", "point_crps")
         }
-        print(
-            f"epoch={event.step} "
-            f"train/loss={train['loss']:.4f} "
-            f"train/rmse={train['rmse']:.4f} "
-            f"train/point_crps={train['point_crps']:.4f} "
-            f"validation/loss={event.metrics['loss']:.4f} "
-            f"validation/rmse={event.metrics['rmse']:.4f} "
-            f"validation/point_crps={event.metrics['point_crps']:.4f}"
+        measured = (
+            *((Split.TRAIN, name, value) for name, value in train.items()),
+            *((Split.VALIDATION, name, event.metrics[name]) for name in train),
         )
+        labels = " ".join(
+            f"{metric_tag(event.stage, split, name)}={value:.4f}"
+            for split, name, value in measured
+        )
+        print(f"epoch={event.step} {labels}")
 
 
 def plot_predictions(
@@ -264,6 +267,7 @@ def main() -> None:
         event_sinks=[PrintingEventSink()],
         checkpoint_store=InMemoryCheckpointStore(),
         checkpoint_key="best",
+        stage=STAGE,
         metrics=metric_suite,
     )
 
@@ -271,9 +275,7 @@ def main() -> None:
     print(f"Final training RMSE: {result.metrics['rmse']:.4f}")
     print(f"Final training point-CRPS: {result.metrics['point_crps']:.4f}")
     final_validation = {
-        name: result.state.metric_history[
-            metric_tag("supervised", Split.VALIDATION, name)
-        ][-1]
+        name: result.state.metric_history[metric_tag(STAGE, Split.VALIDATION, name)][-1]
         for name in ("rmse", "point_crps")
     }
     print(f"Final validation RMSE: {final_validation['rmse']:.4f}")
