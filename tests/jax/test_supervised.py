@@ -495,6 +495,40 @@ def test_validation_stopping_requires_a_validation_strategy(
         )
 
 
+@pytest.mark.parametrize("stage", ["", "mean/train"])
+def test_an_invalid_stage_is_rejected_before_any_state_changes(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+    stage: str,
+) -> None:
+    model, optimizer, state = make_components()
+    state.model_components.clear()
+    state.optimizer_states.clear()
+    initial_kernel = np.asarray(model.linear.kernel.get_value()).copy()
+    initial_key = state.rng_state
+    initial_stage = state.active_stage
+
+    with pytest.raises(ValueError, match="stage"):
+        run_supervised(
+            model=model,
+            optimizer=optimizer,
+            train_loader=constant_loader,
+            loss=squared_error,
+            state=state,
+            epochs=1,
+            stage=stage,
+        )
+
+    np.testing.assert_array_equal(model.linear.kernel.get_value(), initial_kernel)
+    assert int(optimizer.step.get_value()) == 0
+    assert state.rng_state is initial_key
+    assert state.active_stage == initial_stage
+    assert state.model_components == {}
+    assert state.optimizer_states == {}
+    assert state.metric_history == {}
+
+
 def test_split_key_is_reproducible() -> None:
     key = jax.random.key(42)
 

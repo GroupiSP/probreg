@@ -143,10 +143,10 @@ def run_supervised(
         under its metric tag ``stage/split/metric``.
 
     Raises:
-        ValueError: If ``epochs`` is not positive, if ``early_stopper``
-            monitors a validation metric without a ``validation``
-            strategy, or if the monitored metric is not produced by
-            training or validation.
+        ValueError: If ``epochs`` is not positive, if ``stage`` is empty
+            or contains ``/``, if ``early_stopper`` monitors a validation
+            metric without a ``validation`` strategy, or if the monitored
+            metric is not produced by training or validation.
         TypeError: If ``state.rng_state`` is not a JAX random key.
     """
     if epochs <= 0:
@@ -155,6 +155,8 @@ def run_supervised(
         raise TypeError("state.rng_state must be a JAX random key.")
     if early_stopper and early_stopper.expects_validation() and validation is None:
         raise ValueError("validation metric monitoring requires a validation strategy.")
+    # Build the first tag up front so an invalid stage fails before any mutation.
+    metric_tag(stage, Split.TRAIN, "loss")
 
     _initialize_run_state(
         state,
