@@ -39,7 +39,7 @@ def test_snapshot_is_independent_and_checkpoint_restores_live_objects() -> None:
         rng_state=jax.random.key(3),
         lifecycle_state=StageState.MEAN_READY,
         stage="mean",
-        metric_history={"mean_training_loss": [1.0]},
+        metric_history={"mean/train/loss": [1.0]},
     )
     checkpoint = Checkpoint(
         state=freeze_training_state(state),
@@ -52,7 +52,7 @@ def test_snapshot_is_independent_and_checkpoint_restores_live_objects() -> None:
     model.value[...] = 5.0
     optimizer.step[...] = 4
     state.lifecycle_state = StageState.VARIANCE_READY
-    state.metric_history["mean_training_loss"].append(2.0)
+    state.metric_history["mean/train/loss"].append(2.0)
 
     restore_checkpoint(
         checkpoint,
@@ -69,7 +69,7 @@ def test_snapshot_is_independent_and_checkpoint_restores_live_objects() -> None:
     assert state.active_stage == "mean"
     assert state.model_components == {"mean_model": model}
     assert state.optimizer_states == {"mean_optimizer": optimizer}
-    assert state.metric_history == {"mean_training_loss": [1.0]}
+    assert state.metric_history == {"mean/train/loss": [1.0]}
 
 
 def test_restore_checkpoint_rejects_incompatible_objects_before_mutation() -> None:

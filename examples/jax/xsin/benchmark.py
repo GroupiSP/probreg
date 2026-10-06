@@ -28,6 +28,9 @@ from probreg.jax import (
     run_supervised,
 )
 
+INTERVAL_MULTIPLIER = 1.96
+"""Half-width of the 95% predictive interval, in predictive scales."""
+
 
 @dataclass(frozen=True)
 class XSinConfig:
@@ -421,6 +424,10 @@ def plot_xsin_result(
 ) -> None:
     """Show a common interactive mean/aleatoric comparison plot.
 
+    The mean panel shades the true and predicted 95% intervals: each mean plus
+    or minus ``INTERVAL_MULTIPLIER`` standard deviations of the aleatoric noise,
+    which for a Gaussian is ``loc ± 1.96 * scale``.
+
     Args:
         method: Human-readable method label used in the figure title.
         data: Shared observations and exact benchmark functions.
@@ -452,21 +459,23 @@ def plot_xsin_result(
     )
     mean_axis.plot(inputs, true_mean, color="black", label="true mean")
     mean_axis.plot(inputs, predicted_mean, color="C1", label="predicted mean")
+    true_half_width = INTERVAL_MULTIPLIER * jnp.sqrt(true_variance)
+    predicted_half_width = INTERVAL_MULTIPLIER * jnp.sqrt(predicted_variance)
     mean_axis.fill_between(
         inputs,
-        true_mean - 2.0 * jnp.sqrt(true_variance),
-        true_mean + 2.0 * jnp.sqrt(true_variance),
+        true_mean - true_half_width,
+        true_mean + true_half_width,
         color="black",
         alpha=0.1,
-        label="true aleatoric band",
+        label="true 95% interval",
     )
     mean_axis.fill_between(
         inputs,
-        predicted_mean - 2.0 * jnp.sqrt(predicted_variance),
-        predicted_mean + 2.0 * jnp.sqrt(predicted_variance),
+        predicted_mean - predicted_half_width,
+        predicted_mean + predicted_half_width,
         color="C1",
         alpha=0.2,
-        label="predicted aleatoric band",
+        label="95% predictive interval",
     )
     mean_axis.set_ylabel("target")
     mean_axis.legend(ncol=2)

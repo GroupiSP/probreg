@@ -9,9 +9,9 @@ from hypothesis import strategies as st
 from probreg.core.early_stopping import (
     EarlyStopper,
     EarlyStoppingState,
-    MetricSource,
     OptimizationMode,
 )
+from probreg.core.naming import Split
 
 
 def test_minimizing_metric_tracks_best_value_and_stops_after_patience() -> None:
@@ -35,17 +35,17 @@ def test_maximizing_metric_accepts_improvements_above_min_delta() -> None:
     assert stopper.observe(0.5, epoch=0).improved
     assert stopper.observe(0.56, epoch=1).improved
     assert stopper.state.best_score == 0.56
-    assert stopper.state.source is MetricSource.VALIDATION
+    assert stopper.state.source is Split.VALIDATION
 
 
 def test_expects_validation_and_monitored_metric_name_reflect_configuration() -> None:
-    validation_stopper = EarlyStopper(metric="validation_loss", mode="min", patience=0)
+    validation_stopper = EarlyStopper(metric="rmse", mode="min", patience=0)
     training_stopper = EarlyStopper(
-        metric="loss", mode="min", patience=0, source=MetricSource.TRAINING
+        metric="loss", mode="min", patience=0, source=Split.TRAIN
     )
 
     assert validation_stopper.expects_validation() is True
-    assert validation_stopper.monitored_metric_name() == "validation_loss"
+    assert validation_stopper.monitored_metric_name() == "rmse"
     assert training_stopper.expects_validation() is False
     assert training_stopper.monitored_metric_name() == "loss"
 
@@ -55,7 +55,7 @@ def test_stopper_can_be_restored_from_checkpointable_state() -> None:
         metric="loss",
         mode="min",
         patience=2,
-        source=MetricSource.TRAINING,
+        source=Split.TRAIN,
     )
     original.observe(1.0, epoch=0)
     state = original.observe(1.1, epoch=1).state
@@ -63,7 +63,7 @@ def test_stopper_can_be_restored_from_checkpointable_state() -> None:
         metric="loss",
         mode="min",
         patience=2,
-        source="training",
+        source="train",
         state=state,
     )
 
@@ -71,6 +71,36 @@ def test_stopper_can_be_restored_from_checkpointable_state() -> None:
 
     assert decision.should_stop is False
     assert decision.state.non_improving_epochs == 2
+
+
+@given(
+    split=st.sampled_from(tuple(Split)),
+    values=st.lists(
+        st.floats(min_value=-1e6, max_value=1e6, allow_nan=False),
+        min_size=1,
+        max_size=10,
+    ),
+)
+def test_state_with_split_source_round_trips_through_restore(
+    split: Split, values: list[float]
+) -> None:
+    original = EarlyStopper(metric="loss", mode="min", patience=20, source=split)
+    for epoch, value in enumerate(values):
+        original.observe(value, epoch=epoch)
+    state = original.state
+
+    restored = EarlyStopper(
+        metric="loss", mode="min", patience=20, source=str(split), state=state
+    )
+
+    assert restored.state == state
+    assert restored.state.source is split
+    assert restored.expects_validation() is (split is Split.VALIDATION)
+
+
+def test_stopper_rejects_legacy_training_source() -> None:
+    with pytest.raises(ValueError, match="training"):
+        EarlyStopper(metric="loss", mode="min", patience=0, source="training")
 
 
 @pytest.mark.parametrize(

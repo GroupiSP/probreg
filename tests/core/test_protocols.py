@@ -50,7 +50,7 @@ def example_validation_strategy(
 ) -> ValidationResult:
     return ValidationResult(
         passed=state.stage == "mean",
-        metrics={"validation_loss": float(epoch)},
+        metrics={"loss": float(epoch)},
     )
 
 
@@ -69,5 +69,5 @@ def test_protocol_implementations_are_usable() -> None:
     )
     assert step(Batch(inputs=[]), TrainingState(), key=None, training=True).loss == 0.0
     assert validation_strategy(TrainingState(stage="mean"), epoch=2).metrics == {
-        "validation_loss": 2.0
+        "loss": 2.0
     }

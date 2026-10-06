@@ -36,13 +36,14 @@ import optax
 from flax import nnx
 
 from probreg.core.checkpoints import InMemoryCheckpointStore
-from probreg.core.early_stopping import EarlyStopper, MetricSource, OptimizationMode
+from probreg.core.early_stopping import EarlyStopper, OptimizationMode
 from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EvaluationGrid,
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
+from probreg.core.naming import Split, metric_tag
 from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import TrainingEvent
 from probreg.core.types import Batch
@@ -56,6 +57,12 @@ from probreg.jax import (
     make_supervised_loss,
     run_supervised,
 )
+
+INTERVAL_MULTIPLIER = 1.96
+"""Half-width of the 95% predictive interval, in predictive scales."""
+
+STAGE = "mve"
+"""Stage the model is trained in, and the stage segment of its metric tags."""
 
 
 def make_dataset(*, num_samples: int, key: jax.Array) -> tuple[jax.Array, jax.Array]:
@@ -142,15 +149,19 @@ class PrintingEventSink:
         if event.name != "validation_end" or event.step % self.every != 0:
             return
         history = event.state.metric_history
-        print(
-            f"epoch={event.step} "
-            f"training_loss={history['training_loss'][-1]:.4f} "
-            f"training_rmse={history['training_rmse'][-1]:.4f} "
-            f"training_point_crps={history['training_point_crps'][-1]:.4f} "
-            f"validation_loss={event.metrics['validation_loss']:.4f} "
-            f"validation_rmse={event.metrics['validation_rmse']:.4f} "
-            f"validation_point_crps={event.metrics['validation_point_crps']:.4f}"
+        train = {
+            name: history[metric_tag(event.stage, Split.TRAIN, name)][-1]
+            for name in ("loss", "rmse", "point_crps")
+        }
+        measured = (
+            *((Split.TRAIN, name, value) for name, value in train.items()),
+            *((Split.VALIDATION, name, event.metrics[name]) for name in train),
         )
+        labels = " ".join(
+            f"{metric_tag(event.stage, split, name)}={value:.4f}"
+            for split, name, value in measured
+        )
+        print(f"epoch={event.step} {labels}")
 
 
 def plot_predictions(
@@ -160,7 +171,11 @@ def plot_predictions(
     *,
     save_path: str | None = None,
 ) -> None:
-    """Plot validation targets against the model's mean and ±2σ interval.
+    """Plot validation targets against the mean and its predictive interval.
+
+    The band is the 95% predictive interval: the mean plus or minus
+    ``INTERVAL_MULTIPLIER`` standard deviations, which for the Gaussian
+    head is ``loc ± 1.96 * scale``.
 
     Args:
         model: An NNX module mapping inputs directly to a
@@ -179,12 +194,18 @@ def plot_predictions(
     prediction = model(sorted_inputs)
     mean = np.asarray(prediction.mean().squeeze(-1))
     scale = np.asarray(jnp.sqrt(prediction.variance()).squeeze(-1))
+    half_width = INTERVAL_MULTIPLIER * scale
 
     _, ax = plt.subplots()
     ax.scatter(x, y, s=10, alpha=0.6, label="validation data")
     ax.plot(x, mean, color="C1", label="predicted mean")
     ax.fill_between(
-        x, mean - 2 * scale, mean + 2 * scale, color="C1", alpha=0.2, label="±2σ"
+        x,
+        mean - half_width,
+        mean + half_width,
+        color="C1",
+        alpha=0.2,
+        label="95% predictive interval",
     )
     ax.set_xlabel("x")
     ax.set_ylabel("y")
@@ -228,10 +249,10 @@ def main() -> None:
         metrics=metric_suite,
     )
     early_stopper = EarlyStopper(
-        metric="validation_loss",
+        metric="loss",
         mode=OptimizationMode.MIN,
         patience=5,
-        source=MetricSource.VALIDATION,
+        source=Split.VALIDATION,
     )
 
     result = run_supervised(
@@ -246,20 +267,19 @@ def main() -> None:
         event_sinks=[PrintingEventSink()],
         checkpoint_store=InMemoryCheckpointStore(),
         checkpoint_key="best",
+        stage=STAGE,
         metrics=metric_suite,
     )
 
     print(f"Final training loss: {result.loss:.4f}")
     print(f"Final training RMSE: {result.metrics['rmse']:.4f}")
     print(f"Final training point-CRPS: {result.metrics['point_crps']:.4f}")
-    print(
-        "Final validation RMSE: "
-        f"{result.state.metric_history['validation_rmse'][-1]:.4f}"
-    )
-    print(
-        "Final validation point-CRPS: "
-        f"{result.state.metric_history['validation_point_crps'][-1]:.4f}"
-    )
+    final_validation = {
+        name: result.state.metric_history[metric_tag(STAGE, Split.VALIDATION, name)][-1]
+        for name in ("rmse", "point_crps")
+    }
+    print(f"Final validation RMSE: {final_validation['rmse']:.4f}")
+    print(f"Final validation point-CRPS: {final_validation['point_crps']:.4f}")
     print(f"Final training metrics: {result.metrics}")
 
     low_uncertainty_prediction = model(jnp.array([[-3.0]]))

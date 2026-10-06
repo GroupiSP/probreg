@@ -23,8 +23,6 @@ class HeldOutValidation:
             given split and epoch.
         loss: The supervised loss function used for evaluation.
         metrics: Registered batch/epoch metrics for validation.
-        metric_prefix: Prefix applied to metric names before returning
-            them. Defaults to ``"validation_"``.
         metadata: Arbitrary caller-supplied metadata attached to this
             strategy.
     """
@@ -33,7 +31,6 @@ class HeldOutValidation:
     loader: LoaderFactory
     loss: SupervisedLoss
     metrics: MetricSuite = field(default_factory=MetricSuite)
-    metric_prefix: str = "validation_"
     metadata: dict[str, object] = field(default_factory=dict)
 
     def __call__(self, state: TrainingState, *, epoch: int) -> ValidationResult:
@@ -46,7 +43,7 @@ class HeldOutValidation:
                 select the validation batches for this epoch.
 
         Returns:
-            A :class:`ValidationResult` with prefixed metric names and
+            A :class:`ValidationResult` with bare metric names and
             ``passed=True``.
 
         Raises:
@@ -61,10 +58,4 @@ class HeldOutValidation:
             metrics=self.metrics,
             loss=self.loss,
         )
-        return ValidationResult(
-            passed=True,
-            metrics={
-                f"{self.metric_prefix}{name}": value for name, value in metrics.items()
-            },
-            message=None,
-        )
+        return ValidationResult(passed=True, metrics=metrics, message=None)

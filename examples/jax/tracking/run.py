@@ -62,13 +62,14 @@ if str(_MODULE_DIR) not in sys.path:
 from tensorboard_tracker import TensorBoardTracker
 
 from probreg.core.checkpoints import InMemoryCheckpointStore
-from probreg.core.early_stopping import EarlyStopper, MetricSource, OptimizationMode
+from probreg.core.early_stopping import EarlyStopper, OptimizationMode
 from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EvaluationGrid,
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
+from probreg.core.naming import Split, metric_tag
 from probreg.core.protocols import LoaderFactory
 from probreg.core.tracking import ExperimentTracker, TrackerEventSink, TrainingEvent
 from probreg.core.types import Batch
@@ -159,8 +160,9 @@ class PrintingEventSink:
     This sink is passed alongside the tracker sink: the terminal output a
     reader already has stays exactly as it was.
 
-    Validation metrics are read unprefixed, since this example clears the
-    validation strategy's metric prefix so that the tracker owns the tag.
+    Training metrics are read from the run's metric history under their
+    metric tags; validation metrics arrive on the event under their bare
+    metric names.
 
     Attributes:
         every: Print only on epochs that are a multiple of this value.
@@ -185,15 +187,19 @@ class PrintingEventSink:
         if event.name != "validation_end" or event.step % self.every != 0:
             return
         history = event.state.metric_history
-        print(
-            f"epoch={event.step} "
-            f"training_loss={history['training_loss'][-1]:.4f} "
-            f"training_rmse={history['training_rmse'][-1]:.4f} "
-            f"training_point_crps={history['training_point_crps'][-1]:.4f} "
-            f"validation_loss={event.metrics['loss']:.4f} "
-            f"validation_rmse={event.metrics['rmse']:.4f} "
-            f"validation_point_crps={event.metrics['point_crps']:.4f}"
+        train = {
+            name: history[metric_tag(event.stage, Split.TRAIN, name)][-1]
+            for name in ("loss", "rmse", "point_crps")
+        }
+        measured = (
+            *((Split.TRAIN, name, value) for name, value in train.items()),
+            *((Split.VALIDATION, name, event.metrics[name]) for name in train),
         )
+        labels = " ".join(
+            f"{metric_tag(event.stage, split, name)}={value:.4f}"
+            for split, name, value in measured
+        )
+        print(f"epoch={event.step} {labels}")
 
 
 def plot_predictions(
@@ -278,10 +284,6 @@ def run_tracked_training(tracker: ExperimentTracker, *, epochs: int = EPOCHS) ->
         predictive_sample_count=PREDICTIVE_SAMPLE_COUNT,
         evaluation_grid=EvaluationGrid(np.linspace(-10.0, 10.0, 401)),
     )
-    # The validation prefix is cleared so that the tracker owns the whole
-    # tag: `TrackerEventSink` then yields matched `<stage>/train/loss` and
-    # `<stage>/validation/loss` tags, which TensorBoard renders as two
-    # series on one chart.
     validation = HeldOutValidation(
         model=model,
         loader=make_loader(
@@ -289,31 +291,41 @@ def run_tracked_training(tracker: ExperimentTracker, *, epochs: int = EPOCHS) ->
         ),
         loss=mve_loss,
         metrics=metric_suite,
-        metric_prefix="",
     )
     early_stopper = EarlyStopper(
         metric="loss",
         mode=OptimizationMode.MIN,
         patience=PATIENCE,
-        source=MetricSource.VALIDATION,
+        source=Split.VALIDATION,
     )
 
+    # Every split-specific setting sits under its split's own segment, so it
+    # is recorded as e.g. `data/train/samples`, never `data/train_samples`.
     tracker.log_params(
         {
             "optimizer": {"name": "adam", "learning_rate": LEARNING_RATE},
             "data": {
-                "train_samples": TRAIN_SAMPLES,
-                "validation_samples": VALIDATION_SAMPLES,
-                "train_batch_size": TRAIN_BATCH_SIZE,
-                "validation_batch_size": VALIDATION_BATCH_SIZE,
                 "seed": SEED,
+                Split.TRAIN: {
+                    "samples": TRAIN_SAMPLES,
+                    "batch_size": TRAIN_BATCH_SIZE,
+                },
+                Split.VALIDATION: {
+                    "samples": VALIDATION_SAMPLES,
+                    "batch_size": VALIDATION_BATCH_SIZE,
+                },
             },
-            "training": {"epochs": epochs, "patience": PATIENCE},
             # What was optimized, not only how fast: two runs differing in
             # objective are otherwise indistinguishable in the HParams table.
-            "loss": type(loss_definition).__name__,
-            "metrics": tuple(type(metric).__name__ for metric in epoch_metrics),
-            "predictive_sample_count": PREDICTIVE_SAMPLE_COUNT,
+            "training": {
+                "epochs": epochs,
+                "patience": PATIENCE,
+                "loss": type(loss_definition).__name__,
+            },
+            "metrics": {
+                "names": tuple(type(metric).__name__ for metric in epoch_metrics),
+                "predictive_sample_count": PREDICTIVE_SAMPLE_COUNT,
+            },
         }
     )
 

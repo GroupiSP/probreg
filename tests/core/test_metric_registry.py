@@ -17,6 +17,14 @@ from probreg.core.metric_registry import (
 )
 from probreg.core.metrics import coverage, crps, point_crps, rmse, wsu
 
+AdapterType = type[
+    RootMeanSquaredError
+    | IntervalCoverage
+    | WeightedSpread
+    | PointContinuousRankedProbabilityScore
+    | ContinuousRankedProbabilityScore
+]
+
 
 def test_rmse_adapter_matches_core_function() -> None:
     data = EpochPredictionData(
@@ -114,6 +122,33 @@ def test_adapters_declare_materialization_requirements() -> None:
     assert point_requirements.predictive_samples
     assert point_requirements.evaluation_grid
     assert conditional_requirements.reference_samples
+
+
+_ADAPTER_DEFAULT_NAMES: list[tuple[AdapterType, str]] = [
+    (RootMeanSquaredError, "rmse"),
+    (IntervalCoverage, "coverage"),
+    (WeightedSpread, "wsu"),
+    (PointContinuousRankedProbabilityScore, "point_crps"),
+    (ContinuousRankedProbabilityScore, "crps"),
+]
+
+
+@pytest.mark.parametrize(("adapter_type", "default_name"), _ADAPTER_DEFAULT_NAMES)
+@given(name=st.text(min_size=1))
+def test_adapters_report_under_the_name_they_are_constructed_with(
+    adapter_type: AdapterType, default_name: str, name: str
+) -> None:
+    assert adapter_type().name == default_name
+    assert adapter_type(name=name).name == name
+
+
+@pytest.mark.parametrize(("adapter_type", "default_name"), _ADAPTER_DEFAULT_NAMES)
+def test_adapters_reject_legacy_metric_name_keyword(
+    adapter_type: AdapterType, default_name: str
+) -> None:
+    del default_name
+    with pytest.raises(TypeError, match="metric_name"):
+        adapter_type(metric_name="legacy")  # type: ignore[call-arg]
 
 
 def test_epoch_prediction_data_rejects_non_scalar_axes_and_invalid_fields() -> None:

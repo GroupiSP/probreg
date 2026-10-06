@@ -6,19 +6,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 from math import isfinite
 
+from probreg.core.naming import Split
+
 
 class OptimizationMode(StrEnum):
     """The direction in which a monitored metric is considered improved."""
 
     MIN = "min"
     MAX = "max"
-
-
-class MetricSource(StrEnum):
-    """The origin of a metric monitored by early stopping."""
-
-    TRAINING = "training"
-    VALIDATION = "validation"
 
 
 @dataclass(frozen=True)
@@ -31,8 +26,7 @@ class EarlyStoppingState:
         min_delta: Minimum change required to qualify as an improvement.
         patience: Number of consecutive non-improving epochs tolerated
             before stopping.
-        source: Whether the monitored metric comes from training or
-            validation.
+        source: Split the monitored metric is measured on.
         best_score: Best value observed so far, or ``None`` if no value
             has been observed yet.
         best_epoch: Epoch at which ``best_score`` was observed, or
@@ -47,7 +41,7 @@ class EarlyStoppingState:
     mode: OptimizationMode
     min_delta: float
     patience: int
-    source: MetricSource = MetricSource.VALIDATION
+    source: Split = Split.VALIDATION
     best_score: float | None = None
     best_epoch: int | None = None
     non_improving_epochs: int = 0
@@ -113,7 +107,7 @@ class EarlyStopper:
         mode: OptimizationMode | str,
         patience: int,
         min_delta: float = 0.0,
-        source: MetricSource | str = MetricSource.VALIDATION,
+        source: Split | str = Split.VALIDATION,
         state: EarlyStoppingState | None = None,
     ) -> None:
         """Initialize an early stopper.
@@ -126,16 +120,17 @@ class EarlyStopper:
                 tolerated before stopping.
             min_delta: Minimum change required to qualify as an
                 improvement. Defaults to ``0.0``.
-            source: Whether the monitored metric comes from training or
-                validation. Defaults to ``MetricSource.VALIDATION``.
+            source: Split the monitored metric is measured on, either
+                ``"train"`` or ``"validation"``. Defaults to
+                ``Split.VALIDATION``.
             state: Previously checkpointed state to resume from. Must
                 match the configuration passed to this constructor.
 
         Raises:
             ValueError: If ``metric`` is empty, ``patience`` is
                 negative, ``min_delta`` is not a finite non-negative
-                number, or ``state`` does not match the given
-                configuration.
+                number, ``mode`` or ``source`` is not a recognised value,
+                or ``state`` does not match the given configuration.
         """
         if not metric:
             raise ValueError("metric must be a non-empty string.")
@@ -145,7 +140,7 @@ class EarlyStopper:
             raise ValueError("min_delta must be finite and non-negative.")
 
         normalized_mode = OptimizationMode(mode)
-        normalized_source = MetricSource(source)
+        normalized_source = Split(source)
         self._state = state or EarlyStoppingState(
             metric=metric,
             mode=normalized_mode,
@@ -172,12 +167,12 @@ class EarlyStopper:
 
         Returns:
             ``True`` if the metric configured for this stopper is
-            sourced from validation (i.e. requires a
+            measured on the validation split (i.e. requires a
             :class:`~probreg.core.protocols.ValidationStrategy` to be
-            supplied to the training loop), ``False`` if it is sourced
-            from training.
+            supplied to the training loop), ``False`` if it is measured
+            on the training split.
         """
-        return self._state.source is MetricSource.VALIDATION
+        return self._state.source is Split.VALIDATION
 
     def monitored_metric_name(self) -> str:
         """Return the name of the metric this stopper monitors.

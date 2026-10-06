@@ -57,9 +57,12 @@ script, which is already the backend-specific layer.
   and testable — with the dependency absent.
 - `log_metrics` writes one scalar summary per entry, at the given step.
 - `log_params` writes through TensorBoard's HParams plugin, so runs are
-  comparable in a sortable table. Nested values are flattened onto one entry
-  per leaf, keys joined with `/`; a key containing `/` is rejected rather than
-  allowed to collide with a nested key path. The HParams session is named `.`,
+  comparable in a sortable table. The nested parameters are flattened by
+  `probreg.core.naming.flatten_parameters` into one entry per leaf, keyed by
+  its parameter path (`data/train/samples`); a key that is empty or contains
+  `/` is rejected rather than allowed to collide with a nested key path. The
+  tracker's only HParams-specific work is stringifying values the plugin
+  cannot store, such as tuples or `None`. The HParams session is named `.`,
   which keeps the hyperparameters in the same run directory as the scalars —
   the writer's own default opens a time-named subdirectory that TensorBoard
   reads as a second, metric-less run. Recorded parameters cover the
@@ -83,14 +86,30 @@ library's bridge from training events to a tracker, passed **alongside** the
 example's own printing event sink: `event_sinks` is a sequence, and adding a
 tracker displaces nothing a reader already sees in the terminal.
 
-The sink tags every metric `<stage>/<event prefix><metric>`, with the stage
-segment unconditional so that two stages of a staged run cannot overwrite each
-other's curves. The validation strategy's metric prefix is cleared here so that
-the tracker owns the whole tag, which yields matched `supervised/train/loss` and
+The sink tags every metric with its metric tag, `<stage>/<split>/<metric>`,
+built from the event's stage and split and the metric's bare name. The stage
+segment is always present, so that two stages of a staged run cannot overwrite
+each other's curves. This run yields matched `supervised/train/loss` and
 `supervised/validation/loss` tags — TensorBoard renders those as two series on
-one chart, where overfitting is visible without switching charts. The cost of
-clearing that prefix is that `state.metric_history` records validation metrics
-unprefixed, which is why the printing sink reads them without a prefix.
+one chart, where overfitting is visible without switching charts. The same tags
+key `state.metric_history`, which is where the printing sink reads the training
+metrics from.
+
+Before training, the script logs its hyperparameters as one nested mapping,
+fully grouped so that every one is recorded under a parameter path:
+
+| Path | Value |
+| --- | --- |
+| `optimizer/name`, `optimizer/learning_rate` | the optimizer and its step size |
+| `data/seed` | the seed of the synthetic data |
+| `data/train/samples`, `data/train/batch_size` | training split size and batch size |
+| `data/validation/samples`, `data/validation/batch_size` | validation split size and batch size |
+| `training/epochs`, `training/patience`, `training/loss` | the epoch cap, early-stopping patience and the loss optimized |
+| `metrics/names`, `metrics/predictive_sample_count` | the epoch metrics and the samples drawn to compute them |
+
+A split is a path segment of its own (`data/train/samples`), never part of a
+leaf key (`data/train_samples`). Logging the parameters stays the script's job:
+`TrackerEventSink` forwards only metrics.
 
 After training, the script logs one figure showing the validation data, the
 predicted mean, and the 95% predictive interval `loc ± 1.96 * scale`. The

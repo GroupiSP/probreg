@@ -178,10 +178,11 @@ class PrintingEventSink:
         Args:
             event: The training event to summarize.
         """
-        metrics = ", ".join(
-            f"{name}={value:.4f}" for name, value in event.metrics.items()
-        )
-        print(f"[{event.name}] epoch={event.step} {metrics}")
+        values = dict(event.metrics)
+        if event.decision is not None:
+            values[event.decision.metric] = event.decision.value
+        metrics = ", ".join(f"{name}={value:.4f}" for name, value in values.items())
+        print(f"[{event.name}] epoch={event.step} split={event.split} {metrics}")
 
 
 def train_mean_model(

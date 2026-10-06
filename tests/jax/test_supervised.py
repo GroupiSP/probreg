@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -8,9 +9,11 @@ import numpy as np
 import optax
 import pytest
 from flax import nnx
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from probreg.core.checkpoints import Checkpoint
-from probreg.core.early_stopping import EarlyStopper, MetricSource
+from probreg.core.checkpoints import InMemoryCheckpointStore
+from probreg.core.early_stopping import EarlyStopper
 from probreg.core.losses import NegativeLogLikelihoodLoss
 from probreg.core.metric_registry import (
     EpochPredictionData,
@@ -18,7 +21,9 @@ from probreg.core.metric_registry import (
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
-from probreg.core.tracking import TrainingEvent
+from probreg.core.naming import Split
+from probreg.core.protocols import LoaderFactory
+from probreg.core.tracking import Decision, TrackerEventSink
 from probreg.core.types import Batch, StageResult, TrainingState, ValidationResult
 from probreg.jax import (
     BatchMetricSpec,
@@ -27,6 +32,7 @@ from probreg.jax import (
     HeldOutValidation,
     MetricSuite,
     PredictionRequirements,
+    SupervisedLoss,
     create_optimizer,
     evaluate_loader,
     initialize_training_state,
@@ -36,13 +42,11 @@ from probreg.jax import (
     split_key,
 )
 
+DECISION_EVENTS = {"best_model", "early_stop"}
 
-class LinearModel(nnx.Module):
-    def __init__(self, *, rngs: nnx.Rngs) -> None:
-        self.linear = nnx.Linear(1, 1, rngs=rngs)
-
-    def __call__(self, inputs: jax.Array) -> jax.Array:
-        return self.linear(inputs)
+Tracker = Callable[[], Any]
+Run = Callable[..., StageResult]
+MakeComponents = Callable[..., tuple[Any, nnx.Optimizer, TrainingState]]
 
 
 def linear_predictor(
@@ -61,45 +65,8 @@ def linear_predictor(
     )
 
 
-class MemoryCheckpointStore:
-    def __init__(self) -> None:
-        self.values: dict[str, Checkpoint] = {}
-
-    def save(self, key: str, checkpoint: Checkpoint) -> None:
-        self.values[key] = checkpoint
-
-    def load(self, key: str) -> Checkpoint:
-        return self.values[key]
-
-    def exists(self, key: str) -> bool:
-        return key in self.values
-
-
-class EventCollector:
-    def __init__(self) -> None:
-        self.events: list[TrainingEvent] = []
-
-    def on_event(self, event: TrainingEvent) -> None:
-        self.events.append(event)
-
-
-def squared_error(
-    model: LinearModel,
-    inputs: jax.Array,
-    targets: jax.Array,
-    sample_weight: jax.Array | None,
-    key: jax.Array,
-    training: bool,
-) -> jax.Array:
-    del key, training
-    errors = jnp.square(model(inputs) - targets)
-    if sample_weight is not None:
-        errors = errors * sample_weight
-    return jnp.mean(errors)
-
-
 def mean_absolute_error(
-    model: LinearModel,
+    model: nnx.Module,
     inputs: jax.Array,
     targets: jax.Array,
     sample_weight: jax.Array | None,
@@ -114,7 +81,7 @@ def mean_absolute_error(
 
 
 def training_flag_metric(
-    model: LinearModel,
+    model: nnx.Module,
     inputs: jax.Array,
     targets: jax.Array,
     sample_weight: jax.Array | None,
@@ -125,41 +92,59 @@ def training_flag_metric(
     return jnp.asarray(1.0 if training else 0.0)
 
 
-def loader(*, split: str, epoch: int) -> Iterable[Batch]:
-    del epoch
-    target = 2.0 if split == "train" else 1.0
-    return [Batch(inputs=jnp.array([[1.0]]), targets=jnp.array([[target]]))]
-
-
+@pytest.fixture(scope="session")
 def make_components(
-    learning_rate: float = 0.1,
-) -> tuple[LinearModel, nnx.Optimizer, TrainingState]:
-    model = LinearModel(rngs=nnx.Rngs(0))
-    optimizer = create_optimizer(model, optax.sgd(learning_rate))
-    state = initialize_training_state(model, optimizer, rng_key=jax.random.key(1))
-    return model, optimizer, state
+    linear_model: type[Any],
+) -> MakeComponents:
+    """Return a factory of a linear model, its SGD optimizer and fresh state."""
+
+    def make(
+        learning_rate: float = 0.1,
+    ) -> tuple[Any, nnx.Optimizer, TrainingState]:
+        """Build a fresh linear model, its SGD optimizer and training state.
+
+        Args:
+            learning_rate: The SGD learning rate.
+
+        Returns:
+            The model, its optimizer and a training state seeded with key 1.
+        """
+        model = linear_model(rngs=nnx.Rngs(0))
+        optimizer = create_optimizer(model, optax.sgd(learning_rate))
+        state = initialize_training_state(model, optimizer, rng_key=jax.random.key(1))
+        return model, optimizer, state
+
+    return make
 
 
-def test_fixed_epoch_training_without_validation_updates_parameters_and_rng() -> None:
+def test_fixed_epoch_training_without_validation_updates_parameters_and_rng(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     model, optimizer, state = make_components()
     initial_key = state.rng_state
 
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=3,
     )
 
-    assert len(result.state.metric_history["training_loss"]) == 3
+    assert len(result.state.metric_history["supervised/train/loss"]) == 3
     assert result.loss is not None
     assert not bool(jnp.array_equal(initial_key, result.state.rng_state))
     assert int(optimizer.step.get_value()) == 3
 
 
-def test_run_supervised_registers_named_model_and_optimizer() -> None:
+def test_run_supervised_registers_named_model_and_optimizer(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     model, optimizer, state = make_components()
     state.model_components.clear()
     state.optimizer_states.clear()
@@ -167,7 +152,7 @@ def test_run_supervised_registers_named_model_and_optimizer() -> None:
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=1,
@@ -181,13 +166,17 @@ def test_run_supervised_registers_named_model_and_optimizer() -> None:
     assert result.state.active_stage == "mean"
 
 
-def test_run_supervised_default_registration_names_remain_compatible() -> None:
+def test_run_supervised_default_registration_names_remain_compatible(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     model, optimizer, state = make_components()
 
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=1,
@@ -197,33 +186,42 @@ def test_run_supervised_default_registration_names_remain_compatible() -> None:
     assert result.state.optimizer_states == {"optimizer": optimizer}
 
 
-def test_run_supervised_optionally_namespaces_persisted_history_only() -> None:
+def test_run_supervised_tags_history_with_its_stage_and_keeps_events_bare(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+    in_memory_tracker: Tracker,
+) -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
-    events = EventCollector()
-    validation = HeldOutValidation(model=model, loader=loader, loss=squared_error)
+    events = in_memory_tracker()
+    validation = HeldOutValidation(
+        model=model, loader=constant_loader, loss=squared_error
+    )
 
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=1,
         validation=validation,
         event_sinks=[events],
-        metric_history_prefix="mean",
+        stage="mean",
     )
 
     assert set(result.state.metric_history) == {
-        "mean_training_loss",
-        "mean_validation_loss",
+        "mean/train/loss",
+        "mean/validation/loss",
     }
     assert result.metrics == {"loss": result.loss}
-    assert events.events[0].metrics.keys() == {"loss"}
-    assert events.events[1].metrics.keys() == {"validation_loss"}
+    assert [event.metrics.keys() for event in events.events] == [{"loss"}, {"loss"}]
 
 
-def test_make_train_step_without_registered_metrics_returns_loss_mapping() -> None:
+def test_make_train_step_without_registered_metrics_returns_loss_mapping(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+) -> None:
     model, optimizer, _ = make_components()
     train_step = make_train_step(squared_error)
 
@@ -239,7 +237,10 @@ def test_make_train_step_without_registered_metrics_returns_loss_mapping() -> No
     assert set(output) == {"loss"}
 
 
-def test_make_train_step_evaluates_batch_metrics_in_inference_mode() -> None:
+def test_make_train_step_evaluates_batch_metrics_in_inference_mode(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+) -> None:
     model, optimizer, _ = make_components()
     train_step = make_train_step(
         squared_error,
@@ -258,12 +259,16 @@ def test_make_train_step_evaluates_batch_metrics_in_inference_mode() -> None:
     assert output["training_flag"] == pytest.approx(0.0)
 
 
-def test_evaluate_loader_without_registered_metrics_returns_loss_mapping() -> None:
+def test_evaluate_loader_without_registered_metrics_returns_loss_mapping(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     model, _, state = make_components()
 
     metrics, next_key = evaluate_loader(
         model,
-        loader(split="train", epoch=0),
+        constant_loader(split="train", epoch=0),
         key=state.rng_state,
         loss=squared_error,
     )
@@ -272,7 +277,10 @@ def test_evaluate_loader_without_registered_metrics_returns_loss_mapping() -> No
     assert not bool(jnp.array_equal(next_key, state.rng_state))
 
 
-def test_evaluate_loader_without_loss_omits_loss_and_scores_metrics() -> None:
+def test_evaluate_loader_without_loss_omits_loss_and_scores_metrics(
+    make_components: MakeComponents,
+    constant_loader: LoaderFactory,
+) -> None:
     model, _, state = make_components()
     suite = MetricSuite(
         batch=(BatchMetricSpec(name="training_flag", metric=training_flag_metric),)
@@ -280,7 +288,7 @@ def test_evaluate_loader_without_loss_omits_loss_and_scores_metrics() -> None:
 
     metrics, next_key = evaluate_loader(
         model,
-        loader(split="train", epoch=0),
+        constant_loader(split="train", epoch=0),
         key=state.rng_state,
         metrics=suite,
     )
@@ -290,7 +298,11 @@ def test_evaluate_loader_without_loss_omits_loss_and_scores_metrics() -> None:
     assert not bool(jnp.array_equal(next_key, state.rng_state))
 
 
-def test_evaluate_loader_with_loss_and_metrics_includes_both() -> None:
+def test_evaluate_loader_with_loss_and_metrics_includes_both(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     model, _, state = make_components()
     suite = MetricSuite(
         batch=(BatchMetricSpec(name="training_flag", metric=training_flag_metric),)
@@ -298,7 +310,7 @@ def test_evaluate_loader_with_loss_and_metrics_includes_both() -> None:
 
     metrics, _ = evaluate_loader(
         model,
-        loader(split="train", epoch=0),
+        constant_loader(split="train", epoch=0),
         key=state.rng_state,
         metrics=suite,
         loss=squared_error,
@@ -307,21 +319,26 @@ def test_evaluate_loader_with_loss_and_metrics_includes_both() -> None:
     assert set(metrics) == {"loss", "training_flag"}
 
 
-def test_training_metric_stopping_saves_best_checkpoint_and_events() -> None:
+def test_training_metric_stopping_saves_best_checkpoint_and_events(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+    in_memory_tracker: Tracker,
+) -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
-    store = MemoryCheckpointStore()
-    events = EventCollector()
+    store = InMemoryCheckpointStore()
+    events = in_memory_tracker()
     stopper = EarlyStopper(
         metric="loss",
         mode="min",
         patience=0,
-        source=MetricSource.TRAINING,
+        source=Split.TRAIN,
     )
 
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=4,
@@ -331,7 +348,7 @@ def test_training_metric_stopping_saves_best_checkpoint_and_events() -> None:
         checkpoint_key="mean-best",
     )
 
-    assert len(result.state.metric_history["training_loss"]) == 2
+    assert len(result.state.metric_history["supervised/train/loss"]) == 2
     assert store.exists("mean-best")
     checkpoint = store.load("mean-best")
     assert checkpoint.epoch == 0
@@ -345,21 +362,23 @@ def test_training_metric_stopping_saves_best_checkpoint_and_events() -> None:
     ]
 
 
-def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs() -> None:
+def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     # Learning rate equal to zero is ensured that the checkpoint is saved after
     # the first epoch, which allows to test if the checkpoint remains unaffected by later epochs.
     model, optimizer, state = make_components(learning_rate=0.0)
-    store = MemoryCheckpointStore()
+    store = InMemoryCheckpointStore()
     # High patience so training keeps running (and keeps mutating ``state``)
     # for several epochs after the one-and-only improvement is checkpointed.
-    stopper = EarlyStopper(
-        metric="loss", mode="min", patience=5, source=MetricSource.TRAINING
-    )
+    stopper = EarlyStopper(metric="loss", mode="min", patience=5, source=Split.TRAIN)
 
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=3,
@@ -372,19 +391,19 @@ def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs() -> Non
     # The checkpoint was saved after epoch 0; its frozen state must only
     # contain that single observation, even though the live state keeps
     # accumulating history for all 3 epochs.
-    assert checkpoint.state.metric_history["training_loss"] == [
-        result.state.metric_history["training_loss"][0]
+    assert checkpoint.state.metric_history["supervised/train/loss"] == [
+        result.state.metric_history["supervised/train/loss"][0]
     ]
-    assert len(result.state.metric_history["training_loss"]) == 3
+    assert len(result.state.metric_history["supervised/train/loss"]) == 3
 
     # Mutating the live training state after the fact (as further training,
     # or a resumed run, would) must not leak into the already-saved
     # checkpoint's state.
-    result.state.metric_history["training_loss"].append(999.0)
+    result.state.metric_history["supervised/train/loss"].append(999.0)
     result.state.checkpoint_registry["late"] = object()
 
-    assert checkpoint.state.metric_history["training_loss"] == [
-        result.state.metric_history["training_loss"][0]
+    assert checkpoint.state.metric_history["supervised/train/loss"] == [
+        result.state.metric_history["supervised/train/loss"][0]
     ]
     assert "late" not in checkpoint.state.checkpoint_registry
 
@@ -394,15 +413,23 @@ def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs() -> Non
     assert checkpoint.state.optimizer_states == {}
 
 
-def test_held_out_validation_drives_validation_metric_stopping() -> None:
+def test_held_out_validation_drives_validation_metric_stopping(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
-    validation = HeldOutValidation(model=model, loader=loader, loss=squared_error)
-    stopper = EarlyStopper(metric="validation_loss", mode="min", patience=0)
+    validation = HeldOutValidation(
+        model=model, loader=constant_loader, loss=squared_error
+    )
+    stopper = EarlyStopper(
+        metric="loss", mode="min", patience=0, source=Split.VALIDATION
+    )
 
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=4,
@@ -410,10 +437,14 @@ def test_held_out_validation_drives_validation_metric_stopping() -> None:
         early_stopper=stopper,
     )
 
-    assert len(result.state.metric_history["validation_loss"]) == 2
+    assert len(result.state.metric_history["supervised/validation/loss"]) == 2
 
 
-def test_custom_fold_validation_strategy_is_accepted() -> None:
+def test_custom_fold_validation_strategy_is_accepted(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
 
     def fold_validation(
@@ -429,30 +460,73 @@ def test_custom_fold_validation_strategy_is_accepted() -> None:
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=2,
         validation=fold_validation,
     )
 
-    assert result.state.metric_history["fold_1_loss"] == [0.0, 1.0]
+    assert result.state.metric_history["supervised/validation/fold_1_loss"] == [
+        0.0,
+        1.0,
+    ]
 
 
-def test_validation_stopping_requires_a_validation_strategy() -> None:
+def test_validation_stopping_requires_a_validation_strategy(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     model, optimizer, state = make_components()
-    stopper = EarlyStopper(metric="validation_loss", mode="min", patience=1)
+    stopper = EarlyStopper(
+        metric="loss", mode="min", patience=1, source=Split.VALIDATION
+    )
 
     with pytest.raises(ValueError, match="requires a validation strategy"):
         run_supervised(
             model=model,
             optimizer=optimizer,
-            train_loader=loader,
+            train_loader=constant_loader,
             loss=squared_error,
             state=state,
             epochs=1,
             early_stopper=stopper,
         )
+
+
+@pytest.mark.parametrize("stage", ["", "mean/train"])
+def test_an_invalid_stage_is_rejected_before_any_state_changes(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+    stage: str,
+) -> None:
+    model, optimizer, state = make_components()
+    state.model_components.clear()
+    state.optimizer_states.clear()
+    initial_kernel = np.asarray(model.linear.kernel.get_value()).copy()
+    initial_key = state.rng_state
+    initial_stage = state.active_stage
+
+    with pytest.raises(ValueError, match="stage"):
+        run_supervised(
+            model=model,
+            optimizer=optimizer,
+            train_loader=constant_loader,
+            loss=squared_error,
+            state=state,
+            epochs=1,
+            stage=stage,
+        )
+
+    np.testing.assert_array_equal(model.linear.kernel.get_value(), initial_kernel)
+    assert int(optimizer.step.get_value()) == 0
+    assert state.rng_state is initial_key
+    assert state.active_stage == initial_stage
+    assert state.model_components == {}
+    assert state.optimizer_states == {}
+    assert state.metric_history == {}
 
 
 def test_split_key_is_reproducible() -> None:
@@ -465,9 +539,14 @@ def test_split_key_is_reproducible() -> None:
     assert bool(jnp.array_equal(operation_key, duplicate_operation_key))
 
 
-def test_run_supervised_records_registered_batch_and_epoch_metrics() -> None:
+def test_run_supervised_records_registered_batch_and_epoch_metrics(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+    in_memory_tracker: Tracker,
+) -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
-    events = EventCollector()
+    events = in_memory_tracker()
     metric_suite = MetricSuite(
         batch=(BatchMetricSpec(name="mae", metric=mean_absolute_error),),
         epoch=(RootMeanSquaredError(),),
@@ -477,7 +556,7 @@ def test_run_supervised_records_registered_batch_and_epoch_metrics() -> None:
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=2,
@@ -486,9 +565,9 @@ def test_run_supervised_records_registered_batch_and_epoch_metrics() -> None:
     )
 
     assert set(result.metrics) == {"loss", "mae", "rmse"}
-    assert len(result.state.metric_history["training_loss"]) == 2
-    assert len(result.state.metric_history["training_mae"]) == 2
-    assert len(result.state.metric_history["training_rmse"]) == 2
+    assert len(result.state.metric_history["supervised/train/loss"]) == 2
+    assert len(result.state.metric_history["supervised/train/mae"]) == 2
+    assert len(result.state.metric_history["supervised/train/rmse"]) == 2
     assert all(
         {"loss", "mae", "rmse"} <= set(event.metrics)
         for event in events.events
@@ -496,11 +575,39 @@ def test_run_supervised_records_registered_batch_and_epoch_metrics() -> None:
     )
 
 
-def test_held_out_validation_prefixes_registered_metrics() -> None:
+def test_run_supervised_reports_epoch_metric_under_its_declared_name(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
+    model, optimizer, state = make_components(learning_rate=0.0)
+    metric_suite = MetricSuite(
+        epoch=(RootMeanSquaredError(name="root_mse"),),
+        predictor=linear_predictor,
+    )
+
+    result = run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=constant_loader,
+        loss=squared_error,
+        state=state,
+        epochs=1,
+        metrics=metric_suite,
+    )
+
+    assert set(result.metrics) == {"loss", "root_mse"}
+
+
+def test_held_out_validation_returns_registered_metrics_under_bare_names(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+) -> None:
     model, optimizer, state = make_components(learning_rate=0.0)
     validation = HeldOutValidation(
         model=model,
-        loader=loader,
+        loader=constant_loader,
         loss=squared_error,
         metrics=MetricSuite(
             batch=(BatchMetricSpec(name="mae", metric=mean_absolute_error),),
@@ -512,16 +619,16 @@ def test_held_out_validation_prefixes_registered_metrics() -> None:
     result = run_supervised(
         model=model,
         optimizer=optimizer,
-        train_loader=loader,
+        train_loader=constant_loader,
         loss=squared_error,
         state=state,
         epochs=2,
         validation=validation,
     )
 
-    assert len(result.state.metric_history["validation_loss"]) == 2
-    assert len(result.state.metric_history["validation_mae"]) == 2
-    assert len(result.state.metric_history["validation_rmse"]) == 2
+    assert len(result.state.metric_history["supervised/validation/loss"]) == 2
+    assert len(result.state.metric_history["supervised/validation/mae"]) == 2
+    assert len(result.state.metric_history["supervised/validation/rmse"]) == 2
 
 
 def test_metric_suite_rejects_reserved_and_duplicate_names() -> None:
@@ -531,7 +638,7 @@ def test_metric_suite_rejects_reserved_and_duplicate_names() -> None:
     with pytest.raises(ValueError, match="duplicate"):
         MetricSuite(
             batch=(BatchMetricSpec(name="mae", metric=mean_absolute_error),),
-            epoch=(RootMeanSquaredError(metric_name="mae"),),
+            epoch=(RootMeanSquaredError(name="mae"),),
         )
 
 
@@ -540,7 +647,9 @@ def test_epoch_metrics_require_explicit_predictor() -> None:
         MetricSuite(epoch=(RootMeanSquaredError(),))
 
 
-def test_sampled_epoch_metrics_preserve_loss_batch_metric_and_rng_trajectory() -> None:
+def test_sampled_epoch_metrics_preserve_loss_batch_metric_and_rng_trajectory(
+    constant_loader: LoaderFactory,
+) -> None:
     def random_key_metric(
         model: nnx.Module,
         inputs: jax.Array,
@@ -570,7 +679,7 @@ def test_sampled_epoch_metrics_preserve_loss_batch_metric_and_rng_trajectory() -
         result = run_supervised(
             model=model,
             optimizer=optimizer,
-            train_loader=loader,
+            train_loader=constant_loader,
             loss=make_supervised_loss(NegativeLogLikelihoodLoss()),
             state=state,
             epochs=2,
@@ -594,3 +703,115 @@ def test_sampled_epoch_metrics_preserve_loss_batch_metric_and_rng_trajectory() -
         strict=True,
     ):
         assert jnp.array_equal(base_leaf, sampled_leaf)
+
+
+def test_run_with_the_default_stage_records_supervised_tags(
+    in_memory_tracker: Tracker, supervised_run: Run
+) -> None:
+    tracker = in_memory_tracker()
+
+    result = supervised_run(TrackerEventSink(tracker), validate=False)
+
+    assert tracker.tags == {"supervised/train/loss"}
+    assert set(result.state.metric_history) == {"supervised/train/loss"}
+    assert len(result.state.metric_history["supervised/train/loss"]) == 3
+
+
+@given(epochs=st.integers(min_value=1, max_value=4), validate=st.booleans())
+@settings(deadline=None, max_examples=6)
+def test_a_default_stage_run_keeps_event_and_result_metrics_bare(
+    in_memory_tracker: Tracker, supervised_run: Run, epochs: int, validate: bool
+) -> None:
+    recorder = in_memory_tracker()
+
+    result = supervised_run(recorder, epochs=epochs, validate=validate)
+
+    assert len(recorder.events) == epochs * (2 if validate else 1)
+    assert all(set(event.metrics) == {"loss"} for event in recorder.events)
+    assert result.metrics == {"loss": result.loss}
+
+
+def test_events_carry_the_split_they_concern(
+    in_memory_tracker: Tracker, supervised_run: Run
+) -> None:
+    recorder = in_memory_tracker()
+    stopper = EarlyStopper(metric="loss", mode="min", patience=0)
+
+    supervised_run(recorder, learning_rate=0.0, epochs=4, early_stopper=stopper)
+
+    splits = {event.name: event.split for event in recorder.events}
+    assert splits == {
+        "epoch_end": Split.TRAIN,
+        "validation_end": Split.VALIDATION,
+        "best_model": Split.VALIDATION,
+        "early_stop": Split.VALIDATION,
+    }
+
+
+@pytest.mark.parametrize("validate", [False, True])
+def test_decision_events_name_the_train_split_when_the_stopper_reads_it(
+    in_memory_tracker: Tracker, supervised_run: Run, validate: bool
+) -> None:
+    recorder = in_memory_tracker()
+    stopper = EarlyStopper(metric="loss", mode="min", patience=0, source=Split.TRAIN)
+
+    result = supervised_run(
+        recorder,
+        learning_rate=0.0,
+        epochs=4,
+        validate=validate,
+        early_stopper=stopper,
+    )
+
+    decisions = [event for event in recorder.events if event.name in DECISION_EVENTS]
+    assert [event.name for event in decisions] == ["best_model", "early_stop"]
+    assert all(event.split is Split.TRAIN for event in decisions)
+    history = result.state.metric_history["supervised/train/loss"]
+    assert [event.decision for event in decisions] == [
+        Decision(metric="loss", value=history[0]),
+        Decision(metric="loss", value=history[1]),
+    ]
+
+
+def test_only_decision_events_carry_a_decision(
+    in_memory_tracker: Tracker, supervised_run: Run
+) -> None:
+    recorder = in_memory_tracker()
+    stopper = EarlyStopper(metric="loss", mode="min", patience=0)
+
+    supervised_run(recorder, learning_rate=0.0, epochs=4, early_stopper=stopper)
+
+    assert recorder.events
+    for event in recorder.events:
+        assert (event.decision is not None) == (event.name in DECISION_EVENTS)
+
+
+def test_decision_events_carry_no_metrics_and_add_no_tracker_series(
+    in_memory_tracker: Tracker, supervised_run: Run
+) -> None:
+    recorder = in_memory_tracker()
+    tracker = in_memory_tracker()
+    stopper = EarlyStopper(metric="loss", mode="min", patience=0)
+
+    result = supervised_run(
+        recorder,
+        TrackerEventSink(tracker),
+        learning_rate=0.0,
+        epochs=4,
+        early_stopper=stopper,
+    )
+
+    decisions = [event for event in recorder.events if event.name in DECISION_EVENTS]
+    assert {event.name for event in decisions} == DECISION_EVENTS
+    assert all(event.metrics == {} for event in decisions)
+    history = result.state.metric_history["supervised/validation/loss"]
+    assert [event.decision for event in decisions] == [
+        Decision(metric="loss", value=history[0]),
+        Decision(metric="loss", value=history[1]),
+    ]
+    measured = sum(len(event.metrics) for event in recorder.events)
+    assert sum(len(values) for values, _ in tracker.metrics) == measured
+    assert tracker.tags == {
+        "supervised/train/loss",
+        "supervised/validation/loss",
+    }
