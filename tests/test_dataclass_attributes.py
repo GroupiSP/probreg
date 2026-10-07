@@ -13,9 +13,7 @@ import dataclasses
 import inspect
 import re
 from collections import Counter
-
-import pytest
-from test_reference_completeness import PAGES, _import
+from types import ModuleType
 
 ENTRY = re.compile(r"^(?P<name>\w+)(?:\s*\([^)]*\))?:")
 
@@ -64,14 +62,14 @@ def _attribute_mismatch(cls: type) -> str | None:
     return f"missing {missing}, extra {extra}, duplicated {duplicated}"
 
 
-@pytest.mark.parametrize("package", PAGES)
-def test_every_dataclass_field_is_documented_exactly_once(package: str) -> None:
-    module = _import(package)
+def test_every_dataclass_field_is_documented_exactly_once(
+    documented_package: str, documented_module: ModuleType
+) -> None:
     mismatches = []
-    for name in sorted(module.__all__):
-        cls = getattr(module, name)
+    for name in sorted(documented_module.__all__):
+        cls = getattr(documented_module, name)
         if inspect.isclass(cls) and (mismatch := _attribute_mismatch(cls)):
-            mismatches.append(f"{package}.{name}: {mismatch}")
+            mismatches.append(f"{documented_package}.{name}: {mismatch}")
     assert not mismatches, "Attributes: sections out of sync:\n" + "\n".join(mismatches)
 
 
