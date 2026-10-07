@@ -61,8 +61,3 @@ result = run_supervised(
 print(f"final training loss: {result.loss:.4f}")
 ```
 <!-- --8<-- [end:minimal-example] -->
-
-The [documentation site](https://groupisp.github.io/probreg/) has guides on
-validation and early stopping, predictive distributions and losses, epoch
-metrics, two-step mean/variance training, checkpoints and tracking, plus the
-runnable examples and the API reference.

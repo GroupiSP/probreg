@@ -100,8 +100,5 @@ uv run --group example-tracking python examples/jax/tracking/run.py --logdir run
 uv run --group example-tracking tensorboard --logdir runs/
 ```
 
-Each invocation writes to its own UTC-timestamped subdirectory of `--logdir`,
-so successive runs appear side by side in TensorBoard.
-
 README:
 [`examples/jax/tracking/README.md`](https://github.com/GroupiSP/probreg/blob/main/examples/jax/tracking/README.md)

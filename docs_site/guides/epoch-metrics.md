@@ -10,7 +10,7 @@ explicitly.
 
 Every metric a run computes beyond the loss is registered on a
 [`MetricSuite`][probreg.jax.MetricSuite], which you pass to the runner for the
-training split and to the validation strategy for the validation split,
+train split and to the validation strategy for the validation split,
 usually the same suite for both. It holds two kinds of metric:
 
 - **Batch metrics**, each a [`BatchMetricSpec`][probreg.jax.BatchMetricSpec]:
@@ -162,9 +162,11 @@ Scoring units carry no notion of order, and the right coordinate is a fact
 about your domain, not about the model's inputs, so it is never inferred. You
 supply it through the predictor's `coordinate_extractor`, a
 [`CoordinateExtractor`][probreg.jax.CoordinateExtractor] that reads it from a
-batch, typically from its `metadata`. The coordinate needs at least three
-distinct values. A suite with `WeightedSpread` and no extractor fails at the
-first batch it predicts.
+batch, typically from its `metadata`. The metric sorts the scoring units by
+coordinate, so they may arrive in any order, but every scoring unit needs a
+coordinate of its own: a tie between two units is rejected, as is an epoch with
+fewer than three units. A suite with `WeightedSpread` and no extractor fails at
+the first batch it predicts.
 
 ## Evaluating a suite
 

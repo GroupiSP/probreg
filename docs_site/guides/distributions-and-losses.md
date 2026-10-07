@@ -64,7 +64,8 @@ so reduction and sample weighting stay with the caller. It never reads the
 distribution's parameters, so the same loss trains a Gaussian head, a Gamma
 head or any distribution of your own.
 
-`GaussianNLLLoss` and `BetaNLLLoss` are not separate classes. Both are names
+[`GaussianNLLLoss`][probreg.core.GaussianNLLLoss] and
+[`BetaNLLLoss`][probreg.core.BetaNLLLoss] are not separate classes. Both are names
 for `NegativeLogLikelihoodLoss`, kept from before the two were consolidated, so
 the choice between them is really the choice of its `beta` argument.
 

@@ -210,4 +210,5 @@ improvement also saves a [`Checkpoint`][probreg.core.Checkpoint] under
 does not restore it: when training ends, the live model holds the last epoch's
 parameters, not the best ones. To continue from the best model, load the
 checkpoint and pass it to
-[`restore_checkpoint`][probreg.jax.restore_checkpoint].
+[`restore_checkpoint`][probreg.jax.restore_checkpoint]; the
+[Checkpoints](checkpoints.md) guide shows how.

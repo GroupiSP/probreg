@@ -12,7 +12,7 @@ be worth opening TensorBoard for. What this example adds is the tracking:
   implementing `probreg.core.tracking.ExperimentTracker`;
 * `probreg.core.tracking.TrackerEventSink`, the library's bridge from
   training events to that tracker, which namespaces every metric by its
-  stage and its event;
+  stage and split;
 * the example's own printing event sink, passed *alongside* the tracker
   sink: adding a tracker displaces nothing.
 
