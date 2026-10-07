@@ -38,3 +38,9 @@ With pip, use `pip install "probreg[jax] @ git+https://github.com/GroupiSP/probr
 ## Minimal example
 
 --8<-- "README.md:minimal-example"
+
+## Contributing
+
+Development setup, the checks a change must pass and how to build this site
+are in
+[`CONTRIBUTING.md`](https://github.com/GroupiSP/probreg/blob/main/CONTRIBUTING.md).
