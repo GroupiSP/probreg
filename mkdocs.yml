@@ -14,6 +14,7 @@ nav:
   - Guides:
       - Training a supervised model: guides/training.md
       - Validation and early stopping: guides/validation.md
+      - Tracking a run: guides/tracking.md
       - Examples: guides/examples.md
   - API reference:
       - probreg.core: reference/core.md
