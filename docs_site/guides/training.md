@@ -135,7 +135,7 @@ held-out split carved from the training data, and no "best" model chosen behind
 your back: the model you get back is the model after the last epoch.
 
 `epochs` is always the maximum. Adding an early stopper can end the run sooner
-but never later.
+but never later; see [Validation and early stopping](validation.md).
 
 ## What comes back
 

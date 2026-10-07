@@ -13,6 +13,7 @@ nav:
   - Home: index.md
   - Guides:
       - Training a supervised model: guides/training.md
+      - Validation and early stopping: guides/validation.md
       - Examples: guides/examples.md
   - API reference:
       - probreg.core: reference/core.md
