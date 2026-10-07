@@ -19,16 +19,10 @@ from collections import Counter
 from pathlib import Path
 from types import ModuleType
 
-import pytest
 
 REPOSITORY = Path(__file__).parent.parent
 REFERENCE_DIR = REPOSITORY / "docs_site" / "reference"
 PAGES = {"probreg.core": "core.md", "probreg.jax": "jax.md"}
-# Optional dependencies a package needs to import; its tests skip without them.
-OPTIONAL_DEPENDENCIES = {
-    "probreg.core": (),
-    "probreg.jax": ("jax", "flax.nnx", "optax"),
-}
 
 SECTION = re.compile(r"^## `?(?P<module>[\w.]+)`?\s*$")
 DIRECTIVE = re.compile(r"^::: (?P<target>[\w.]+)\s*$")
@@ -60,17 +54,10 @@ def _documented_packages() -> tuple[str, ...]:
     raise AssertionError("mkdocs_hooks.py does not define DOCUMENTED_PACKAGES.")
 
 
-def _import(package: str) -> ModuleType:
-    """Import a documented package, skipping if its optional dependencies are absent."""
-    for dependency in OPTIONAL_DEPENDENCIES[package]:
-        pytest.importorskip(dependency)
-    return importlib.import_module(package)
-
-
-def _exported_and_documented(package: str) -> tuple[set[str], set[str]]:
+def _exported_and_documented(module: ModuleType) -> tuple[set[str], set[str]]:
     """Return the package's exports and its reference page's directive targets."""
-    exported = {f"{package}.{name}" for name in _import(package).__all__}
-    documented = {target for _, target in _entries(package)}
+    exported = {f"{module.__name__}.{name}" for name in module.__all__}
+    documented = {target for _, target in _entries(module.__name__)}
     return exported, documented
 
 
@@ -93,36 +80,35 @@ def _defines(module_name: str, name: str) -> bool:
     return any(name in _bound_names(node) for node in tree.body)
 
 
-def test_every_documented_package_has_a_reference_page() -> None:
+def test_every_documented_package_has_a_reference_page(
+    documented_packages: tuple[str, ...],
+) -> None:
     assert sorted(PAGES) == sorted(_documented_packages())
-    assert sorted(OPTIONAL_DEPENDENCIES) == sorted(_documented_packages())
+    assert sorted(documented_packages) == sorted(_documented_packages())
 
 
-@pytest.mark.parametrize("package", PAGES)
-def test_every_export_has_a_reference_entry(package: str) -> None:
-    exported, documented = _exported_and_documented(package)
+def test_every_export_has_a_reference_entry(documented_module: ModuleType) -> None:
+    exported, documented = _exported_and_documented(documented_module)
     assert sorted(exported - documented) == []
 
 
-@pytest.mark.parametrize("package", PAGES)
-def test_every_reference_entry_is_an_export(package: str) -> None:
-    exported, documented = _exported_and_documented(package)
+def test_every_reference_entry_is_an_export(documented_module: ModuleType) -> None:
+    exported, documented = _exported_and_documented(documented_module)
     assert sorted(documented - exported) == []
 
 
-@pytest.mark.parametrize("package", PAGES)
-def test_no_symbol_is_documented_twice(package: str) -> None:
-    counts = Counter(target for _, target in _entries(package))
+def test_no_symbol_is_documented_twice(documented_package: str) -> None:
+    counts = Counter(target for _, target in _entries(documented_package))
     assert sorted(target for target, count in counts.items() if count > 1) == []
 
 
-@pytest.mark.parametrize("package", PAGES)
-def test_every_entry_sits_under_its_defining_module(package: str) -> None:
-    _import(package)
+def test_every_entry_sits_under_its_defining_module(
+    documented_package: str, documented_module: ModuleType
+) -> None:
     misplaced = [
         (section, target)
-        for section, target in _entries(package)
-        if not section.startswith(f"{package}.")
+        for section, target in _entries(documented_package)
+        if not section.startswith(f"{documented_package}.")
         or not _defines(section, target.rpartition(".")[2])
     ]
     assert misplaced == []

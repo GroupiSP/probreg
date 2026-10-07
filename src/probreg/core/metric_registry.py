@@ -107,6 +107,28 @@ class EpochPredictionData:
     Rows are independent scalar scoring units. Sample matrices use rows for scoring
     units and columns for draws; non-scalar distribution events are intentionally not
     represented by this contract.
+
+    Attributes:
+        targets: Observed target, one per scoring unit.
+        mean: Predictive mean, one per scoring unit.
+        variance: Non-negative predictive variance, one per scoring unit. Defaults
+            to ``None`` when no metric requires it.
+        predictive_samples: Draws from the predictive distribution, one row per
+            scoring unit and one column per draw. Defaults to ``None`` when no
+            metric requires them.
+        reference_samples: Draws from each scoring unit's reference distribution,
+            the empirical distribution the predictive draws are scored against,
+            one row per scoring unit and one column per draw. Defaults to ``None``
+            when no metric requires them.
+        intervals: Prediction intervals, each a
+            [`PredictionInterval`][probreg.core.PredictionInterval] at a distinct
+            confidence level. Defaults to no intervals.
+        coordinate: Numeric coordinate of each scoring unit, such as time or
+            remaining useful life, that a metric orders or weights scoring units
+            by. Defaults to ``None`` when no metric requires it.
+        evaluation_grid: Shared [`EvaluationGrid`][probreg.core.EvaluationGrid]
+            that distributional scores are integrated over. Defaults to ``None``
+            when no metric requires it.
     """
 
     targets: FloatArray
@@ -194,7 +216,25 @@ class EpochPredictionData:
 
 @dataclass(frozen=True, slots=True)
 class MetricRequirements:
-    """Materialized fields required by one or more epoch metrics."""
+    """Materialized fields required by one or more epoch metrics.
+
+    Targets and predictive means are always materialized; each attribute asks for one
+    more field of [`EpochPredictionData`][probreg.core.EpochPredictionData].
+
+    Attributes:
+        variance: Whether the predictive variance is required. Defaults to
+            ``False``.
+        predictive_samples: Whether draws from the predictive distribution are
+            required. Defaults to ``False``.
+        reference_samples: Whether draws from each scoring unit's reference
+            distribution are required. Defaults to ``False``.
+        interval_levels: Confidence levels, each in ``(0, 1)``, at which
+            prediction intervals are required. Defaults to no levels.
+        coordinate: Whether each scoring unit's numeric coordinate is required.
+            Defaults to ``False``.
+        evaluation_grid: Whether the shared evaluation grid is required. Defaults
+            to ``False``.
+    """
 
     variance: bool = False
     predictive_samples: bool = False

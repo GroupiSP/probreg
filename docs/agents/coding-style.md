@@ -20,6 +20,7 @@ mode (see `pyproject.toml`), so unannotated code passes the checker while still 
 - Google style, enforced in format by `docformatter` via pre-commit. Include `Args`, `Returns`
   and `Raises` sections wherever they apply.
 - For dataclasses, document the attributes, except those declared `init=False`.
+  `tests/test_dataclass_attributes.py` enforces this for exported dataclasses and NamedTuples.
 - Cross-references use mkdocstrings autorefs syntax to the public path,
   `` [`EarlyStopper`][probreg.core.EarlyStopper] ``, never a Sphinx role (`:class:`,
   `:func:`, …), which renders as literal text and escapes the strict docs build

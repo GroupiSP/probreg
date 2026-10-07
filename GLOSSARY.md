@@ -38,6 +38,10 @@ _Avoid_: Prefixed name, `training_loss`, `validation_loss`
 The partition of data a metric was measured on: `train` or `validation`. A run knows the split of every metric it reports, so a metric's split is never inferred from the name of the event or of the metric.
 _Avoid_: Training (as a split), source, phase
 
+**Outer iteration**:
+One pass through a run's sequence of stages, counted from zero, for workflows that return to their first stage after the last (e.g. alternating mean and variance stages). Each stage counts its own epochs within an outer iteration.
+_Avoid_: Cycle, round, outer epoch
+
 **Stage segment**:
 The leading part of a metric tag, naming the stage that produced the metric. Always present, including for a single-stage run, because two stages report against their own epoch counters and a tag without the stage lets one stage's curve overwrite the other's.
 

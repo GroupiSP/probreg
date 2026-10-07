@@ -1,4 +1,4 @@
-"""Test doubles and a training-run driver shared by the core and JAX tests.
+"""Test doubles, a training-run driver and the documented packages, for all tests.
 
 Core stays backend-neutral: nothing here imports the JAX backend at module
 level, so `pytest tests/core` still collects without it. The fixtures that
@@ -12,7 +12,9 @@ double per example without tripping Hypothesis's
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -56,6 +58,34 @@ class InMemoryTracker:
 def _require_jax_backend() -> None:
     for dependency in ("jax", "jax.numpy", "flax.nnx", "optax"):
         pytest.importorskip(dependency)
+
+
+# The packages the API reference documents, each with the optional dependencies it
+# needs to import; a test of a package skips without them.
+DOCUMENTED_PACKAGES = {
+    "probreg.core": (),
+    "probreg.jax": ("jax", "flax.nnx", "optax"),
+}
+
+
+@pytest.fixture(scope="session")
+def documented_packages() -> tuple[str, ...]:
+    """The names of every package the API reference documents."""
+    return tuple(DOCUMENTED_PACKAGES)
+
+
+@pytest.fixture(scope="session", params=sorted(DOCUMENTED_PACKAGES))
+def documented_package(request: pytest.FixtureRequest) -> str:
+    """The name of each documented package in turn."""
+    return request.param
+
+
+@pytest.fixture(scope="session")
+def documented_module(documented_package: str) -> ModuleType:
+    """The documented package, imported; skips without its optional dependencies."""
+    for dependency in DOCUMENTED_PACKAGES[documented_package]:
+        pytest.importorskip(dependency)
+    return importlib.import_module(documented_package)
 
 
 @pytest.fixture(scope="session")

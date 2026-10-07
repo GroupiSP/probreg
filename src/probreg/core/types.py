@@ -43,7 +43,19 @@ class StageState(StrEnum):
 
 @dataclass(frozen=True)
 class Batch:
-    """A batch of model inputs, optional targets, weights, and metadata."""
+    """A batch of model inputs, optional targets, weights, and metadata.
+
+    Attributes:
+        inputs: Model inputs, an array or nested container of arrays with a leading
+            batch dimension.
+        targets: Regression targets aligned with ``inputs``. Defaults to ``None``,
+            for batches that are only predicted on.
+        sample_weight: Weights with a leading batch dimension, one per row, scaling
+            each row's contribution to the loss. Defaults to ``None``, which weights
+            every row equally.
+        metadata: Caller-supplied information about the batch, carried along
+            unchanged. Defaults to an empty mapping.
+    """
 
     inputs: PyTree
     targets: PyTree | None = None
@@ -53,7 +65,15 @@ class Batch:
 
 @dataclass(frozen=True)
 class CheckpointRef:
-    """An opaque reference to a persisted checkpoint."""
+    """An opaque reference to a persisted checkpoint.
+
+    Attributes:
+        key: Key the checkpoint is stored under in a
+            [`CheckpointStore`][probreg.core.CheckpointStore]. It identifies the
+            checkpoint and carries no meaning of its own.
+        metadata: Information about the checkpoint, such as the stage that saved
+            it. Defaults to an empty mapping.
+    """
 
     key: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -61,7 +81,45 @@ class CheckpointRef:
 
 @dataclass
 class TrainingState:
-    """State shared across one or more explicit training stages."""
+    """State shared across one or more explicit training stages.
+
+    Attributes:
+        model_components: Model objects keyed by component name, as registered
+            with [`register_component`][probreg.core.TrainingState.register_component].
+            Defaults to an empty mapping.
+        parameter_roles: The [`ParameterRole`][probreg.core.ParameterRole] of each
+            registered component, keyed by component name, so a stage can check
+            the prerequisites an earlier stage left behind. Defaults to an empty
+            mapping.
+        frozen_components: Names of components that are no longer trained, such
+            as a fitted mean model while a later stage trains the variance.
+            Defaults to an empty set.
+        optimizer_states: Optimizer states keyed by name, as registered with
+            [`register_optimizer`][probreg.core.TrainingState.register_optimizer].
+            Defaults to an empty mapping.
+        posterior_state: State of the posterior-approximation stage, set once
+            ``lifecycle_state`` reaches
+            [`StageState.POSTERIOR_READY`][probreg.core.StageState]. Defaults
+            to ``None``.
+        rng_state: Random key threaded through training; seed it to make a run
+            reproducible. Defaults to ``None``.
+        lifecycle_state: Position of the workflow in the ordered
+            [`StageState`][probreg.core.StageState] lifecycle. Defaults to
+            [`StageState.NEW`][probreg.core.StageState].
+        stage: Label of the active stage, the value behind the
+            [`active_stage`][probreg.core.TrainingState.active_stage] property.
+            Defaults to ``None`` outside a runner.
+        outer_iteration: Zero-based outer iteration: the count of passes through
+            the run's sequence of stages. Defaults to ``0``.
+        data_fingerprint: Identifier of the dataset the state was trained on,
+            meant to detect resuming against different data. Set by the user and
+            not interpreted by the library. Defaults to ``None``.
+        checkpoint_registry: Named references to checkpoints a stage registered,
+            such as its best checkpoint. Defaults to an empty mapping.
+        metric_history: Recorded values of each metric in order, keyed by metric
+            tag (``stage/split/metric``), the same tags the experiment tracker
+            uses. Defaults to an empty mapping.
+    """
 
     model_components: dict[str, Any] = field(default_factory=dict)
     parameter_roles: dict[str, ParameterRole] = field(default_factory=dict)
@@ -138,7 +196,15 @@ class TrainingState:
 
 @dataclass(frozen=True)
 class StageResult:
-    """The outcome of executing a training stage."""
+    """The outcome of executing a training stage.
+
+    Attributes:
+        state: Training state the stage left behind.
+        metrics: Final metric values of the stage, keyed by metric name. Defaults
+            to an empty mapping.
+        loss: Loss of the stage's last epoch on the ``train`` split. Defaults to
+            ``None`` when the stage reports none.
+    """
 
     state: TrainingState
     metrics: Mapping[str, float] = field(default_factory=dict)
@@ -147,7 +213,15 @@ class StageResult:
 
 @dataclass(frozen=True)
 class ValidationResult:
-    """The outcome of validating a training stage."""
+    """The outcome of validating a training stage.
+
+    Attributes:
+        passed: Whether the stage's invariants hold.
+        metrics: Metric values measured during validation, keyed by metric name.
+            Defaults to an empty mapping.
+        message: Explanation of the outcome, typically of a failure. Defaults to
+            ``None``.
+    """
 
     passed: bool
     metrics: Mapping[str, float] = field(default_factory=dict)
