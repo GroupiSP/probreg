@@ -11,6 +11,8 @@ docs_dir: docs_site
 
 nav:
   - Home: index.md
+  - Guides:
+      - Examples: guides/examples.md
   - Glossary: glossary.md
 
 theme:
