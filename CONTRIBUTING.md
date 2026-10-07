@@ -14,9 +14,12 @@ Thanks for your interest in contributing to `probreg`.
 
 1. Open an issue first, and explicitly state that you would like to work on it.
 2. Set up your development environment with `uv`, then install pre-commit hooks:
-   - `uv sync --group dev`
+   - `uv sync --extra jax --group dev --group docs`
    - `uv run pre-commit install`
-   - `uv sync --extra jax --group dev --group docs`, to build the documentation site
+
+   The `jax` extra is needed even for core-only changes: `uv run pytest` also runs the snippets in
+   `README.md` and `docs_site/`, which import JAX, Flax and Optax. The `docs` group builds the
+   documentation site.
 3. Open a **draft pull request** targeting the `main` branch as soon as you start the work, and
    link it to the issue you opened.
 4. Implement your changes on that branch, pushing commits to the draft PR as you go.
