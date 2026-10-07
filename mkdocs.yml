@@ -11,6 +11,8 @@ docs_dir: docs_site
 
 nav:
   - Home: index.md
+  - Guides:
+      - Examples: guides/examples.md
   - API reference:
       - probreg.core: reference/core.md
       - probreg.jax: reference/jax.md
