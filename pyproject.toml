@@ -64,7 +64,7 @@ black = true
 style = "google"
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "README.md"]
+testpaths = ["tests", "docs_site", "README.md"]
 addopts = ["--markdown-docs", "--markdown-docs-syntax=superfences"]
 
 [tool.pyright]
