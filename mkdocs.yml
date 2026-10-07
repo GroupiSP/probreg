@@ -11,6 +11,9 @@ docs_dir: docs_site
 
 nav:
   - Home: index.md
+  - API reference:
+      - probreg.core: reference/core.md
+      - probreg.jax: reference/jax.md
   - Glossary: glossary.md
 
 theme:
@@ -48,3 +51,21 @@ markdown_extensions:
 
 plugins:
   - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+            merge_init_into_class: true
+            # Private members and dataclass validation hooks are not public API.
+            filters: ["!^_[^_]", "!^__post_init__$"]
+            # Each `:::` entry sits under its page's `## module` section, so the
+            # symbol heading is an h3 and its members nest below it.
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 3

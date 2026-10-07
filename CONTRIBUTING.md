@@ -46,3 +46,9 @@ result = run_cmapss_example()
 The form is `{.python notest}`, not `python notest`: Material's superfences does not recognise a
 bare word after the language and renders the block as plain text, while pytest is configured with
 `--markdown-docs-syntax=superfences` and skips brace-form fences carrying `notest`.
+
+The API reference in `docs_site/reference/` has one page per package and one `## module`
+section per source module. Exporting a symbol from `probreg.core` or `probreg.jax` means adding
+`::: probreg.core.Name` (its public path) under the section of the module that defines it;
+`tests/test_reference_completeness.py` fails until you do, and fails on an entry that names
+something not exported.
