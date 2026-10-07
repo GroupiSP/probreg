@@ -125,8 +125,15 @@ records `{"stage": "mean", "stage_complete": True}`. The finalized checkpoint is
 the hand-off point between the two stages.
 
 [`GammaVarianceStage`][probreg.jax.GammaVarianceStage] saves its best
-checkpoint the same way but does not restore it: its live model holds the last
-epoch, and `restore_checkpoint` brings back the best one.
+checkpoint the same way but neither restores nor finalizes it: its live model
+holds the last epoch. The checkpoint is taken before the stage reaches
+`VARIANCE_READY`, so `restore_checkpoint` brings back the best variance model
+with its lifecycle still at `MEAN_READY`. It also re-registers only the model and
+optimizer you pass it, so `mean_model` and `mean_optimizer` are no longer
+registered. To get a state that passes the variance stage's
+[`validate`][probreg.jax.GammaVarianceStage.validate] again, register the mean
+model and its optimizer again and set `lifecycle_state` to `VARIANCE_READY`. If
+you only need the best weights, restore into a throwaway `TrainingState`.
 
 Both stages read the key from their own
 [`SupervisedStageOptions`][probreg.jax.SupervisedStageOptions], and both default
