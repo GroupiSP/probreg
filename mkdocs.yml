@@ -13,6 +13,7 @@ nav:
   - Home: index.md
   - Guides:
       - Two-step mean/variance training: guides/two-step-training.md
+      - Checkpoints: guides/checkpoints.md
       - Examples: guides/examples.md
   - API reference:
       - probreg.core: reference/core.md

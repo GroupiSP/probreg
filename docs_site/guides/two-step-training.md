@@ -253,4 +253,6 @@ Run it with `uv run --extra jax --extra plot python examples/jax/xsin/two_steps.
 the source is
 [`examples/jax/xsin/two_steps.py`](https://github.com/GroupiSP/probreg/blob/main/examples/jax/xsin/two_steps.py).
 The [CMAPSS example](examples.md#cmapss-remaining-useful-life) uses the same
-stages with CNN models on real sensor data.
+stages with CNN models on real sensor data. To keep each stage's best model, or
+to run the variance stage later from a saved mean model, see
+[Checkpoints](checkpoints.md).
