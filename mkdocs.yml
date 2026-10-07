@@ -14,6 +14,7 @@ nav:
   - Guides:
       - Predictive distributions and losses: guides/distributions-and-losses.md
       - Epoch metrics: guides/epoch-metrics.md
+      - Tracking a run: guides/tracking.md
       - Examples: guides/examples.md
   - API reference:
       - probreg.core: reference/core.md
