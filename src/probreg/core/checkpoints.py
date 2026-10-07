@@ -11,7 +11,25 @@ from probreg.core.types import TrainingState
 
 @dataclass(frozen=True)
 class Checkpoint:
-    """The complete state necessary to resume staged training."""
+    """The complete state necessary to resume staged training.
+
+    Attributes:
+        state: Snapshot of the [`TrainingState`][probreg.core.TrainingState] at
+            the time the checkpoint was saved.
+        epoch: Epoch of the active stage at which the checkpoint was saved.
+        parameters: Snapshot of the model's parameters, in the backend's own
+            format. Defaults to ``None``.
+        optimizer_state: Snapshot of the optimizer's state, in the backend's own
+            format. Defaults to ``None``.
+        rng_state: Random key to resume training with. It mirrors the
+            ``rng_state`` of the embedded ``state``. Defaults to ``None``.
+        early_stopping_state: State of the early stopper, such as an
+            [`EarlyStoppingState`][probreg.core.EarlyStoppingState], so that
+            patience and the best value carry over on resume. Defaults to
+            ``None``.
+        metadata: Information about the checkpoint, such as the stage that saved
+            it. Defaults to an empty mapping.
+    """
 
     state: TrainingState
     epoch: int
