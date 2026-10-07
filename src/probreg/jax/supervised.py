@@ -137,10 +137,10 @@ def run_supervised(
             omitted, only loss is collected.
 
     Returns:
-        A :class:`StageResult` with the final ``state``, the last
-        recorded training metrics under their bare names, and the final
-        training loss. ``state.metric_history`` records every metric
-        under its metric tag ``stage/split/metric``.
+        A [`StageResult`][probreg.core.StageResult] with the final
+        ``state``, the last recorded training metrics under their bare
+        names, and the final training loss. ``state.metric_history``
+        records every metric under its metric tag ``stage/split/metric``.
 
     Raises:
         ValueError: If ``epochs`` is not positive, if ``stage`` is empty

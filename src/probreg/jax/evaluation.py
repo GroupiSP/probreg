@@ -1,8 +1,9 @@
 """Shared NNX evaluation primitives used by training runners and validation strategies.
 
 This module has no dependency on any specific training runner, so both
-:mod:`probreg.jax.supervised` and :mod:`probreg.jax.validation` may depend
-on it without either depending on the other.
+[`probreg.jax.supervised`][probregjaxsupervised] and
+[`probreg.jax.validation`][probregjaxvalidation] may depend on it without
+either depending on the other.
 """
 
 from __future__ import annotations

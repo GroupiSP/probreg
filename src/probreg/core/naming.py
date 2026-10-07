@@ -76,7 +76,7 @@ def metric_tag(stage: str, split: Split, metric: str) -> str:
 def parse_metric_tag(tag: str) -> MetricTag:
     """Split a metric tag back into its stage, split and metric name.
 
-    This is the exact inverse of :func:`metric_tag`.
+    This is the exact inverse of [`metric_tag`][probreg.core.metric_tag].
 
     Args:
         tag: A tag of the form ``stage/split/metric``.

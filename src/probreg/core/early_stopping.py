@@ -52,7 +52,7 @@ class EarlyStoppingState:
 
         Raises:
             ValueError: If configuration or observation fields cannot represent
-                a state produced by :class:`EarlyStopper`.
+                a state produced by [`EarlyStopper`][probreg.core.EarlyStopper].
         """
         if not self.metric:
             raise ValueError("metric must be a non-empty string.")
@@ -168,7 +168,7 @@ class EarlyStopper:
         Returns:
             ``True`` if the metric configured for this stopper is
             measured on the validation split (i.e. requires a
-            :class:`~probreg.core.protocols.ValidationStrategy` to be
+            [`ValidationStrategy`][probreg.core.ValidationStrategy] to be
             supplied to the training loop), ``False`` if it is measured
             on the training split.
         """
@@ -191,8 +191,9 @@ class EarlyStopper:
             epoch: The epoch at which ``value`` was observed.
 
         Returns:
-            An :class:`EarlyStoppingDecision` with the updated state and
-            whether ``value`` improved on the best score so far.
+            An [`EarlyStoppingDecision`][probreg.core.EarlyStoppingDecision]
+            with the updated state and whether ``value`` improved on the best
+            score so far.
 
         Raises:
             ValueError: If ``epoch`` is negative or ``value`` is not

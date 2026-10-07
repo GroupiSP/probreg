@@ -64,8 +64,9 @@ def initialize_training_state(
             ``"optimizer"``.
 
     Returns:
-        A :class:`TrainingState` with ``model`` and ``optimizer``
-        registered and ``rng_state`` initialized to ``rng_key``.
+        A [`TrainingState`][probreg.core.TrainingState] with ``model`` and
+        ``optimizer`` registered and ``rng_state`` initialized to
+        ``rng_key``.
     """
     return TrainingState(
         model_components={model_name: model},
@@ -89,18 +90,18 @@ def freeze_training_state(state: TrainingState) -> TrainingState:
     from the returned snapshot rather than copied, since they hold
     mutable NNX modules/optimizers that keep changing across epochs;
     callers that need an immutable capture of model or optimizer state
-    should use :func:`snapshot` instead and store it alongside the
-    frozen training state (see
-    :class:`probreg.core.checkpoints.Checkpoint`).
+    should use [`snapshot`][probreg.jax.snapshot] instead and store it
+    alongside the frozen training state (see
+    [`Checkpoint`][probreg.core.Checkpoint]).
 
     Args:
         state: The live training state to snapshot.
 
     Returns:
-        A new :class:`TrainingState` whose mutable container fields are
-        independent copies, unaffected by later in-place mutation of
-        ``state``, and whose ``model_components``/``optimizer_states``
-        are empty.
+        A new [`TrainingState`][probreg.core.TrainingState] whose mutable
+        container fields are independent copies, unaffected by later
+        in-place mutation of ``state``, and whose
+        ``model_components``/``optimizer_states`` are empty.
     """
     return replace(
         state,
@@ -121,8 +122,8 @@ def snapshot(module: nnx.Module) -> NnxSnapshot:
         module: The NNX module to snapshot.
 
     Returns:
-        An :class:`NnxSnapshot` containing ``module``'s graph definition
-        and variable state at the time of the call.
+        An [`NnxSnapshot`][probreg.jax.NnxSnapshot] containing ``module``'s
+        graph definition and variable state at the time of the call.
     """
     graphdef, state = nnx.split(module)
     copied_state = jax.tree.map(_copy_snapshot_leaf, state)

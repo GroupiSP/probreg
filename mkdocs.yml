@@ -63,6 +63,9 @@ hooks:
 
 plugins:
   - search
+  # Listed explicitly so autorefs also registers page headings: a docstring can
+  # then link a module by its reference-page section, e.g. [x][probregjaxstate].
+  - autorefs
   - mkdocstrings:
       handlers:
         python:
