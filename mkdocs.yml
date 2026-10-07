@@ -16,6 +16,8 @@ nav:
       - Validation and early stopping: guides/validation.md
       - Predictive distributions and losses: guides/distributions-and-losses.md
       - Epoch metrics: guides/epoch-metrics.md
+      - Two-step mean/variance training: guides/two-step-training.md
+      - Checkpoints: guides/checkpoints.md
       - Tracking a run: guides/tracking.md
       - Examples: guides/examples.md
   - API reference:
