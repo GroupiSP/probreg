@@ -50,9 +50,9 @@ class Batch:
             batch dimension.
         targets: Regression targets aligned with ``inputs``. Defaults to ``None``,
             for batches that are only predicted on.
-        sample_weight: Per-sample weights with a leading batch dimension, scaling
-            each sample's contribution to the loss. Defaults to ``None``, which
-            weights every sample equally.
+        sample_weight: Weights with a leading batch dimension, one per row, scaling
+            each row's contribution to the loss. Defaults to ``None``, which weights
+            every row equally.
         metadata: Caller-supplied information about the batch, carried along
             unchanged. Defaults to an empty mapping.
     """
@@ -99,13 +99,13 @@ class TrainingState:
             Defaults to an empty mapping.
         posterior_state: State of the posterior-approximation stage, set once
             ``lifecycle_state`` reaches
-            [`POSTERIOR_READY`][probreg.core.StageState]. Defaults
+            [`StageState.POSTERIOR_READY`][probreg.core.StageState]. Defaults
             to ``None``.
         rng_state: Random key threaded through training; seed it to make a run
             reproducible. Defaults to ``None``.
         lifecycle_state: Position of the workflow in the ordered
             [`StageState`][probreg.core.StageState] lifecycle. Defaults to
-            [`NEW`][probreg.core.StageState].
+            [`StageState.NEW`][probreg.core.StageState].
         stage: Label of the active stage, the value behind the
             [`active_stage`][probreg.core.TrainingState.active_stage] property.
             Defaults to ``None`` outside a runner.
@@ -202,8 +202,8 @@ class StageResult:
         state: Training state the stage left behind.
         metrics: Final metric values of the stage, keyed by metric name. Defaults
             to an empty mapping.
-        loss: Final training loss of the stage. Defaults to ``None`` when the
-            stage reports none.
+        loss: Loss of the stage's last epoch on the ``train`` split. Defaults to
+            ``None`` when the stage reports none.
     """
 
     state: TrainingState
