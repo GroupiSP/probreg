@@ -39,7 +39,7 @@ The partition of data a metric was measured on: `train` or `validation`. A run k
 _Avoid_: Training (as a split), source, phase
 
 **Outer iteration**:
-One pass through a run's sequence of stages, counted from zero, for workflows that cycle back through their stages (e.g. alternating mean and variance stages). Each stage counts its own epochs within an outer iteration.
+One pass through a run's sequence of stages, counted from zero, for workflows that return to their first stage after the last (e.g. alternating mean and variance stages). Each stage counts its own epochs within an outer iteration.
 _Avoid_: Cycle, round, outer epoch
 
 **Stage segment**:
