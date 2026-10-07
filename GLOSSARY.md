@@ -49,6 +49,10 @@ _Avoid_: Metric key, prefixed metric, `mean_training_loss`
 The identity of a recorded hyperparameter: its key path through a nested parameter mapping, joined with the same `/` as a metric tag. Each leaf key is a bare `snake_case` name, and a split is a path segment of its own, never part of a leaf key (`data/train/samples`, not `data/train_samples`).
 _Avoid_: Flat parameter name, hparam key
 
+**Scoring unit**:
+One scalar target together with everything predicted for it (mean, variance, samples, intervals, coordinate), the row an epoch metric scores. A target of any shape is flattened into as many scoring units as it has elements, and an epoch metric aggregates over all scoring units of a split, not over batches.
+_Avoid_: Sample (clashes with predictive draws), data point, observation
+
 ## CMAPSS example
 
 **Archive cache**:
