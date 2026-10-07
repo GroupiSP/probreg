@@ -4,6 +4,9 @@ Each reference page holds one `:::` directive per exported symbol, named by its 
 path (`probreg.core.GaussianNLLLoss`), under a `## probreg.core.losses`-style section for
 the module that defines it. A page missing a directive still builds, so the strict
 docs build cannot catch it; these tests do, in both directions.
+
+The packages checked are the ones the docs build imports, read from `mkdocs_hooks.py`
+without importing it, so these tests run without the docs dependency group.
 """
 
 from __future__ import annotations
@@ -14,11 +17,18 @@ import inspect
 import re
 from collections import Counter
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
-REFERENCE_DIR = Path(__file__).parent.parent / "docs_site" / "reference"
+REPOSITORY = Path(__file__).parent.parent
+REFERENCE_DIR = REPOSITORY / "docs_site" / "reference"
 PAGES = {"probreg.core": "core.md", "probreg.jax": "jax.md"}
+# Optional dependencies a package needs to import; its tests skip without them.
+OPTIONAL_DEPENDENCIES = {
+    "probreg.core": (),
+    "probreg.jax": ("jax", "flax.nnx", "optax"),
+}
 
 SECTION = re.compile(r"^## `?(?P<module>[\w.]+)`?\s*$")
 DIRECTIVE = re.compile(r"^::: (?P<target>[\w.]+)\s*$")
@@ -36,11 +46,32 @@ def _entries(package: str) -> list[tuple[str, str]]:
     return entries
 
 
-def _import(package: str):
-    if package == "probreg.jax":
-        for dependency in ("jax", "flax.nnx", "optax"):
-            pytest.importorskip(dependency)
+def _documented_packages() -> tuple[str, ...]:
+    """Return the docs build's `DOCUMENTED_PACKAGES`, parsed rather than imported."""
+    tree = ast.parse((REPOSITORY / "mkdocs_hooks.py").read_text())
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "DOCUMENTED_PACKAGES"
+        ):
+            return tuple(ast.literal_eval(node.value))
+    raise AssertionError("mkdocs_hooks.py does not define DOCUMENTED_PACKAGES.")
+
+
+def _import(package: str) -> ModuleType:
+    """Import a documented package, skipping if its optional dependencies are absent."""
+    for dependency in OPTIONAL_DEPENDENCIES[package]:
+        pytest.importorskip(dependency)
     return importlib.import_module(package)
+
+
+def _exported_and_documented(package: str) -> tuple[set[str], set[str]]:
+    """Return the package's exports and its reference page's directive targets."""
+    exported = {f"{package}.{name}" for name in _import(package).__all__}
+    documented = {target for _, target in _entries(package)}
+    return exported, documented
 
 
 def _bound_names(node: ast.stmt) -> set[str]:
@@ -62,17 +93,20 @@ def _defines(module_name: str, name: str) -> bool:
     return any(name in _bound_names(node) for node in tree.body)
 
 
+def test_every_documented_package_has_a_reference_page() -> None:
+    assert sorted(PAGES) == sorted(_documented_packages())
+    assert sorted(OPTIONAL_DEPENDENCIES) == sorted(_documented_packages())
+
+
 @pytest.mark.parametrize("package", PAGES)
 def test_every_export_has_a_reference_entry(package: str) -> None:
-    exported = {f"{package}.{name}" for name in _import(package).__all__}
-    documented = {target for _, target in _entries(package)}
+    exported, documented = _exported_and_documented(package)
     assert sorted(exported - documented) == []
 
 
 @pytest.mark.parametrize("package", PAGES)
 def test_every_reference_entry_is_an_export(package: str) -> None:
-    exported = {f"{package}.{name}" for name in _import(package).__all__}
-    documented = {target for _, target in _entries(package)}
+    exported, documented = _exported_and_documented(package)
     assert sorted(documented - exported) == []
 
 
