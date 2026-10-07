@@ -116,4 +116,15 @@ def add_epsilon(epsilon: float = 1e-12) -> Callable[[Array], Array]:
 # their original constructor behavior while the canonical API uses
 # NegativeLogLikelihoodLoss.
 GaussianNLLLoss = NegativeLogLikelihoodLoss
+"""Alias of [`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss].
+
+Kept for compatibility with the pre-consolidation name; prefer the canonical name.
+"""
+
 BetaNLLLoss = NegativeLogLikelihoodLoss
+"""Alias of [`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss].
+
+Kept for compatibility with the pre-consolidation name; prefer the canonical name. The
+beta-NLL weighting is the `beta` argument of
+[`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss].
+"""
