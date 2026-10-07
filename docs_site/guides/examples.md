@@ -7,6 +7,11 @@ from the gentlest upward: start with the first and move down as you need more
 of the library. Each one brings its own dependencies, either through a project
 extra (`jax`, `plot`) or through an example-only dependency group.
 
+Only the commands shown here are entry points. The other modules beside them,
+`xsin/benchmark.py`, `cmapss/model.py`, `cmapss/preprocessing.py`,
+`cmapss/plots.py` and `tracking/tensorboard_tracker.py`, hold shared code the
+scripts import.
+
 ## Simple regression
 
 `run_supervised` end to end on a toy linear dataset: one model, held-out
@@ -37,12 +42,24 @@ Source:
 
 Two paired scripts on an XSin-inspired benchmark that compare joint Gaussian
 mean-variance estimation with two-step training: a mean stage followed by a
-Gamma variance stage fitted on its residuals.
+Gamma variance stage fitted on its residuals. Both train only on `x` in
+`(0, 10)` and are evaluated on the wider `(-5, 15)`, so each run shows
+interpolation and extrapolation side by side.
 
 ```bash
 uv run --extra jax --extra plot python examples/jax/xsin/mve.py
 uv run --extra jax --extra plot python examples/jax/xsin/two_steps.py
 ```
+
+Each script prints its mean and variance errors against the known
+data-generating functions, overall, inside the training domain and outside
+it, and plots the result with the training-domain boundaries marked. Under the
+seeded configuration, two-step training improves both interpolation errors,
+because the variance objective can no longer distort the trained mean; the
+extrapolation errors are reported, not assumed to improve. The benchmark
+reproduces the qualitative comparison motivated by Yi and Bessa (2025) with
+compact settings; it does not claim to reproduce the paper's architectures,
+runtime or reported values.
 
 Source:
 [`examples/jax/xsin/`](https://github.com/GroupiSP/probreg/tree/main/examples/jax/xsin)
@@ -55,6 +72,14 @@ composite Gaussian scored against the official test split.
 
 ```bash
 uv run --group example-cmapss python examples/jax/cmapss/run.py
+```
+
+To fetch the archive ahead of time, or only to plot the raw sensor
+trajectories, run the data module on its own:
+
+```bash
+uv run --group example-cmapss python examples/jax/cmapss/data.py --fetch
+uv run --group example-cmapss python examples/jax/cmapss/data.py
 ```
 
 The first run downloads the CMAPSS archive from NASA and caches it on disk, so
@@ -74,6 +99,9 @@ hyperparameters under their parameter paths, and a final figure.
 uv run --group example-tracking python examples/jax/tracking/run.py --logdir runs/
 uv run --group example-tracking tensorboard --logdir runs/
 ```
+
+Each invocation writes to its own UTC-timestamped subdirectory of `--logdir`,
+so successive runs appear side by side in TensorBoard.
 
 README:
 [`examples/jax/tracking/README.md`](https://github.com/GroupiSP/probreg/blob/main/examples/jax/tracking/README.md)

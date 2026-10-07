@@ -152,6 +152,13 @@ assert variance.shape == inputs.shape
 assert bool(jnp.all(variance > 0.0))
 ```
 
+The aleatoric variance estimate is the Gamma's mean, `concentration / rate`,
+not the Gamma's own variance, `concentration / rate**2`: the latter measures
+how uncertain the variance estimate itself is. The mean model takes no part in
+the second step's optimization. The variance stage records it as frozen, as
+the assertion on `frozen_components` shows, and only the variance model is
+handed to the variance optimizer.
+
 The two stages register their components under fixed names: the mean model and
 its optimizer as `mean_model` and `mean_optimizer`, the variance model and its
 optimizer as `variance_model` and `variance_optimizer`. The variance stage finds
@@ -234,7 +241,8 @@ serve both, or the stage has to be told otherwise with `splits=("train",)`.
     that only fits when streamed from disk does not fit here. The cache is also
     a fixed snapshot: each variance epoch replays the same batches in the same
     order, with no reshuffling, and it reflects the mean model as it was when
-    `prepare` ran.
+    `prepare` ran. Recomputing residuals as the mean model changes, as an
+    iterative scheme alternating the two steps would need, is not supported.
 
 ## Larger runs
 

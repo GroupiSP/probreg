@@ -58,7 +58,9 @@ target with its predictive mean and, when requested, its variance, predictive
 and reference samples (as `(n_scoring_units, n_draws)` matrices), labelled
 prediction intervals and a coordinate. The predictor flattens targets of any
 shape into scoring units, and every field is validated as finite and
-shape-consistent.
+shape-consistent. Each scoring unit is one scalar, so the model's distribution
+must have a scalar event: a prediction with a non-empty event shape is
+rejected.
 Because the data are plain arrays, an epoch metric can be called without JAX
 at all:
 
@@ -118,8 +120,9 @@ batch, split and epoch is scored on the same grid with the same number of
 draws, and both have no default. A grid that does not span the targets
 silently understates the score, and its range and resolution depend on the
 scale of your data; the sample count trades cost against noise in the
-estimate. A suite that registers a CRPS metric without them fails when it is
-built:
+estimate. The draws are kept on the host for the whole epoch, so they cost
+`O(n_scoring_units * predictive_sample_count)` memory. A suite that registers
+a CRPS metric without them fails when it is built:
 
 ```python
 import numpy as np
@@ -215,6 +218,12 @@ metrics, _ = evaluate_loader(model, batches, key=jax.random.key(0), metrics=suit
 assert set(metrics) == {"rmse", "coverage", "wsu", "point_crps"}
 assert 0.0 <= metrics["coverage"] <= 1.0
 ```
+
+Collecting predictions does not disturb training. The predictor runs on an
+inference-mode clone of the model, so stateful layers and the model's internal
+RNG streams are left as they were, and sampled metrics draw from keys derived
+in a namespace of their own, so registering one does not change the random
+keys the loss and batch metrics see.
 
 No `loss` was given, so none is reported. In a training run, pass the same
 suite as `metrics=` to
