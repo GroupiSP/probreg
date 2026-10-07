@@ -49,6 +49,9 @@ markdown_extensions:
       base_path: ["."]
       check_paths: true
 
+hooks:
+  - mkdocs_hooks.py
+
 plugins:
   - search
   - mkdocstrings:
