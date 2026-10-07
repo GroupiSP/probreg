@@ -31,7 +31,12 @@ dev = [
     "hypothesis>=6.140.4",
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
+    "pytest-markdown-docs>=0.9.2",
     "ruff>=0.14.9",
+]
+docs = [
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings[python]>=1.0.6",
 ]
 
 example-cmapss = [
@@ -57,6 +62,10 @@ example-tracking = [
 recursive = true
 black = true
 style = "google"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "docs_site", "README.md"]
+addopts = ["--markdown-docs", "--markdown-docs-syntax=superfences"]
 
 [tool.pyright]
 typeCheckingMode = "basic"

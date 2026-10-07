@@ -1,0 +1,86 @@
+site_name: probreg
+site_description: Stage-oriented probabilistic regression
+site_url: https://groupisp.github.io/probreg/
+repo_url: https://github.com/GroupiSP/probreg
+repo_name: GroupiSP/probreg
+edit_uri: ""
+
+# The published pages live apart from docs/, which holds ADRs and agent notes
+# that are never published (ADR 0007).
+docs_dir: docs_site
+
+nav:
+  - Home: index.md
+  - Guides:
+      - Training a supervised model: guides/training.md
+      - Validation and early stopping: guides/validation.md
+      - Predictive distributions and losses: guides/distributions-and-losses.md
+      - Epoch metrics: guides/epoch-metrics.md
+      - Two-step mean/variance training: guides/two-step-training.md
+      - Checkpoints: guides/checkpoints.md
+      - Tracking a run: guides/tracking.md
+      - Examples: guides/examples.md
+  - API reference:
+      - probreg.core: reference/core.md
+      - probreg.jax: reference/jax.md
+  - Glossary: glossary.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      # Includes resolve from the repo root, so pages can pull in README.md and
+      # GLOSSARY.md, which sit outside docs_dir. A missing include fails the build.
+      base_path: ["."]
+      check_paths: true
+
+hooks:
+  - mkdocs_hooks.py
+
+plugins:
+  - search
+  # Listed explicitly so autorefs also registers page headings: a docstring can
+  # then link a module by its reference-page section, e.g. [x][probregjaxstate].
+  - autorefs
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+            merge_init_into_class: true
+            # Private members and dataclass validation hooks are not public API.
+            filters: ["!^_[^_]", "!^__post_init__$"]
+            # Each `:::` entry sits under its page's `## module` section, so the
+            # symbol heading is an h3 and its members nest below it.
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 3

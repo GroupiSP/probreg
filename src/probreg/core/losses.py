@@ -23,7 +23,10 @@ class NegativeLogLikelihoodLoss:
         beta: Variance-reweighting exponent in ``[0, 1]``. Zero recovers
             ordinary negative log-likelihood.
         stop_gradient: Callable excluding the variance weight from gradient
-            propagation when required by an autodiff backend.
+            propagation. Defaults to the identity, which lets gradients flow
+            through the weight. With JAX and ``beta > 0``, pass
+            ``jax.lax.stop_gradient``; otherwise a different objective from
+            beta-NLL is trained.
         target_transform: Callable applied to targets before evaluating the
             predictive distribution. Defaults to the identity transform.
     """
@@ -113,4 +116,15 @@ def add_epsilon(epsilon: float = 1e-12) -> Callable[[Array], Array]:
 # their original constructor behavior while the canonical API uses
 # NegativeLogLikelihoodLoss.
 GaussianNLLLoss = NegativeLogLikelihoodLoss
+"""Alias of [`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss].
+
+Kept for compatibility with the pre-consolidation name; prefer the canonical name.
+"""
+
 BetaNLLLoss = NegativeLogLikelihoodLoss
+"""Alias of [`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss].
+
+Kept for compatibility with the pre-consolidation name; prefer the canonical name. The
+beta-NLL weighting is the `beta` argument of
+[`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss].
+"""

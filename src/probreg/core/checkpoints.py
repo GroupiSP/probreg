@@ -33,12 +33,12 @@ class CheckpointStore(Protocol):
 
 
 class InMemoryCheckpointStore:
-    """A :class:`CheckpointStore` that keeps checkpoints in process memory.
+    """A [`CheckpointStore`][probreg.core.CheckpointStore] kept in process memory.
 
-    Checkpoints live only for the lifetime of the store, which makes it the
-    natural choice for examples, tests, and short runs that only need the
-    best checkpoint of the current process restored at the end. Saving
-    under an existing key replaces the checkpoint held there.
+    Checkpoints live only for the lifetime of the store, which makes it the natural
+    choice for examples, tests, and short runs that only need the best checkpoint of the
+    current process restored at the end. Saving under an existing key replaces the
+    checkpoint held there.
     """
 
     def __init__(self) -> None:

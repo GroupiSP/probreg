@@ -6,16 +6,19 @@ backend and runnable examples under `examples/jax/`.
 ## Environment
 
 The package manager is **`uv`**, not pip. Every Python command runs through it: `uv run pytest`,
-`uv run pre-commit run --all-files`. Dev setup is `uv sync --group dev` then
-`uv run pre-commit install`. Examples have their own dependency groups (`example-cmapss`,
+`uv run pre-commit run --all-files`. Dev setup is `uv sync --extra jax --group dev --group docs`
+then `uv run pre-commit install`. The `jax` extra is required because `uv run pytest` also runs the
+snippets in `README.md` and `docs_site/`, which import JAX, Flax and Optax; the docs site
+(`docs_site/`, built by `mkdocs.yml`) needs the `docs` group as well. Examples have their own dependency groups (`example-cmapss`,
 `example-tracking`); install one with `uv sync --group <name>`.
 
 ## Verification gate
 
-Before presenting changes for review, all three must pass:
+Before presenting changes for review, all four must pass:
 
 - `uv run pre-commit run --all-files` (ruff check, ruff format, docformatter)
-- `uv run pytest`
+- `uv run pytest` (also runs the Python snippets in `README.md` and `docs_site/`)
+- `uv run --extra jax --group docs mkdocs build --strict` (the docs site in `docs_site/`)
 - A smoke test of the entry points under `examples/jax/` that your change could affect.
 
 ## Reference

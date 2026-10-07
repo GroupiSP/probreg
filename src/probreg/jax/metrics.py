@@ -82,7 +82,16 @@ class BatchMetric(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class BatchMetricSpec:
-    """A named batch metric with a host-side reduction policy."""
+    """A named batch metric with a host-side reduction policy.
+
+    Attributes:
+        name: Bare metric name the reduced value is reported under. Must not be
+            empty.
+        metric: The [`BatchMetric`][probreg.jax.BatchMetric] evaluated on every
+            batch.
+        reduce: Host-side reduction of the per-batch values to one epoch value.
+            Defaults to the arithmetic mean.
+    """
 
     name: str
     metric: BatchMetric
@@ -100,7 +109,15 @@ class BatchMetricSpec:
 
 @dataclass(frozen=True, slots=True)
 class PredictionRequirements:
-    """Combined metric requirements plus explicit materialization configuration."""
+    """Combined metric requirements plus explicit materialization configuration.
+
+    Attributes:
+        fields: Union of the prediction fields the registered epoch metrics read.
+        predictive_sample_count: Number of predictive draws per scoring unit.
+            Required, and positive, when ``fields`` asks for predictive samples.
+        evaluation_grid: Grid the CRPS metrics integrate over. Required when
+            ``fields`` asks for an evaluation grid.
+    """
 
     fields: MetricRequirements
     predictive_sample_count: int | None = None
@@ -377,7 +394,19 @@ def _gaussian_interval(prediction: Gaussian, level: float) -> PredictionInterval
 
 @dataclass(frozen=True, slots=True)
 class MetricSuite:
-    """Complete metric registration and materialization configuration."""
+    """Complete metric registration and materialization configuration.
+
+    Attributes:
+        batch: Batch metrics evaluated on every batch.
+        epoch: [`EpochMetric`][probreg.core.EpochMetric]s evaluated once per epoch
+            over the merged predictions.
+        predictor: The [`Predictor`][probreg.jax.Predictor] that turns model
+            outputs into host arrays. Required when ``epoch`` is non-empty.
+        predictive_sample_count: Number of predictive draws per scoring unit.
+            Required by sample-based epoch metrics.
+        evaluation_grid: Grid the CRPS metrics integrate over. Required by CRPS
+            epoch metrics.
+    """
 
     batch: tuple[BatchMetricSpec, ...] = ()
     epoch: tuple[EpochMetric, ...] = ()

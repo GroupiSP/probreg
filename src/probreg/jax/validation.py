@@ -43,8 +43,8 @@ class HeldOutValidation:
                 select the validation batches for this epoch.
 
         Returns:
-            A :class:`ValidationResult` with bare metric names and
-            ``passed=True``.
+            A [`ValidationResult`][probreg.core.ValidationResult] with bare
+            metric names and ``passed=True``.
 
         Raises:
             TypeError: If ``state.rng_state`` is not a JAX random key.

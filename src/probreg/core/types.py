@@ -9,7 +9,16 @@ from typing import Any
 
 # Backends supply concrete array and tree implementations in their adapters.
 Array = Any
+"""An array of the active backend, such as a `jax.Array`.
+
+Typed as `Any` because `probreg.core` imports no backend.
+"""
+
 PyTree = Any
+"""A nested container of arrays of the active backend, such as model parameters.
+
+Typed as `Any` because `probreg.core` imports no backend.
+"""
 
 
 class ParameterRole(StrEnum):

@@ -1,9 +1,11 @@
 """A concrete JAX-backed Gaussian predictive distribution and head.
 
-This module binds :class:`probreg.core.distributions.PredictiveDistribution`
-and :class:`probreg.core.distributions.DistributionHead` to JAX arrays and an
-NNX linear head, following the same Tier 2 (JAX backend) placement as
-:mod:`probreg.jax.state` and :mod:`probreg.jax.evaluation`.
+This module binds
+[`PredictiveDistribution`][probreg.core.PredictiveDistribution] and
+[`DistributionHead`][probreg.core.DistributionHead] to JAX arrays and an NNX
+linear head, following the same Tier 2 (JAX backend) placement as
+[`probreg.jax.state`][probregjaxstate] and
+[`probreg.jax.evaluation`][probregjaxevaluation].
 """
 
 from __future__ import annotations
@@ -25,9 +27,10 @@ class Gaussian:
     Attributes:
         loc: The distribution mean, shaped like the model's output.
         scale: The distribution's positive standard deviation, broadcastable
-            against ``loc``. Callers (e.g. :class:`GaussianHead`) are
-            responsible for ensuring positivity, e.g. via a ``softplus``
-            transform of an unconstrained raw output.
+            against ``loc``. Callers (e.g.
+            [`GaussianHead`][probreg.jax.GaussianHead]) are responsible for
+            ensuring positivity, e.g. via a ``softplus`` transform of an
+            unconstrained raw output.
     """
 
     loc: jax.Array
@@ -144,7 +147,7 @@ class Gamma:
 
 
 class GaussianHead(nnx.Module):
-    """An NNX head producing a :class:`Gaussian` from model features.
+    """An NNX head producing a [`Gaussian`][probreg.jax.Gaussian] from model features.
 
     A single linear layer maps ``in_features`` to ``2 * out_features``
     outputs, split into an unconstrained location and an unconstrained scale
@@ -181,13 +184,13 @@ class GaussianHead(nnx.Module):
         self.linear = nnx.Linear(in_features, 2 * out_features, rngs=rngs)
 
     def __call__(self, features: jax.Array) -> Gaussian:
-        """Produce a :class:`Gaussian` prediction from ``features``.
+        """Produce a [`Gaussian`][probreg.jax.Gaussian] prediction from ``features``.
 
         Args:
             features: Model features, shaped ``(..., in_features)``.
 
         Returns:
-            A :class:`Gaussian` with ``loc``/``scale`` shaped
+            A [`Gaussian`][probreg.jax.Gaussian] with ``loc``/``scale`` shaped
             ``(..., out_features)``.
         """
         raw_loc, raw_scale = jnp.split(self.linear(features), 2, axis=-1)
@@ -196,7 +199,7 @@ class GaussianHead(nnx.Module):
 
 
 class GammaHead(nnx.Module):
-    """An NNX head producing a shape/rate :class:`Gamma` distribution."""
+    """An NNX head producing a shape/rate [`Gamma`][probreg.jax.Gamma] distribution."""
 
     def __init__(
         self,

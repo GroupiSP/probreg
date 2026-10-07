@@ -1,0 +1,279 @@
+# Epoch metrics
+
+The loss tells you how training is going; it does not tell you whether the
+predictive distribution is any good. This guide explains how to register
+metrics such as RMSE, interval coverage and CRPS with a run, how predictions
+reach them, and why some of them refuse to run until you configure them
+explicitly.
+
+## One suite, two kinds of metric
+
+Every metric a run computes beyond the loss is registered on a
+[`MetricSuite`][probreg.jax.MetricSuite], which you pass to the runner for the
+train split and to the validation strategy for the validation split,
+usually the same suite for both. It holds two kinds of metric:
+
+- **Batch metrics**, each a [`BatchMetricSpec`][probreg.jax.BatchMetricSpec]:
+  a JAX function evaluated on every batch, whose per-batch values are reduced
+  on the host (by default with the mean). Cheap, and right for any quantity
+  that is an average of per-batch averages.
+- **Epoch metrics**, each an [`EpochMetric`][probreg.core.EpochMetric]: a
+  host-side function evaluated once per epoch, over the predictions for every
+  batch at once. This is what a quantity that does not decompose into batch
+  averages needs: an RMSE is the root of a mean over the whole epoch, and an
+  interval's coverage or a CRPS is only meaningful over all scoring units.
+
+Each metric has one bare [metric name](../glossary.md) such as `rmse` or
+`point_crps`, the same on every split and in every stage. The name `loss` is
+reserved for the loss, and two metrics with the same name are rejected.
+
+The epoch metrics in `probreg.core` are
+[`RootMeanSquaredError`][probreg.core.RootMeanSquaredError],
+[`IntervalCoverage`][probreg.core.IntervalCoverage],
+[`WeightedSpread`][probreg.core.WeightedSpread],
+[`PointContinuousRankedProbabilityScore`][probreg.core.PointContinuousRankedProbabilityScore]
+and
+[`ContinuousRankedProbabilityScore`][probreg.core.ContinuousRankedProbabilityScore].
+
+## The predictor boundary
+
+An epoch metric is backend-neutral: it lives in `probreg.core` and works on
+NumPy arrays. The model, however, returns a
+[`PredictiveDistribution`][probreg.core.PredictiveDistribution] made of JAX
+arrays, and that protocol deliberately has no way to concatenate or index
+distributions, so a run cannot simply collect an epoch's worth of them.
+
+A [`Predictor`][probreg.jax.Predictor] bridges the two. For each batch it calls
+the model, turns the distribution into host arrays, and returns them as
+[`EpochPredictionData`][probreg.core.EpochPredictionData]. The run then joins
+the batches with
+[`merge_epoch_prediction_data`][probreg.jax.merge_epoch_prediction_data] and
+hands the result to each epoch metric. The predictor is the only place that
+knows about the distribution family; for a model returning a
+[`Gaussian`][probreg.jax.Gaussian], use
+[`GaussianPredictor`][probreg.jax.GaussianPredictor].
+
+`EpochPredictionData` holds one row per **scoring unit**: a single scalar
+target with its predictive mean and, when requested, its variance, predictive
+and reference samples (as `(n_scoring_units, n_draws)` matrices), labelled
+prediction intervals and a coordinate. The predictor flattens targets of any
+shape into scoring units, and every field is validated as finite and
+shape-consistent. Each scoring unit is one scalar, so the model's distribution
+must have a scalar event: a prediction with a non-empty event shape is
+rejected.
+Because the data are plain arrays, an epoch metric can be called without JAX
+at all:
+
+```python
+import numpy as np
+
+from probreg.core import (
+    EpochPredictionData,
+    IntervalCoverage,
+    PredictionInterval,
+    RootMeanSquaredError,
+)
+
+data = EpochPredictionData(
+    targets=np.array([0.0, 1.0, 2.0, 3.0]),
+    mean=np.array([0.0, 1.0, 2.0, 5.0]),
+    intervals=(
+        PredictionInterval(
+            level=0.9,
+            lower=np.array([-1.0, 0.0, 1.0, 4.0]),
+            upper=np.array([1.0, 2.0, 3.0, 6.0]),
+        ),
+    ),
+)
+
+assert RootMeanSquaredError()(data) == 1.0
+assert IntervalCoverage(level=0.9)(data) == 0.75
+```
+
+## Materializing only what is required
+
+Sampling a distribution and integrating its CDF are not free, so the predictor
+materializes only the fields some registered metric asks for. Each epoch
+metric declares its needs as
+[`MetricRequirements`][probreg.core.MetricRequirements], and the suite takes
+their union:
+
+| Metric | Requires |
+| --- | --- |
+| `RootMeanSquaredError` | targets and means only |
+| `IntervalCoverage(level)` | an interval at exactly `level` |
+| `WeightedSpread(level)` | an interval at `level` and a coordinate |
+| `PointContinuousRankedProbabilityScore` | predictive samples and an evaluation grid |
+| `ContinuousRankedProbabilityScore` | predictive samples, reference samples and an evaluation grid |
+
+Intervals cost nothing to configure: `GaussianPredictor` computes the exact
+central Gaussian interval at each requested level. The other requirements come
+with choices the library will not make for you.
+
+### CRPS: sample count and evaluation grid
+
+Both CRPS metrics compare empirical CDFs numerically. They need a number of
+predictive draws per scoring unit and an
+[`EvaluationGrid`][probreg.core.EvaluationGrid], the strictly increasing
+points the CDFs are integrated over. Both are set once on the suite, so every
+batch, split and epoch is scored on the same grid with the same number of
+draws, and both have no default. A grid that does not span the targets
+silently understates the score, and its range and resolution depend on the
+scale of your data; the sample count trades cost against noise in the
+estimate. The draws are kept on the host for the whole epoch, so they cost
+`O(n_scoring_units * predictive_sample_count)` memory. A suite that registers
+a CRPS metric without them fails when it is built:
+
+```python
+import numpy as np
+import pytest
+
+from probreg.core import EvaluationGrid, PointContinuousRankedProbabilityScore
+from probreg.jax import GaussianPredictor, MetricSuite
+
+with pytest.raises(ValueError, match="predictive_sample_count"):
+    MetricSuite(
+        epoch=(PointContinuousRankedProbabilityScore(),),
+        predictor=GaussianPredictor(),
+    )
+
+suite = MetricSuite(
+    epoch=(PointContinuousRankedProbabilityScore(),),
+    predictor=GaussianPredictor(),
+    predictive_sample_count=64,
+    evaluation_grid=EvaluationGrid(np.linspace(-5.0, 5.0, 201)),
+)
+```
+
+`PointContinuousRankedProbabilityScore` (`point_crps`) scores each predictive
+distribution against its observed target, which is what a real dataset
+offers. `ContinuousRankedProbabilityScore` (`crps`) scores it against a whole
+reference distribution of the target, which only exists when you know how the
+data were generated, as in a simulated benchmark. Those reference draws come
+from a `reference_samples_extractor` you give the predictor, a
+[`ReferenceSamplesExtractor`][probreg.jax.ReferenceSamplesExtractor] that maps a
+batch and a key to a `(n_scoring_units, n_draws)` array.
+
+### Spread: an explicit coordinate
+
+`WeightedSpread` (`wsu`) summarises how an interval's width evolves along an
+ordered coordinate, such as time or cycle number, weighting later points more.
+Scoring units carry no notion of order, and the right coordinate is a fact
+about your domain, not about the model's inputs, so it is never inferred. You
+supply it through the predictor's `coordinate_extractor`, a
+[`CoordinateExtractor`][probreg.jax.CoordinateExtractor] that reads it from a
+batch, typically from its `metadata`. The metric sorts the scoring units by
+coordinate, so they may arrive in any order, but every scoring unit needs a
+coordinate of its own: a tie between two units is rejected, as is an epoch with
+fewer than three units. A suite with `WeightedSpread` and no extractor fails at
+the first batch it predicts.
+
+## Evaluating a suite
+
+With a model, a loader and a suite, a full evaluation is one call to
+[`evaluate_loader`][probreg.jax.evaluate_loader]. It is also what
+[`HeldOutValidation`][probreg.jax.HeldOutValidation] runs on the validation
+split after every epoch. Here every metric of this guide is computed on an
+untrained Gaussian head, with the coordinate read from batch metadata:
+
+```python
+import jax
+import jax.numpy as jnp
+import numpy as np
+from flax import nnx
+
+from probreg.core import (
+    EvaluationGrid,
+    IntervalCoverage,
+    PointContinuousRankedProbabilityScore,
+    RootMeanSquaredError,
+    WeightedSpread,
+)
+from probreg.core.types import Batch
+from probreg.jax import GaussianHead, GaussianPredictor, MetricSuite, evaluate_loader
+
+inputs = jnp.linspace(-1.0, 1.0, 16).reshape(-1, 1)
+batches = [
+    Batch(
+        inputs=inputs[start : start + 8],
+        targets=2.0 * inputs[start : start + 8],
+        metadata={"time": jnp.arange(start, start + 8)},
+    )
+    for start in (0, 8)
+]
+
+suite = MetricSuite(
+    epoch=(
+        RootMeanSquaredError(),
+        IntervalCoverage(level=0.95),
+        WeightedSpread(level=0.95),
+        PointContinuousRankedProbabilityScore(),
+    ),
+    predictor=GaussianPredictor(coordinate_extractor=lambda batch: batch.metadata["time"]),
+    predictive_sample_count=32,
+    evaluation_grid=EvaluationGrid(np.linspace(-6.0, 6.0, 121)),
+)
+
+model = GaussianHead(1, 1, rngs=nnx.Rngs(0))
+metrics, _ = evaluate_loader(model, batches, key=jax.random.key(0), metrics=suite)
+
+assert set(metrics) == {"rmse", "coverage", "wsu", "point_crps"}
+assert 0.0 <= metrics["coverage"] <= 1.0
+```
+
+Collecting predictions does not disturb training. The predictor runs on an
+inference-mode clone of the model, so stateful layers and the model's internal
+RNG streams are left as they were, and sampled metrics draw from keys derived
+in a namespace of their own, so registering one does not change the random
+keys the loss and batch metrics see.
+
+No `loss` was given, so none is reported. In a training run, pass the same
+suite as `metrics=` to
+[`run_supervised`][probreg.jax.run_supervised] and to `HeldOutValidation`; each
+value is then recorded under its [metric tag](../glossary.md),
+`stage/split/metric`, such as `supervised/validation/point_crps`.
+
+## Writing your own epoch metric
+
+An epoch metric is anything with a `name`, a `requirements` property and a
+call on `EpochPredictionData` that returns a float; it does not inherit from
+anything. Declare only the fields you read, and the predictor will provide
+them:
+
+```python
+from dataclasses import dataclass
+
+import numpy as np
+
+from probreg.core import EpochPredictionData, MetricRequirements
+
+
+@dataclass(frozen=True)
+class MeanPredictedVariance:
+    name: str = "mean_variance"
+
+    @property
+    def requirements(self):
+        return MetricRequirements(variance=True)
+
+    def __call__(self, data: EpochPredictionData, /) -> float:
+        return float(np.mean(data.variance))
+
+
+metric = MeanPredictedVariance()
+data = EpochPredictionData(
+    targets=np.zeros(3), mean=np.zeros(3), variance=np.array([1.0, 2.0, 3.0])
+)
+assert metric.requirements.variance
+assert metric(data) == 2.0
+```
+
+## Where to go next
+
+- [Predictive distributions and losses](distributions-and-losses.md) covers
+  the head and the distribution these metrics score.
+- The mean-variance regression and CMAPSS examples on the
+  [Examples](examples.md) page register epoch metrics in full training runs.
+- The [`probreg.core.metric_registry`](../reference/core.md#probregcoremetric_registry)
+  and [`probreg.jax.metrics`](../reference/jax.md#probregjaxmetrics) reference
+  sections list every signature.

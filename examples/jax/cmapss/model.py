@@ -104,9 +104,9 @@ class Cnn1DMeanModel(nnx.Module):
 class Cnn1DGammaModel(nnx.Module):
     """Gamma residual regressor over windowed CMAPSS sensor data.
 
-    Independently initialized from :class:`Cnn1DMeanModel`, sharing only the
+    Independently initialized from ``Cnn1DMeanModel``, sharing only the
     same backbone architecture family, and trained on Stage-1's squared
-    residuals through :class:`probreg.jax.GammaVarianceStage`.
+    residuals through [`GammaVarianceStage`][probreg.jax.GammaVarianceStage].
     """
 
     def __init__(
@@ -142,7 +142,7 @@ class Cnn1DGammaModel(nnx.Module):
                 n_sensors)``.
 
         Returns:
-            A :class:`~probreg.jax.Gamma` with positive concentration and
+            A [`Gamma`][probreg.jax.Gamma] with positive concentration and
             rate, each shaped ``(batch, 1)``.
         """
         return self.head(self.backbone(inputs))
@@ -153,7 +153,7 @@ class CompositeGaussianModel(nnx.Module):
 
     Combines the frozen Stage-1 point prediction with the Stage-2 Gamma
     mean (an estimate of the squared-residual, i.e. aleatoric variance)
-    into a single :class:`~probreg.jax.Gaussian` predictive distribution.
+    into a single [`Gaussian`][probreg.jax.Gaussian] predictive distribution.
     """
 
     def __init__(
@@ -176,7 +176,7 @@ class CompositeGaussianModel(nnx.Module):
                 n_sensors)``.
 
         Returns:
-            A :class:`~probreg.jax.Gaussian` with ``loc`` from Stage 1 and a
+            A [`Gaussian`][probreg.jax.Gaussian] with ``loc`` from Stage 1 and a
             strictly positive ``scale`` derived from the Stage-2 Gamma mean,
             each shaped ``(batch, 1)``.
         """

@@ -20,3 +20,9 @@ mode (see `pyproject.toml`), so unannotated code passes the checker while still 
 - Google style, enforced in format by `docformatter` via pre-commit. Include `Args`, `Returns`
   and `Raises` sections wherever they apply.
 - For dataclasses, document the attributes, except those declared `init=False`.
+- Cross-references use mkdocstrings autorefs syntax to the public path,
+  `` [`EarlyStopper`][probreg.core.EarlyStopper] ``, never a Sphinx role (`:class:`,
+  `:func:`, …), which renders as literal text and escapes the strict docs build
+  ([ADR 0007](../adr/0007-user-docs-are-mkdocs-and-docstrings-use-autorefs-cross-references.md)).
+  Link a module by its reference-page section anchor, `` [`probreg.jax.state`][probregjaxstate] ``.
+  Double-backtick literals stay for values and non-symbol code.

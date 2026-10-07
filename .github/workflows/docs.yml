@@ -1,0 +1,56 @@
+name: Docs
+
+# Kept apart from ci.yml so that lint and test never run with a token that can
+# publish to GitHub Pages.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install docs dependencies
+        # mkdocstrings imports probreg.jax to introspect it, so the jax extra is needed.
+        run: uv sync --extra jax --group docs
+      - name: Build site
+        run: uv run --extra jax --group docs mkdocs build --strict
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Deploy
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Queue overlapping deployments instead of cancelling one mid-publish. Scoped to
+    # this job so pull-request builds never wait on, or join, the deploy queue.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

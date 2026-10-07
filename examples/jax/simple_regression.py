@@ -1,17 +1,17 @@
 """Train a linear model on a toy regression dataset with the JAX backend.
 
-This example wires together the pieces exposed by :mod:`probreg.jax` and
-:mod:`probreg.core` to run :func:`probreg.jax.run_supervised` end to end:
+This example wires together the pieces exposed by [`probreg.jax`][probregjax] and
+[`probreg.core`][probregcore] to run [`run_supervised`][probreg.jax.run_supervised] end to end:
 
 * a synthetic ``y = 3x + 2 + noise`` regression dataset, split into a
   training and a held-out validation set;
 * a single-layer NNX model trained with an Optax SGD optimizer;
-* a :class:`~probreg.jax.HeldOutValidation` strategy evaluated after
+* a [`HeldOutValidation`][probreg.jax.HeldOutValidation] strategy evaluated after
   every epoch;
-* an :class:`~probreg.core.early_stopping.EarlyStopper` monitoring the
+* an [`EarlyStopper`][probreg.core.EarlyStopper] monitoring the
   validation loss, backed by an in-memory checkpoint store that
   persists the best model seen so far;
-* a minimal :class:`~probreg.core.tracking.EventSink` that prints epoch
+* a minimal [`EventSink`][probreg.core.EventSink] that prints epoch
   and early-stopping events to stdout.
 
 Run it with:
@@ -66,8 +66,8 @@ def mean_squared_error(
         targets: Batch targets, shaped ``(batch, 1)``.
         sample_weight: Optional per-sample weights, or ``None`` to weight
             every example equally.
-        key: Unused PRNG key, kept for :class:`SupervisedLoss` compatibility.
-        training: Unused training flag, kept for :class:`SupervisedLoss`
+        key: Unused PRNG key, kept for [`SupervisedLoss`][probreg.jax.SupervisedLoss] compatibility.
+        training: Unused training flag, kept for [`SupervisedLoss`][probreg.jax.SupervisedLoss]
             compatibility.
 
     Returns:
@@ -104,7 +104,8 @@ def make_dataset(
 def make_loader(
     inputs: jax.Array, targets: jax.Array, *, batch_size: int
 ) -> LoaderFactory:
-    """Build a :class:`LoaderFactory` that yields shuffled mini-batches.
+    """Build a [`LoaderFactory`][probreg.core.LoaderFactory] that yields shuffled mini-
+    batches.
 
     Args:
         inputs: The full split's input array.
@@ -113,7 +114,7 @@ def make_loader(
 
     Returns:
         A callable ``loader(split, epoch)`` producing an iterable of
-        :class:`~probreg.core.types.Batch` objects for that epoch, with a
+        [`Batch`][probreg.core.Batch] objects for that epoch, with a
         fresh shuffle derived from ``epoch``.
     """
 
@@ -134,7 +135,8 @@ def make_loader(
 
 
 class PrintingEventSink:
-    """An :class:`EventSink` that prints a one-line summary per event."""
+    """An [`EventSink`][probreg.core.EventSink] that prints a one-line summary per
+    event."""
 
     def on_event(self, event: TrainingEvent) -> None:
         values = dict(event.metrics)

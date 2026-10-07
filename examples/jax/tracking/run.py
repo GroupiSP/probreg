@@ -12,7 +12,7 @@ be worth opening TensorBoard for. What this example adds is the tracking:
   implementing `probreg.core.tracking.ExperimentTracker`;
 * `probreg.core.tracking.TrackerEventSink`, the library's bridge from
   training events to that tracker, which namespaces every metric by its
-  stage and its event;
+  stage and split;
 * the example's own printing event sink, passed *alongside* the tracker
   sink: adding a tracker displaces nothing.
 
@@ -123,7 +123,8 @@ def make_dataset(*, num_samples: int, key: jax.Array) -> tuple[jax.Array, jax.Ar
 def make_loader(
     inputs: jax.Array, targets: jax.Array, *, batch_size: int
 ) -> LoaderFactory:
-    """Build a :class:`LoaderFactory` that yields shuffled mini-batches.
+    """Build a [`LoaderFactory`][probreg.core.LoaderFactory] that yields shuffled mini-
+    batches.
 
     Args:
         inputs: The full split's input array.
@@ -132,7 +133,7 @@ def make_loader(
 
     Returns:
         A callable ``loader(split, epoch)`` producing an iterable of
-        :class:`~probreg.core.types.Batch` objects for that epoch, with a
+        [`Batch`][probreg.core.Batch] objects for that epoch, with a
         fresh shuffle derived from ``epoch``.
     """
 
@@ -209,8 +210,8 @@ def plot_predictions(
 
     Args:
         model: An NNX module mapping inputs directly to a
-            :class:`~probreg.core.distributions.PredictiveDistribution`
-            (e.g. a :class:`~probreg.jax.distributions.GaussianHead`).
+            [`PredictiveDistribution`][probreg.core.PredictiveDistribution]
+            (e.g. a [`GaussianHead`][probreg.jax.GaussianHead]).
         inputs: Validation inputs, shaped ``(n, 1)``.
         targets: Validation targets, shaped ``(n, 1)``.
 
@@ -249,9 +250,9 @@ def plot_predictions(
 def run_tracked_training(tracker: ExperimentTracker, *, epochs: int = EPOCHS) -> None:
     """Train the MVE model, recording the whole run to a tracker.
 
-    Typed against :class:`~probreg.core.tracking.ExperimentTracker`, so
+    Typed against [`ExperimentTracker`][probreg.core.ExperimentTracker], so
     swapping TensorBoard for another tracker changes one constructor line
-    in :func:`main` and nothing here.
+    in ``main`` and nothing here.
 
     Args:
         tracker: The tracker receiving the run's parameters, per-epoch

@@ -1,23 +1,23 @@
 """Train an MVE model on a heteroscedastic toy regression dataset.
 
-This example wires together :mod:`probreg.jax` and :mod:`probreg.core` to
-run :func:`probreg.jax.run_supervised` with a mean-variance estimation (MVE)
+This example wires together [`probreg.jax`][probregjax] and [`probreg.core`][probregcore] to
+run [`run_supervised`][probreg.jax.run_supervised] with a mean-variance estimation (MVE)
 loss:
 
 * a synthetic ``y = 2x + noise`` regression dataset where the noise scale
   grows with ``x``, split into a training and a held-out validation set;
-* a :class:`~probreg.jax.distributions.GaussianHead` predicting both a mean
+* a [`GaussianHead`][probreg.jax.GaussianHead] predicting both a mean
   and a positive aleatoric scale for each input, trained with an Optax Adam
   optimizer;
 * a Gaussian negative log-likelihood objective
-  (:class:`~probreg.core.losses.NegativeLogLikelihoodLoss`), adapted into a
-  :class:`~probreg.jax.evaluation.SupervisedLoss` by
-  :func:`~probreg.jax.losses.make_supervised_loss`;
+  ([`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss]), adapted into a
+  [`SupervisedLoss`][probreg.jax.SupervisedLoss] by
+  [`make_supervised_loss`][probreg.jax.make_supervised_loss];
 * composable RMSE and sample/grid-based point-CRPS metrics for both training
   and held-out validation;
-* a :class:`~probreg.jax.HeldOutValidation` strategy evaluated after every
+* a [`HeldOutValidation`][probreg.jax.HeldOutValidation] strategy evaluated after every
   epoch;
-* an :class:`~probreg.core.early_stopping.EarlyStopper` monitoring the
+* an [`EarlyStopper`][probreg.core.EarlyStopper] monitoring the
   validation loss, backed by an in-memory checkpoint store that persists
   the best model seen so far.
 
@@ -91,7 +91,8 @@ def make_dataset(*, num_samples: int, key: jax.Array) -> tuple[jax.Array, jax.Ar
 def make_loader(
     inputs: jax.Array, targets: jax.Array, *, batch_size: int
 ) -> LoaderFactory:
-    """Build a :class:`LoaderFactory` that yields shuffled mini-batches.
+    """Build a [`LoaderFactory`][probreg.core.LoaderFactory] that yields shuffled mini-
+    batches.
 
     Args:
         inputs: The full split's input array.
@@ -100,7 +101,7 @@ def make_loader(
 
     Returns:
         A callable ``loader(split, epoch)`` producing an iterable of
-        :class:`~probreg.core.types.Batch` objects for that epoch, with a
+        [`Batch`][probreg.core.Batch] objects for that epoch, with a
         fresh shuffle derived from ``epoch``.
     """
 
@@ -179,8 +180,8 @@ def plot_predictions(
 
     Args:
         model: An NNX module mapping inputs directly to a
-            :class:`~probreg.core.distributions.PredictiveDistribution`
-            (e.g. a :class:`~probreg.jax.distributions.GaussianHead`).
+            [`PredictiveDistribution`][probreg.core.PredictiveDistribution]
+            (e.g. a [`GaussianHead`][probreg.jax.GaussianHead]).
         inputs: Validation inputs, shaped ``(n, 1)``.
         targets: Validation targets, shaped ``(n, 1)``.
         save_path: If given, save the figure to this path instead of

@@ -71,7 +71,7 @@ class ExperimentTracker(Protocol):
                 own (``{"data": {"train": {"samples": ...}}}``), never part
                 of a leaf key (``train_samples``). A tracker that stores
                 flat names flattens the mapping with
-                :func:`probreg.core.naming.flatten_parameters` into
+                [`flatten_parameters`][probreg.core.flatten_parameters] into
                 parameter paths such as ``data/train/samples``.
 
         Returns:
@@ -106,15 +106,16 @@ class ExperimentTracker(Protocol):
 
 @dataclass(frozen=True)
 class TrackerEventSink:
-    """An :class:`EventSink` that forwards event metrics to a tracker.
+    """An [`EventSink`][probreg.core.EventSink] forwarding event metrics to a tracker.
 
     Each metric is logged under its metric tag, built from the event's
     stage, the event's split and the metric name, with the event's own
     step. A decision event carries no metrics, so it adds no series.
 
-    Only :meth:`ExperimentTracker.log_metrics` is called. Hyperparameters
-    and artifacts stay caller-driven, since neither arrives on a training
-    event.
+    The sink calls only
+    [`ExperimentTracker.log_metrics`][probreg.core.ExperimentTracker.log_metrics].
+    Hyperparameters and artifacts stay caller-driven, since neither arrives on
+    a training event.
 
     Attributes:
         tracker: The experiment tracker that receives the metrics.
