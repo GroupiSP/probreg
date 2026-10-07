@@ -23,7 +23,10 @@ class NegativeLogLikelihoodLoss:
         beta: Variance-reweighting exponent in ``[0, 1]``. Zero recovers
             ordinary negative log-likelihood.
         stop_gradient: Callable excluding the variance weight from gradient
-            propagation when required by an autodiff backend.
+            propagation. Defaults to the identity, which lets gradients flow
+            through the weight. With JAX and ``beta > 0``, pass
+            ``jax.lax.stop_gradient``; otherwise a different objective from
+            beta-NLL is trained.
         target_transform: Callable applied to targets before evaluating the
             predictive distribution. Defaults to the identity transform.
     """

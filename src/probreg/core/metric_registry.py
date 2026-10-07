@@ -67,7 +67,14 @@ class EvaluationGrid:
 
 @dataclass(frozen=True, slots=True)
 class PredictionInterval:
-    """Host-resident bounds labelled by their central confidence level."""
+    """Host-resident bounds labelled by their central confidence level.
+
+    Attributes:
+        level: Central confidence level of the interval, strictly between 0 and 1.
+        lower: Lower bounds, one per scoring unit.
+        upper: Upper bounds, one per scoring unit, each no smaller than its lower
+            bound.
+    """
 
     level: float
     lower: FloatArray

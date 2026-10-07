@@ -112,10 +112,10 @@ class TrackerEventSink:
     stage, the event's split and the metric name, with the event's own
     step. A decision event carries no metrics, so it adds no series.
 
-    Only
-    [`ExperimentTracker.log_metrics`][probreg.core.ExperimentTracker.log_metrics]
-    is called. Hyperparameters and artifacts stay caller-driven, since
-    neither arrives on a training event.
+    The sink calls only
+    [`ExperimentTracker.log_metrics`][probreg.core.ExperimentTracker.log_metrics].
+    Hyperparameters and artifacts stay caller-driven, since neither arrives on
+    a training event.
 
     Attributes:
         tracker: The experiment tracker that receives the metrics.

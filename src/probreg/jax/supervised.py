@@ -104,6 +104,11 @@ def run_supervised(
 ) -> StageResult:
     """Train a single NNX model for a fixed or early-stopped number of epochs.
 
+    The runner does not restore the best checkpoint: when training ends,
+    ``model`` holds the parameters of the last epoch run. To continue from the
+    best model, load the checkpoint from ``checkpoint_store`` and pass it to
+    [`restore_checkpoint`][probreg.jax.restore_checkpoint].
+
     Args:
         model: The NNX module to train, mutated in place.
         optimizer: The NNX optimizer used to update ``model``, mutated
