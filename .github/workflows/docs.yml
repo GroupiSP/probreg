@@ -12,11 +12,6 @@ on:
 permissions:
   contents: read
 
-# Queue overlapping deployments instead of cancelling one mid-publish.
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   build:
     name: Build
@@ -44,6 +39,11 @@ jobs:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Queue overlapping deployments instead of cancelling one mid-publish. Scoped to
+    # this job so pull-request builds never wait on, or join, the deploy queue.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write
