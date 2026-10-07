@@ -1,4 +1,4 @@
-"""A TensorBoard :class:`~probreg.core.tracking.ExperimentTracker`.
+"""A TensorBoard [`ExperimentTracker`][probreg.core.ExperimentTracker].
 
 This is the module to copy into your own project. It is backend-neutral:
 its surface accepts Python floats, strings and Matplotlib figures, never
@@ -13,7 +13,7 @@ without the optional dependency.
 
 Swapping TensorBoard for MLflow, Weights & Biases or Aim means rewriting
 this file and nothing else: the run script is typed against
-:class:`~probreg.core.tracking.ExperimentTracker`.
+[`ExperimentTracker`][probreg.core.ExperimentTracker].
 """
 
 from __future__ import annotations
