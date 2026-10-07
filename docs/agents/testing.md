@@ -17,3 +17,10 @@ for the specific regressions and boundary cases a property cannot express.
 
 Design for this: when writing implementation code, decide up front which properties of it are
 testable.
+
+## Markdown snippets
+
+`pytest-markdown-docs` collects every fenced `python` block in `docs_site/` and `README.md` as a
+test; `uv run pytest tests/core` (or any narrower path) skips them. Mark a fragment that cannot
+run standalone as ```` ```{.python notest} ````; see [`CONTRIBUTING.md`](../../CONTRIBUTING.md)
+for why the brace form is required.
