@@ -25,8 +25,9 @@ them:
 
 Every event carries its `stage`, its `split`, its `step` (the epoch) and the live
 training state. An **event sink** is anything with an `on_event` method. Sinks
-are passive: they observe the run and cannot change it. Pass any number of them
-in `event_sinks`, so adding a tracker displaces nothing else that watches the run.
+are intended to observe only, but the live state means the API cannot prevent
+them from mutating the run. Pass any number of sinks in `event_sinks`, so adding
+a tracker displaces nothing else that watches the run.
 
 An **experiment tracker** is a destination that records parameters, metrics and
 artifacts for one **run**. It knows nothing about events. It is told what to
