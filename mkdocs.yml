@@ -12,6 +12,7 @@ docs_dir: docs_site
 nav:
   - Home: index.md
   - Guides:
+      - Tracking a run: guides/tracking.md
       - Examples: guides/examples.md
   - API reference:
       - probreg.core: reference/core.md
