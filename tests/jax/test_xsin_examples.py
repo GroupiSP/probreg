@@ -5,20 +5,28 @@ import math
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import jax.numpy as jnp
 import pytest
 
-_BENCHMARK_PATH = (
-    Path(__file__).parents[2] / "examples" / "jax" / "xsin" / "benchmark.py"
-)
-_SPEC = importlib.util.spec_from_file_location("benchmark", _BENCHMARK_PATH)
-if _SPEC is None or _SPEC.loader is None:
-    raise RuntimeError("could not load the XSin benchmark module.")
-_BENCHMARK = importlib.util.module_from_spec(_SPEC)
-sys.modules[_SPEC.name] = _BENCHMARK
-_SPEC.loader.exec_module(_BENCHMARK)
+_XSIN_DIR = Path(__file__).parents[2] / "examples" / "jax" / "xsin"
+
+
+def _load_xsin_module(name: str) -> ModuleType:
+    """Load an XSin example module under its own name, as its scripts import it."""
+    spec = importlib.util.spec_from_file_location(name, _XSIN_DIR / f"{name}.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load the XSin {name} module.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_BENCHMARK = _load_xsin_module("benchmark")
+_POSTERIOR_BENCHMARK = _load_xsin_module("posterior_benchmark")
 
 XSinConfig = _BENCHMARK.XSinConfig
 make_xsin_data = _BENCHMARK.make_xsin_data
@@ -91,9 +99,9 @@ def test_xsin_methods_are_reproducible_and_improve_interpolation() -> None:
     assert two_step.interpolation_variance_rmse < mve.interpolation_variance_rmse
 
 
-run_xsin_posterior = _BENCHMARK.run_xsin_posterior
-xsin_bayes_by_backprop = _BENCHMARK.xsin_bayes_by_backprop
-xsin_psgld = _BENCHMARK.xsin_psgld
+run_xsin_posterior = _POSTERIOR_BENCHMARK.run_xsin_posterior
+xsin_bayes_by_backprop = _POSTERIOR_BENCHMARK.xsin_bayes_by_backprop
+xsin_psgld = _POSTERIOR_BENCHMARK.xsin_psgld
 
 
 @pytest.mark.parametrize(
@@ -139,12 +147,3 @@ def test_xsin_posterior_is_reproducible_with_finite_scores(
             scores.extrapolation_crps,
         )
     )
-
-
-def test_xsin_config_refuses_a_psgld_chain_retaining_nothing_in_the_first_epoch() -> (
-    None
-):
-    with pytest.raises(ValueError, match="first epoch"):
-        xsin_psgld(
-            XSinConfig(train_size=128, batch_size=32, psgld_burn_in=3, psgld_thinning=2)
-        )

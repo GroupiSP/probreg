@@ -110,7 +110,9 @@ class InferenceMethod(Protocol):
     [`init`][probreg.jax.InferenceMethod.init] once, then
     [`update`][probreg.jax.InferenceMethod.update] once per training batch,
     and reads the current [`posterior`][probreg.jax.InferenceMethod.posterior]
-    to validate each epoch. Every method honors the problem's prior.
+    to validate each epoch that ends with
+    [`has_posterior`][probreg.jax.InferenceMethod.has_posterior] true. Every
+    method honors the problem's prior.
     """
 
     @property
@@ -118,6 +120,17 @@ class InferenceMethod(Protocol):
         """Whether stopping on a validation improvement is meaningful.
 
         ``False`` for SG-MCMC, whose chain an early stopper would truncate.
+        """
+        ...
+
+    @property
+    def has_posterior(self) -> bool:
+        """Whether [`posterior`][probreg.jax.InferenceMethod.posterior] can be read.
+
+        ``False`` before ``init`` and, for SG-MCMC, until the first sample is
+        retained. The posterior stage skips validation for an epoch that ends
+        without a posterior, so a method that supports early stopping must
+        have one after every epoch.
         """
         ...
 

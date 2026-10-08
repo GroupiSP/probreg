@@ -15,9 +15,10 @@ from probreg.core.metric_registry import (
     PointContinuousRankedProbabilityScore,
     PredictionInterval,
     RootMeanSquaredError,
+    SampleContinuousRankedProbabilityScore,
     WeightedSpread,
 )
-from probreg.core.metrics import coverage, crps, point_crps, rmse, wsu
+from probreg.core.metrics import coverage, crps, point_crps, rmse, sample_crps, wsu
 
 AdapterType = type[
     RootMeanSquaredError
@@ -25,6 +26,7 @@ AdapterType = type[
     | WeightedSpread
     | PointContinuousRankedProbabilityScore
     | ContinuousRankedProbabilityScore
+    | SampleContinuousRankedProbabilityScore
 ]
 
 
@@ -94,6 +96,31 @@ def test_point_crps_scores_each_scalar_unit_before_averaging() -> None:
     assert PointContinuousRankedProbabilityScore()(data) == pytest.approx(expected)
 
 
+def test_sample_crps_scores_each_scalar_unit_without_a_grid() -> None:
+    targets = np.array([0.0, 2.0])
+    samples = np.array([[-0.5, 0.0, 0.5], [1.0, 2.0, 3.0]])
+    data = EpochPredictionData(
+        targets=targets,
+        mean=np.mean(samples, axis=1),
+        predictive_samples=samples,
+    )
+
+    expected = np.mean(
+        [sample_crps(target, row) for target, row in zip(targets, samples)]
+    )
+    assert SampleContinuousRankedProbabilityScore()(data) == pytest.approx(expected)
+    requirements = SampleContinuousRankedProbabilityScore().requirements
+    assert requirements.predictive_samples
+    assert not requirements.evaluation_grid
+
+
+def test_sample_crps_requires_predictive_samples() -> None:
+    data = EpochPredictionData(targets=np.zeros(2), mean=np.zeros(2))
+
+    with pytest.raises(ValueError, match="predictive_samples"):
+        SampleContinuousRankedProbabilityScore()(data)
+
+
 def test_conditional_crps_scores_paired_distributions_before_averaging() -> None:
     grid = EvaluationGrid(np.linspace(-2.0, 4.0, 61))
     reference = np.array([[-1.0, 0.0, 1.0], [1.0, 2.0, 3.0]])
@@ -132,6 +159,7 @@ _ADAPTER_DEFAULT_NAMES: list[tuple[AdapterType, str]] = [
     (WeightedSpread, "wsu"),
     (PointContinuousRankedProbabilityScore, "point_crps"),
     (ContinuousRankedProbabilityScore, "crps"),
+    (SampleContinuousRankedProbabilityScore, "sample_crps"),
 ]
 
 

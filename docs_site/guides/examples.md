@@ -8,9 +8,9 @@ of the library. Each one brings its own dependencies, either through a project
 extra (`jax`, `plot`) or through an example-only dependency group.
 
 Only the commands shown here are entry points. The other modules beside them,
-`xsin/benchmark.py`, `cmapss/model.py`, `cmapss/preprocessing.py`,
-`cmapss/plots.py` and `tracking/tensorboard_tracker.py`, hold shared code the
-scripts import.
+`xsin/benchmark.py`, `xsin/posterior_benchmark.py`, `cmapss/model.py`,
+`cmapss/preprocessing.py`, `cmapss/plots.py` and
+`tracking/tensorboard_tracker.py`, hold shared code the scripts import.
 
 ## Simple regression
 

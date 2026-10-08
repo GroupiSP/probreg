@@ -109,6 +109,7 @@ assert state.lifecycle_state is StageState.POSTERIOR_READY
 assert state.parameter_roles["posterior"] is ParameterRole.POSTERIOR
 assert state.frozen_components == {"mean_model", "variance_model"}
 assert len(state.metric_history["posterior/validation/nll"]) == 3
+assert len(state.metric_history["posterior/validation/crps"]) == 3
 ```
 
 The mean network is copied for the posterior network, so `mean_model` itself is
@@ -117,12 +118,14 @@ one with dropout, pass it as `model`. The prior defaults to an
 [`IsotropicGaussianPrior`][probreg.jax.IsotropicGaussianPrior] with precision 1;
 pass `prior` to change it.
 
-To score other metrics during validation, give the options a
+Validation reports two metrics by default: `nll`, the exact negative
+log-likelihood of the posterior predictive, and `crps`, the CRPS of 100
+predictive samples per target, scored by
+[`SampleContinuousRankedProbabilityScore`][probreg.core.SampleContinuousRankedProbabilityScore]
+without an evaluation grid. To score other metrics, give the options a
 `validation_metrics` suite with a
-[`PosteriorPredictivePredictor`][probreg.jax.PosteriorPredictivePredictor]. For
-the CRPS, register `PointContinuousRankedProbabilityScore(name="crps")` next to
-`NegativeLogLikelihood()`, with a predictive sample count and an evaluation
-grid; [Epoch metrics](epoch-metrics.md) explains both.
+[`PosteriorPredictivePredictor`][probreg.jax.PosteriorPredictivePredictor];
+[Epoch metrics](epoch-metrics.md) explains how.
 
 ## Predicting with the posterior
 
@@ -180,10 +183,10 @@ and storing samples. In the XSin example below, pSGLD's epistemic variance
 grows away from the training data, while Bayes by Backprop's does not.
 
 pSGLD counts `burn_in` and `thinning` in update steps, that is training
-batches. Because the stage validates after every epoch and pSGLD has no
-posterior before its first retained sample, keep `burn_in + thinning` within
-the number of batches of the first epoch. The chain starts from the trained
-mean, which already fits the data, so a short burn-in is usually enough:
+batches. It has no posterior before its first retained sample, so the stage
+skips validation for the epochs that end before then: they record no
+validation metrics. The chain starts from the trained mean, which already fits
+the data, so a short burn-in is usually enough:
 
 ```python
 from probreg.jax import PreconditionedSGLD

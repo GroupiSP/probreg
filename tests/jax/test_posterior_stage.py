@@ -10,20 +10,30 @@ import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
 import numpy as np
-import optax
 import pytest
 from flax import nnx
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from posterior_runs import (
+    DATASET_SIZE,
+    MakeStages,
+    MakeVarianceReadyRun,
+    RecordingStore,
+    VarianceReadyRun,
+    leaves_equal,
+    regression_data,
+    regression_loader,
+    restore_mean_and_variance,
+)
 
-from probreg.core.checkpoints import Checkpoint, InMemoryCheckpointStore
+from probreg.core.checkpoints import Checkpoint
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.metric_registry import (
     EvaluationGrid,
     NegativeLogLikelihood,
     PointContinuousRankedProbabilityScore,
 )
-from probreg.core.tracking import EventSink, TrackerEventSink
+from probreg.core.tracking import TrackerEventSink
 from probreg.core.types import (
     Batch,
     ParameterRole,
@@ -31,157 +41,11 @@ from probreg.core.types import (
     StageState,
     TrainingState,
 )
-from probreg.jax import HeldOutValidation, MetricSuite, PosteriorPredictivePredictor
-from probreg.jax.distributions import GammaHead
+from probreg.jax import MetricSuite, PosteriorPredictivePredictor
 from probreg.jax.posterior import PosteriorProblem
 from probreg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
-from probreg.jax.state import create_optimizer
-from probreg.jax.supervised_staged import (
-    GammaVarianceStage,
-    MeanStage,
-    SupervisedStageOptions,
-)
 
 Tracker = Callable[[], Any]
-
-_DATASET_SIZE = 16
-_BATCH_SIZE = 8
-
-
-def _regression_data() -> tuple[jax.Array, jax.Array]:
-    """Sixteen noisy points on the line ``y = 2x``."""
-    data_key = jax.random.key(3)
-    inputs = jnp.linspace(-1.0, 1.0, _DATASET_SIZE)[:, None]
-    targets = 2.0 * inputs + 0.3 * jax.random.normal(data_key, inputs.shape)
-    return inputs, targets
-
-
-def regression_loader(*, split: str, epoch: int) -> list[Batch]:
-    """Two batches of eight; the validation split is shifted by 0.25."""
-    del epoch
-    inputs, targets = _regression_data()
-    offset = 0.25 if split == "validation" else 0.0
-    return [
-        Batch(
-            inputs=inputs[start : start + _BATCH_SIZE],
-            targets=targets[start : start + _BATCH_SIZE] + offset,
-        )
-        for start in range(0, _DATASET_SIZE, _BATCH_SIZE)
-    ]
-
-
-@dataclass
-class VarianceReadyRun:
-    """A training state after real mean and variance stages."""
-
-    state: TrainingState
-    mean_model: nnx.Module
-    variance_model: nnx.Module
-
-
-MakeVarianceReadyRun = Callable[..., VarianceReadyRun]
-
-
-@dataclass
-class MeanAndVarianceStages:
-    """A mean and a variance stage with fresh models, ready to train or restore."""
-
-    mean: MeanStage
-    variance: GammaVarianceStage
-
-
-MakeStages = Callable[..., MeanAndVarianceStages]
-
-
-@pytest.fixture(scope="session")
-def make_stages(linear_model: type[Any], squared_error: Any) -> MakeStages:
-    """Return a factory of mean and variance stages on `regression_loader`."""
-
-    def make(
-        *sinks: EventSink,
-        seed: int = 0,
-        checkpoint_store: InMemoryCheckpointStore | None = None,
-    ) -> MeanAndVarianceStages:
-        """Build both stages; a checkpoint store also adds patient early stoppers.
-
-        Args:
-            *sinks: The event sinks attached to both stages.
-            seed: Seeds the fresh models' initial weights.
-            checkpoint_store: Where both stages save their checkpoints.
-
-        Returns:
-            The two stages.
-        """
-        stopper = (
-            None
-            if checkpoint_store is None
-            else EarlyStopper(metric="loss", mode="min", patience=100)
-        )
-        mean_model = linear_model(rngs=nnx.Rngs(seed))
-        mean_stage = MeanStage(
-            model=mean_model,
-            optimizer=create_optimizer(mean_model, optax.adam(0.1)),
-            train_loader=regression_loader,
-            options=SupervisedStageOptions(
-                epochs=20,
-                validation=HeldOutValidation(
-                    model=mean_model, loader=regression_loader, loss=squared_error
-                ),
-                event_sinks=sinks,
-                early_stopper=stopper,
-                checkpoint_store=checkpoint_store,
-            ),
-        )
-        variance_model = GammaHead(1, 1, rngs=nnx.Rngs(seed + 2))
-        variance_stage = GammaVarianceStage(
-            model=variance_model,
-            optimizer=create_optimizer(variance_model, optax.adam(0.05)),
-            source_loader=regression_loader,
-            options=SupervisedStageOptions(
-                epochs=5,
-                event_sinks=sinks,
-                early_stopper=stopper,
-                checkpoint_store=checkpoint_store,
-            ),
-            validation_factory=lambda residuals: HeldOutValidation(
-                model=variance_model, loader=residuals, loss=variance_stage.loss
-            ),
-        )
-        return MeanAndVarianceStages(mean_stage, variance_stage)
-
-    return make
-
-
-@pytest.fixture(scope="session")
-def variance_ready_run(make_stages: MakeStages) -> MakeVarianceReadyRun:
-    """Return a driver of a real mean-then-variance run on `regression_loader`."""
-
-    def run(
-        *sinks: EventSink,
-        mean_only: bool = False,
-        checkpoint_store: InMemoryCheckpointStore | None = None,
-    ) -> VarianceReadyRun:
-        """Train a validated mean stage and, unless ``mean_only``, a variance stage.
-
-        Args:
-            *sinks: The event sinks attached to both stages.
-            mean_only: Stop after the mean stage.
-            checkpoint_store: Where both stages save and finalize their best
-                checkpoints.
-
-        Returns:
-            The shared state and the two trained models.
-        """
-        stages = make_stages(*sinks, checkpoint_store=checkpoint_store)
-        state = TrainingState(rng_state=jax.random.key(1))
-        stages.mean.prepare(state)
-        stages.mean.train(state)
-        if not mean_only:
-            stages.variance.prepare(state)
-            stages.variance.train(state)
-        return VarianceReadyRun(state, stages.mean.model, stages.variance.model)
-
-    return run
 
 
 @pytest.fixture(scope="session")
@@ -242,6 +106,10 @@ class GradientAscentMethod:
     def supports_early_stopping(self) -> bool:
         return self.early_stopping
 
+    @property
+    def has_posterior(self) -> bool:
+        return self.problem is not None
+
     def init(self, problem: PosteriorProblem) -> None:
         self.problem = problem
         self.parameters = problem.initial_parameters
@@ -289,31 +157,12 @@ class GradientAscentMethod:
         self.parameters = state
 
 
-class RecordingStore(InMemoryCheckpointStore):
-    """A store that also records every checkpoint saved, in order."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.saves: list[tuple[str, Checkpoint]] = []
-
-    def save(self, key: str, checkpoint: Checkpoint) -> None:
-        self.saves.append((key, checkpoint))
-        super().save(key, checkpoint)
-
-
 def _posterior_stage(method: GradientAscentMethod, **options: Any) -> PosteriorStage:
     return PosteriorStage(
         inference_method=method,
         train_loader=regression_loader,
-        dataset_size=_DATASET_SIZE,
+        dataset_size=DATASET_SIZE,
         options=PosteriorStageOptions(**{"epochs": 3, **options}),
-    )
-
-
-def _leaves_equal(left: PyTree, right: PyTree) -> bool:
-    return all(
-        jnp.array_equal(a, b)
-        for a, b in zip(jax.tree.leaves(left), jax.tree.leaves(right), strict=True)
     )
 
 
@@ -377,10 +226,10 @@ def test_the_warm_start_equals_the_mean_weights(
     stage.prepare(run.state)
 
     assert method.problem is not None
-    assert _leaves_equal(
+    assert leaves_equal(
         method.problem.initial_parameters, nnx.state(run.mean_model, nnx.Param)
     )
-    inputs, _ = _regression_data()
+    inputs, _ = regression_data()
     assert jnp.allclose(
         method.problem.mean_function(method.problem.initial_parameters, inputs),
         run.mean_model(inputs),
@@ -400,9 +249,9 @@ def test_training_leaves_the_mean_and_variance_weights_unchanged(
     initial = method.parameters
     stage.train(run.state)
 
-    assert not _leaves_equal(method.parameters, initial)
-    assert _leaves_equal(nnx.state(run.mean_model), mean_before)
-    assert _leaves_equal(nnx.state(run.variance_model), variance_before)
+    assert not leaves_equal(method.parameters, initial)
+    assert leaves_equal(nnx.state(run.mean_model), mean_before)
+    assert leaves_equal(nnx.state(run.variance_model), variance_before)
 
 
 def _independent_log_likelihood(
@@ -421,7 +270,7 @@ def _independent_log_likelihood(
 @given(
     repeats=st.integers(1, 4),
     dataset_size=st.integers(1, 1000),
-    rows=st.integers(1, _DATASET_SIZE),
+    rows=st.integers(1, DATASET_SIZE),
 )
 def test_the_likelihood_is_scaled_by_dataset_size_over_batch_size(
     shared_variance_ready_run: VarianceReadyRun,
@@ -434,7 +283,7 @@ def test_the_likelihood_is_scaled_by_dataset_size_over_batch_size(
     stage = dataclasses.replace(_posterior_stage(method), dataset_size=dataset_size)
     stage.prepare(run.state)
     assert method.problem is not None
-    inputs, targets = _regression_data()
+    inputs, targets = regression_data()
     batch = Batch(inputs=inputs[:rows], targets=targets[:rows])
     repeated = Batch(
         inputs=jnp.tile(batch.inputs, (repeats, 1)),
@@ -533,6 +382,24 @@ def test_validation_scores_the_current_posterior_predictive(
     assert history["posterior/validation/nll"][-1] == pytest.approx(
         -float(jnp.mean(mixture)), rel=1e-4
     )
+
+
+def test_the_default_validation_reports_the_nll_and_the_crps_without_a_grid(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    run = variance_ready_run()
+    stage = _posterior_stage(
+        GradientAscentMethod(), validation_loader=regression_loader
+    )
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+
+    history = run.state.metric_history
+    for name in ("nll", "crps"):
+        values = history[f"posterior/validation/{name}"]
+        assert len(values) == 3
+        assert all(math.isfinite(value) and value > 0.0 for value in values)
 
 
 def test_an_unlimited_posterior_draws_the_configured_count_with_one_key_per_epoch(
@@ -667,7 +534,7 @@ def test_a_method_without_early_stopping_writes_only_a_finalized_checkpoint(
     assert finalized.metadata == {"stage": "posterior", "stage_complete": True}
     assert finalized.state.lifecycle_state is StageState.POSTERIOR_READY
     assert finalized.epoch == 2
-    assert _leaves_equal(finalized.state.posterior_state, method.parameters)
+    assert leaves_equal(finalized.state.posterior_state, method.parameters)
     assert finalized.parameters is None
     assert finalized.optimizer_state is None
     assert finalized.state.model_components == {}
@@ -703,10 +570,8 @@ def test_the_best_checkpoint_holds_the_method_state_and_is_finalized_as_its_post
     assert finalized.epoch == best.epoch
     assert finalized.early_stopping_state == best.early_stopping_state
     assert finalized.parameters is None
-    assert _leaves_equal(finalized.state.posterior_state, best.parameters["parameters"])
-    assert _leaves_equal(
-        method.posteriors[-1].parameters, best.parameters["parameters"]
-    )
+    assert leaves_equal(finalized.state.posterior_state, best.parameters["parameters"])
+    assert leaves_equal(method.posteriors[-1].parameters, best.parameters["parameters"])
     assert result.loss == best.state.metric_history["posterior/train/loss"][-1]
     assert stage.validate(run.state).passed
 
@@ -732,15 +597,6 @@ def finished_run(variance_ready_run: MakeVarianceReadyRun) -> FinishedRun:
     return FinishedRun(run, method, store)
 
 
-def _restore_mean_and_variance(
-    stages: MeanAndVarianceStages, store: InMemoryCheckpointStore
-) -> TrainingState:
-    state = TrainingState()
-    stages.mean.restore(state, store.load("mean/best"))
-    stages.variance.restore(state, store.load("variance/best"))
-    return state
-
-
 def test_three_stages_sharing_a_store_never_overwrite_each_other(
     finished_run: FinishedRun,
 ) -> None:
@@ -763,7 +619,7 @@ def test_a_fresh_state_resumes_through_the_three_stage_restore(
     finished_run: FinishedRun, make_stages: MakeStages
 ) -> None:
     stages = make_stages(seed=7)
-    state = _restore_mean_and_variance(stages, finished_run.store)
+    state = restore_mean_and_variance(stages, finished_run.store)
     method = GradientAscentMethod()
     stage = _posterior_stage(method)
 
@@ -777,7 +633,7 @@ def test_a_fresh_state_resumes_through_the_three_stage_restore(
     assert state.optimizer_states["variance_optimizer"] is stages.variance.optimizer
     restored = state.model_components["posterior"]
     trained = finished_run.run.state.model_components["posterior"]
-    inputs, _ = _regression_data()
+    inputs, _ = regression_data()
     key = jax.random.key(0)
     assert jnp.allclose(
         restored.sample_means(inputs, key), trained.sample_means(inputs, key)
@@ -856,8 +712,8 @@ def test_a_refused_restore_leaves_the_state_and_live_models_unchanged(
         _posterior_stage(method).restore(state, checkpoint_of(finished_run))
 
     assert _observable(state) == before
-    assert _leaves_equal(nnx.state(stages.mean.model), mean_before)
-    assert _leaves_equal(nnx.state(stages.variance.model), variance_before)
+    assert leaves_equal(nnx.state(stages.mean.model), mean_before)
+    assert leaves_equal(nnx.state(stages.variance.model), variance_before)
     assert method.problem is None
 
 
@@ -872,7 +728,7 @@ def test_a_refused_restore_leaves_the_state_and_live_models_unchanged(
 def test_restore_refuses_a_checkpoint_saved_under_other_component_names(
     finished_run: FinishedRun, make_stages: MakeStages, names: dict[str, str]
 ) -> None:
-    state = _restore_mean_and_variance(make_stages(seed=7), finished_run.store)
+    state = restore_mean_and_variance(make_stages(seed=7), finished_run.store)
     before = _observable(state)
     stage = dataclasses.replace(_posterior_stage(GradientAscentMethod()), **names)
 

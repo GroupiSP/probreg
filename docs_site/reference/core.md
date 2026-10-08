@@ -69,6 +69,8 @@ grouped by the module that defines it.
 
 ::: probreg.core.PointContinuousRankedProbabilityScore
 
+::: probreg.core.SampleContinuousRankedProbabilityScore
+
 ::: probreg.core.ContinuousRankedProbabilityScore
 
 ## `probreg.core.metrics`
@@ -78,6 +80,8 @@ grouped by the module that defines it.
 ::: probreg.core.crps
 
 ::: probreg.core.point_crps
+
+::: probreg.core.sample_crps
 
 ::: probreg.core.rmse
 

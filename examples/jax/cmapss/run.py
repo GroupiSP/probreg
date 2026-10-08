@@ -100,7 +100,7 @@ class CmapssConfig:
         learning_rate: Adam learning rate for both stages.
         mean_epochs: Number of Stage-1 mean-model training epochs.
         variance_epochs: Number of Stage-2 Gamma-model training epochs.
-        predictive_sample_count: Number of predictive draws per test window
+        predictive_sample_count: Number of predictive samples per test window
             used to approximate point-CRPS.
         seed: Base JAX random seed for splitting, model init, and training.
     """

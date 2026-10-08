@@ -1,34 +1,33 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+import math
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 import jax.scipy.stats as jstats
 import numpy as np
-import optax
 import pytest
-from flax import nnx
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from posterior_runs import (
+    DATASET_SIZE,
+    MakeStages,
+    MakeVarianceReadyRun,
+    RecordingStore,
+    regression_loader,
+    restore_mean_and_variance,
+)
 
-from probreg.core.checkpoints import Checkpoint, InMemoryCheckpointStore
 from probreg.core.early_stopping import EarlyStopper
-from probreg.core.types import Batch, PyTree, StageState, TrainingState
+from probreg.core.types import Batch, PyTree, StageState
 from probreg.jax import (
-    GammaHead,
-    GammaVarianceStage,
     IsotropicGaussianPrior,
-    MeanStage,
     PosteriorProblem,
     PosteriorStage,
     PosteriorStageOptions,
     PreconditionedSGLD,
     RetainedSamplesPosterior,
-    SupervisedStageOptions,
-    create_optimizer,
 )
 
 _NOISE_SCALE = 0.5
@@ -239,94 +238,19 @@ def test_each_draw_is_the_same_function_across_inputs_and_keys(
     np.testing.assert_allclose(parts, whole, rtol=1e-6)
 
 
-def _line_loader(*, split: str, epoch: int) -> list[Batch]:
-    """Two batches of eight noisy points on ``y = 2x``, the same for every split."""
-    del split, epoch
-    inputs = jnp.linspace(-1.0, 1.0, 16)[:, None]
-    targets = 2.0 * inputs + 0.3 * jax.random.normal(jax.random.key(3), inputs.shape)
-    return [Batch(inputs[:8], targets[:8]), Batch(inputs[8:], targets[8:])]
-
-
-class RecordingStore(InMemoryCheckpointStore):
-    """A store that also records the key of every checkpoint saved, in order."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.saved_keys: list[str] = []
-
-    def save(self, key: str, checkpoint: Checkpoint) -> None:
-        self.saved_keys.append(key)
-        super().save(key, checkpoint)
-
-
-@dataclass
-class MeanAndVariance:
-    """A mean and a variance stage with fresh models."""
-
-    mean: MeanStage
-    variance: GammaVarianceStage
-
-
-MakeMeanAndVariance = Callable[..., MeanAndVariance]
-
-
-@pytest.fixture(scope="session")
-def make_mean_and_variance(linear_model: type[Any]) -> MakeMeanAndVariance:
-    """Return a factory of mean and variance stages finalizing into a store."""
-
-    def make(store: InMemoryCheckpointStore, seed: int = 0) -> MeanAndVariance:
-        mean_model = linear_model(rngs=nnx.Rngs(seed))
-        variance_model = GammaHead(1, 1, rngs=nnx.Rngs(seed + 1))
-
-        def options(epochs: int) -> SupervisedStageOptions:
-            return SupervisedStageOptions(
-                epochs=epochs,
-                early_stopper=EarlyStopper(
-                    metric="loss", mode="min", patience=100, source="train"
-                ),
-                checkpoint_store=store,
-            )
-
-        return MeanAndVariance(
-            MeanStage(
-                model=mean_model,
-                optimizer=create_optimizer(mean_model, optax.adam(0.1)),
-                train_loader=_line_loader,
-                options=options(20),
-            ),
-            GammaVarianceStage(
-                model=variance_model,
-                optimizer=create_optimizer(variance_model, optax.adam(0.05)),
-                source_loader=_line_loader,
-                options=options(5),
-                splits=("train",),
-            ),
-        )
-
-    return make
-
-
-def _variance_ready(stages: MeanAndVariance) -> TrainingState:
-    state = TrainingState(rng_state=jax.random.key(1))
-    for stage in (stages.mean, stages.variance):
-        stage.prepare(state)
-        stage.train(state)
-    return state
-
-
 def _psgld_stage(method: PreconditionedSGLD, **options: Any) -> PosteriorStage:
     return PosteriorStage(
         inference_method=method,
-        train_loader=_line_loader,
-        dataset_size=16,
+        train_loader=regression_loader,
+        dataset_size=DATASET_SIZE,
         options=PosteriorStageOptions(**{"epochs": 3, **options}),
     )
 
 
 def test_the_posterior_stage_refuses_an_early_stopper_for_psgld(
-    make_mean_and_variance: MakeMeanAndVariance,
+    variance_ready_run: MakeVarianceReadyRun,
 ) -> None:
-    state = _variance_ready(make_mean_and_variance(InMemoryCheckpointStore()))
+    state = variance_ready_run().state
     stage = _psgld_stage(
         PreconditionedSGLD(step_size=1e-3),
         early_stopper=EarlyStopper(metric="loss", mode="min", patience=1),
@@ -339,10 +263,11 @@ def test_the_posterior_stage_refuses_an_early_stopper_for_psgld(
 
 
 def test_psgld_writes_only_a_finalized_checkpoint_that_restores_its_samples(
-    make_mean_and_variance: MakeMeanAndVariance,
+    variance_ready_run: MakeVarianceReadyRun,
+    make_stages: MakeStages,
 ) -> None:
     store = RecordingStore()
-    state = _variance_ready(make_mean_and_variance(store))
+    state = variance_ready_run(checkpoint_store=store).state
     stage = _psgld_stage(
         PreconditionedSGLD(step_size=1e-3, burn_in=1, thinning=2),
         checkpoint_store=store,
@@ -350,7 +275,7 @@ def test_psgld_writes_only_a_finalized_checkpoint_that_restores_its_samples(
     stage.prepare(state)
     stage.train(state)
 
-    assert [key for key in store.saved_keys if key.startswith("posterior/")] == [
+    assert [key for key, _ in store.saves if key.startswith("posterior/")] == [
         "posterior/best"
     ]
     finalized = store.load("posterior/best")
@@ -359,10 +284,7 @@ def test_psgld_writes_only_a_finalized_checkpoint_that_restores_its_samples(
     trained = state.model_components["posterior"]
     assert trained.num_draws == 2
 
-    fresh = make_mean_and_variance(InMemoryCheckpointStore(), seed=7)
-    restored_state = TrainingState()
-    fresh.mean.restore(restored_state, store.load("mean/best"))
-    fresh.variance.restore(restored_state, store.load("variance/best"))
+    restored_state = restore_mean_and_variance(make_stages(seed=7), store)
     restored_stage = _psgld_stage(PreconditionedSGLD(step_size=1e-3))
     restored_stage.restore(restored_state, finalized)
 
@@ -373,3 +295,23 @@ def test_psgld_writes_only_a_finalized_checkpoint_that_restores_its_samples(
         restored_state.model_components["posterior"].sample_means(inputs, key),
         trained.sample_means(inputs, key),
     )
+
+
+def test_the_posterior_stage_skips_validation_until_psgld_retains_a_sample(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    state = variance_ready_run().state
+    # Two batches per epoch: the first sample is retained in the third epoch.
+    method = PreconditionedSGLD(step_size=1e-3, burn_in=4, thinning=1)
+    stage = _psgld_stage(method, epochs=4, validation_loader=regression_loader)
+
+    stage.prepare(state)
+    stage.train(state)
+
+    history = state.metric_history
+    assert len(history["posterior/train/loss"]) == 4
+    for name in ("nll", "crps"):
+        values = history[f"posterior/validation/{name}"]
+        assert len(values) == 2
+        assert all(math.isfinite(value) for value in values)
+    assert state.model_components["posterior"].num_draws == 4

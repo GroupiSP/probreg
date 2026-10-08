@@ -61,7 +61,7 @@ quantiles.
 
 `EpochPredictionData` holds one row per **scoring unit**: a single scalar
 target with its predictive mean and, when requested, its variance, predictive
-and reference samples (as `(n_scoring_units, n_draws)` matrices), labelled
+and reference samples (as `(n_scoring_units, n_samples)` matrices), labelled
 prediction intervals and a coordinate. The predictor flattens targets of any
 shape into scoring units, and every field is validated as finite and
 shape-consistent. Each scoring unit is one scalar, so the model's distribution
@@ -120,15 +120,16 @@ with choices the library will not make for you.
 
 ### CRPS: sample count and evaluation grid
 
-Both CRPS metrics compare empirical CDFs numerically. They need a number of
-predictive draws per scoring unit and an
+`PointContinuousRankedProbabilityScore` and `ContinuousRankedProbabilityScore`
+compare empirical CDFs numerically. They need a number of
+predictive samples per scoring unit and an
 [`EvaluationGrid`][probreg.core.EvaluationGrid], the strictly increasing
 points the CDFs are integrated over. Both are set once on the suite, so every
 batch, split and epoch is scored on the same grid with the same number of
-draws, and both have no default. A grid that does not span the targets
+samples, and both have no default. A grid that does not span the targets
 silently understates the score, and its range and resolution depend on the
 scale of your data; the sample count trades cost against noise in the
-estimate. The draws are kept on the host for the whole epoch, so they cost
+estimate. The samples are kept on the host for the whole epoch, so they cost
 `O(n_scoring_units * predictive_sample_count)` memory. A suite that registers
 a CRPS metric without them fails when it is built:
 
@@ -157,10 +158,27 @@ suite = MetricSuite(
 distribution against its observed target, which is what a real dataset
 offers. `ContinuousRankedProbabilityScore` (`crps`) scores it against a whole
 reference distribution of the target, which only exists when you know how the
-data were generated, as in a simulated benchmark. Those reference draws come
+data were generated, as in a simulated benchmark. Those reference samples come
 from a `reference_samples_extractor` you give the predictor, a
 [`ReferenceSamplesExtractor`][probreg.jax.ReferenceSamplesExtractor] that maps a
-batch and a key to a `(n_scoring_units, n_draws)` array.
+batch and a key to a `(n_scoring_units, n_samples)` array.
+
+`SampleContinuousRankedProbabilityScore` (`sample_crps`) scores the same
+pair as `point_crps` but needs no grid: it uses the energy form
+`E|X - y| - E|X - X'| / 2` over the predictive samples, which is the exact
+CRPS of their empirical distribution. It still needs a
+`predictive_sample_count`:
+
+```python
+from probreg.core import SampleContinuousRankedProbabilityScore
+from probreg.jax import GaussianPredictor, MetricSuite
+
+suite = MetricSuite(
+    epoch=(SampleContinuousRankedProbabilityScore(),),
+    predictor=GaussianPredictor(),
+    predictive_sample_count=64,
+)
+```
 
 ### Spread: an explicit coordinate
 

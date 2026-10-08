@@ -280,7 +280,7 @@ def test_conditional_crps_reference_samples_use_explicit_extractor() -> None:
 def _part(
     targets: list[float],
     *,
-    draws: int = 3,
+    samples: int = 3,
     grid: EvaluationGrid | None = None,
 ) -> EpochPredictionData:
     n_units = len(targets)
@@ -288,7 +288,7 @@ def _part(
         targets=np.asarray(targets),
         mean=np.asarray(targets),
         variance=np.ones(n_units),
-        predictive_samples=np.ones((n_units, draws)),
+        predictive_samples=np.ones((n_units, samples)),
         intervals=(PredictionInterval(0.9, np.zeros(n_units), np.full(n_units, 2.0)),),
         coordinate=np.arange(n_units, dtype=float),
         evaluation_grid=grid,
@@ -358,12 +358,12 @@ def test_merge_is_associative_across_batch_partitions(
     )
 
 
-def test_merge_rejects_conflicting_draw_counts_and_grids() -> None:
+def test_merge_rejects_conflicting_sample_counts_and_grids() -> None:
     first_grid = EvaluationGrid(np.array([0.0, 1.0, 2.0]))
     second_grid = EvaluationGrid(np.array([0.0, 1.5, 2.0]))
 
-    with pytest.raises(ValueError, match="draw counts"):
-        merge_epoch_prediction_data([_part([0.0], draws=2), _part([1.0], draws=3)])
+    with pytest.raises(ValueError, match="sample counts"):
+        merge_epoch_prediction_data([_part([0.0], samples=2), _part([1.0], samples=3)])
     with pytest.raises(ValueError, match="shared"):
         merge_epoch_prediction_data(
             [_part([0.0], grid=first_grid), _part([1.0], grid=second_grid)]
