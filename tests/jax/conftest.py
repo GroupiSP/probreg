@@ -1,4 +1,8 @@
-"""Shared fixtures for the JAX examples' tests.
+"""Shared fixtures for the JAX backend's and examples' tests.
+
+The `make_stages` and `variance_ready_run` fixtures build and run the real
+mean and variance stages every posterior-stage test starts from; their data,
+loader and types live in `posterior_runs.py`.
 
 The examples live under `examples/`, not in the installed package, so
 their modules are loaded from their file paths. That loading happened
@@ -128,3 +132,36 @@ def tracking_run() -> ModuleType:
     ):
         pytest.importorskip(dependency)
     return _load_example_module(_TRACKING_DIR, "tracking_run", "run.py")
+
+
+@pytest.fixture(scope="session")
+def make_stages(linear_model: type[Any], squared_error: Any) -> Callable[..., Any]:
+    """Return a factory of mean and variance stages on `regression_loader`.
+
+    See `posterior_runs.build_stages` for its arguments.
+    """
+    import posterior_runs
+
+    def make(*sinks: Any, **options: Any) -> Any:
+        return posterior_runs.build_stages(
+            linear_model, squared_error, *sinks, **options
+        )
+
+    return make
+
+
+@pytest.fixture(scope="session")
+def variance_ready_run(make_stages: Callable[..., Any]) -> Callable[..., Any]:
+    """Return a driver of a real mean-then-variance run on `regression_loader`.
+
+    It takes the event sinks of both stages, ``mean_only`` to stop after the
+    mean stage, and the ``checkpoint_store`` both stages save and finalize
+    their best checkpoints into.
+    """
+    import posterior_runs
+
+    def run(*sinks: Any, mean_only: bool = False, checkpoint_store: Any = None) -> Any:
+        stages = make_stages(*sinks, checkpoint_store=checkpoint_store)
+        return posterior_runs.run_to_variance_ready(stages, mean_only=mean_only)
+
+    return run
