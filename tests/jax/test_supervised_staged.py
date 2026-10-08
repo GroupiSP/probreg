@@ -402,6 +402,38 @@ def make_mean_stage(
     return make
 
 
+def validation_loss_is_epoch(
+    current_state: TrainingState,
+    *,
+    epoch: int,
+) -> ValidationResult:
+    """Report a validation loss equal to the epoch, so only epoch 0 improves."""
+    del current_state
+    return ValidationResult(passed=True, metrics={"loss": float(epoch)})
+
+
+StopAtFirstEpoch = Callable[[], dict[str, Any]]
+
+
+@pytest.fixture(scope="session")
+def stop_at_first_epoch() -> StopAtFirstEpoch:
+    """Return a factory of stage options whose best epoch is epoch 0."""
+
+    def make() -> dict[str, Any]:
+        """Return a fresh patience-0 loss stopper and `validation_loss_is_epoch`.
+
+        Returns:
+            The ``early_stopper`` and ``validation`` keyword arguments of a
+            stage factory.
+        """
+        return {
+            "early_stopper": EarlyStopper(metric="loss", mode="min", patience=0),
+            "validation": validation_loss_is_epoch,
+        }
+
+    return make
+
+
 def test_mean_stage_prepares_trains_and_validates_lifecycle(
     make_mean_stage: MakeMeanStage,
 ) -> None:
@@ -482,26 +514,10 @@ def test_mean_stage_selects_existing_checkpoint(
 
 def test_mean_stage_restores_and_finalizes_best_checkpoint(
     make_mean_stage: MakeMeanStage,
+    stop_at_first_epoch: StopAtFirstEpoch,
 ) -> None:
     store = InMemoryCheckpointStore()
-    stopper = EarlyStopper(metric="loss", mode="min", patience=0)
-
-    def validation(
-        current_state: TrainingState,
-        *,
-        epoch: int,
-    ) -> ValidationResult:
-        del current_state
-        return ValidationResult(
-            passed=True,
-            metrics={"loss": float(epoch)},
-        )
-
-    stage, state = make_mean_stage(
-        checkpoint_store=store,
-        early_stopper=stopper,
-        validation=validation,
-    )
+    stage, state = make_mean_stage(checkpoint_store=store, **stop_at_first_epoch())
     expected_stage, expected_state = make_mean_stage()
     expected_stage.options = SupervisedStageOptions(epochs=1)
 
@@ -529,21 +545,11 @@ def test_mean_stage_restores_and_finalizes_best_checkpoint(
 
 def test_mean_stage_restore_skips_history_keys_that_are_not_tags(
     make_mean_stage: MakeMeanStage,
+    stop_at_first_epoch: StopAtFirstEpoch,
 ) -> None:
-    stopper = EarlyStopper(metric="loss", mode="min", patience=0)
-
-    def validation(
-        current_state: TrainingState,
-        *,
-        epoch: int,
-    ) -> ValidationResult:
-        del current_state
-        return ValidationResult(passed=True, metrics={"loss": float(epoch)})
-
     stage, state = make_mean_stage(
         checkpoint_store=InMemoryCheckpointStore(),
-        early_stopper=stopper,
-        validation=validation,
+        **stop_at_first_epoch(),
     )
     stage.prepare(state)
     state.metric_history["lr"] = [0.1]
@@ -963,16 +969,6 @@ def test_staged_restore_returns_bare_train_only_metrics(
 MakeVarianceStage = Callable[..., tuple[GammaVarianceStage, TrainingState]]
 
 
-def validation_loss_is_epoch(
-    current_state: TrainingState,
-    *,
-    epoch: int,
-) -> ValidationResult:
-    """Report a validation loss equal to the epoch, so only epoch 0 improves."""
-    del current_state
-    return ValidationResult(passed=True, metrics={"loss": float(epoch)})
-
-
 @pytest.fixture(scope="session")
 def make_variance_stage(make_mean_stage: MakeMeanStage) -> MakeVarianceStage:
     """Return a factory of a variance stage on a trained mean stage's state."""
@@ -983,6 +979,7 @@ def make_variance_stage(make_mean_stage: MakeMeanStage) -> MakeVarianceStage:
         checkpoint_store: CheckpointStore | None = None,
         early_stopper: EarlyStopper | None = None,
         validation: ValidationStrategy | None = None,
+        mean: tuple[MeanStage, TrainingState] | None = None,
     ) -> tuple[GammaVarianceStage, TrainingState]:
         """Train a mean stage, then build an unprepared variance stage after it.
 
@@ -991,11 +988,13 @@ def make_variance_stage(make_mean_stage: MakeMeanStage) -> MakeVarianceStage:
             checkpoint_store: Where the variance stage saves its best checkpoint.
             early_stopper: The variance stage's early stopper, if any.
             validation: The variance stage's validation strategy, if any.
+            mean: The unprepared mean stage and fresh state to train first.
+                Defaults to a plain `make_mean_stage()`.
 
         Returns:
             The unprepared variance stage and the `MEAN_READY` training state.
         """
-        mean_stage, state = make_mean_stage()
+        mean_stage, state = mean if mean is not None else make_mean_stage()
         mean_stage.prepare(state)
         mean_stage.train(state)
         model = GammaHead(1, 1, rngs=nnx.Rngs(2))
@@ -1019,12 +1018,12 @@ def make_variance_stage(make_mean_stage: MakeMeanStage) -> MakeVarianceStage:
 
 def test_variance_stage_restores_and_finalizes_best_checkpoint(
     make_variance_stage: MakeVarianceStage,
+    stop_at_first_epoch: StopAtFirstEpoch,
 ) -> None:
     store = InMemoryCheckpointStore()
     stage, state = make_variance_stage(
         checkpoint_store=store,
-        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
-        validation=validation_loss_is_epoch,
+        **stop_at_first_epoch(),
     )
     expected_stage, expected_state = make_variance_stage(epochs=1)
     mean_model = state.model_components["mean_model"]
@@ -1057,10 +1056,10 @@ def test_variance_stage_restores_and_finalizes_best_checkpoint(
 
 def test_variance_stage_without_a_store_keeps_its_last_epoch(
     make_variance_stage: MakeVarianceStage,
+    stop_at_first_epoch: StopAtFirstEpoch,
 ) -> None:
     stage, state = make_variance_stage(
-        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
-        validation=validation_loss_is_epoch,
+        **stop_at_first_epoch(),
     )
 
     stage.prepare(state)
@@ -1074,12 +1073,12 @@ def test_variance_stage_without_a_store_keeps_its_last_epoch(
 
 def test_variance_stage_with_a_store_but_no_stopper_keeps_its_last_epoch(
     make_variance_stage: MakeVarianceStage,
+    stop_at_first_epoch: StopAtFirstEpoch,
 ) -> None:
     store = InMemoryCheckpointStore()
     earlier, earlier_state = make_variance_stage(
         checkpoint_store=store,
-        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
-        validation=validation_loss_is_epoch,
+        **stop_at_first_epoch(),
     )
     earlier.prepare(earlier_state)
     earlier.train(earlier_state)
@@ -1098,11 +1097,11 @@ def test_variance_stage_with_a_store_but_no_stopper_keeps_its_last_epoch(
 
 def test_variance_stage_restore_leaves_an_unregistered_mean_optimizer_out(
     make_variance_stage: MakeVarianceStage,
+    stop_at_first_epoch: StopAtFirstEpoch,
 ) -> None:
     stage, state = make_variance_stage(
         checkpoint_store=InMemoryCheckpointStore(),
-        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
-        validation=validation_loss_is_epoch,
+        **stop_at_first_epoch(),
     )
     del state.optimizer_states["mean_optimizer"]
 
@@ -1118,33 +1117,23 @@ MakeFreshStages = Callable[[], tuple[MeanStage, GammaVarianceStage]]
 
 
 @pytest.fixture(scope="session")
-def finalized_run(make_mean_stage: MakeMeanStage) -> FinalizedRun:
+def finalized_run(
+    make_mean_stage: MakeMeanStage,
+    make_variance_stage: MakeVarianceStage,
+    stop_at_first_epoch: StopAtFirstEpoch,
+) -> FinalizedRun:
     """Train both stages into one store, leaving a finalized checkpoint for each."""
     store = InMemoryCheckpointStore()
-    mean_stage, state = make_mean_stage(
+    mean = make_mean_stage(checkpoint_store=store, **stop_at_first_epoch())
+    variance_stage, state = make_variance_stage(
+        epochs=3,
         checkpoint_store=store,
-        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
-        validation=validation_loss_is_epoch,
-    )
-    mean_stage.prepare(state)
-    mean_stage.train(state)
-    model = GammaHead(1, 1, rngs=nnx.Rngs(2))
-    variance_stage = GammaVarianceStage(
-        model=model,
-        optimizer=create_optimizer(model, optax.sgd(0.1)),
-        source_loader=mean_loader,
-        options=SupervisedStageOptions(
-            epochs=3,
-            checkpoint_store=store,
-            checkpoint_key="variance-best",
-            early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
-            validation=validation_loss_is_epoch,
-        ),
-        splits=("train",),
+        mean=mean,
+        **stop_at_first_epoch(),
     )
     variance_stage.prepare(state)
     variance_stage.train(state)
-    return mean_stage, variance_stage, store
+    return mean[0], variance_stage, store
 
 
 @pytest.fixture(scope="session")
@@ -1224,12 +1213,12 @@ class FirstSaveStore(InMemoryCheckpointStore):
 def test_stage_restore_refuses_a_best_checkpoint_that_was_not_finalized(
     make_mean_stage: MakeMeanStage,
     make_fresh_stages: MakeFreshStages,
+    stop_at_first_epoch: StopAtFirstEpoch,
 ) -> None:
     store = FirstSaveStore()
     trained, trained_state = make_mean_stage(
         checkpoint_store=store,
-        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
-        validation=validation_loss_is_epoch,
+        **stop_at_first_epoch(),
     )
     trained.prepare(trained_state)
     trained.train(trained_state)
