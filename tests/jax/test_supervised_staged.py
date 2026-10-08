@@ -1072,6 +1072,30 @@ def test_variance_stage_without_a_store_keeps_its_last_epoch(
     assert stage.validate(state).passed
 
 
+def test_variance_stage_with_a_store_but_no_stopper_keeps_its_last_epoch(
+    make_variance_stage: MakeVarianceStage,
+) -> None:
+    store = InMemoryCheckpointStore()
+    earlier, earlier_state = make_variance_stage(
+        checkpoint_store=store,
+        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
+        validation=validation_loss_is_epoch,
+    )
+    earlier.prepare(earlier_state)
+    earlier.train(earlier_state)
+    earlier_checkpoint = store.load("variance-best")
+    stage, state = make_variance_stage(epochs=3, checkpoint_store=store)
+
+    stage.prepare(state)
+    result = stage.train(state)
+
+    assert store.load("variance-best") is earlier_checkpoint
+    assert int(stage.optimizer.step.get_value()) == 3
+    assert len(state.metric_history["variance/train/loss"]) == 3
+    assert result.loss == state.metric_history["variance/train/loss"][-1]
+    assert stage.validate(state).passed
+
+
 def test_variance_stage_restore_leaves_an_unregistered_mean_optimizer_out(
     make_variance_stage: MakeVarianceStage,
 ) -> None:
