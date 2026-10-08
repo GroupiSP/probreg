@@ -171,6 +171,7 @@ CRPS of their empirical distribution. It still needs a
 
 ```python
 from probreg.core import SampleContinuousRankedProbabilityScore
+from probreg.jax import GaussianPredictor, MetricSuite
 
 suite = MetricSuite(
     epoch=(SampleContinuousRankedProbabilityScore(),),
