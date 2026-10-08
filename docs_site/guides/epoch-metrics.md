@@ -29,6 +29,7 @@ reserved for the loss, and two metrics with the same name are rejected.
 
 The epoch metrics in `probreg.core` are
 [`RootMeanSquaredError`][probreg.core.RootMeanSquaredError],
+[`NegativeLogLikelihood`][probreg.core.NegativeLogLikelihood],
 [`IntervalCoverage`][probreg.core.IntervalCoverage],
 [`WeightedSpread`][probreg.core.WeightedSpread],
 [`PointContinuousRankedProbabilityScore`][probreg.core.PointContinuousRankedProbabilityScore]
@@ -51,7 +52,12 @@ the batches with
 hands the result to each epoch metric. The predictor is the only place that
 knows about the distribution family; for a model returning a
 [`Gaussian`][probreg.jax.Gaussian], use
-[`GaussianPredictor`][probreg.jax.GaussianPredictor].
+[`GaussianPredictor`][probreg.jax.GaussianPredictor]; for a model returning a
+[`PosteriorPredictive`][probreg.jax.PosteriorPredictive], the mixture over
+draws of a posterior, use
+[`PosteriorPredictivePredictor`][probreg.jax.PosteriorPredictivePredictor],
+which scores the exact mixture: its log-density, samples from it and its
+quantiles.
 
 `EpochPredictionData` holds one row per **scoring unit**: a single scalar
 target with its predictive mean and, when requested, its variance, predictive
@@ -101,13 +107,15 @@ their union:
 | Metric | Requires |
 | --- | --- |
 | `RootMeanSquaredError` | targets and means only |
+| `NegativeLogLikelihood` | each target's predictive log-density |
 | `IntervalCoverage(level)` | an interval at exactly `level` |
 | `WeightedSpread(level)` | an interval at `level` and a coordinate |
 | `PointContinuousRankedProbabilityScore` | predictive samples and an evaluation grid |
 | `ContinuousRankedProbabilityScore` | predictive samples, reference samples and an evaluation grid |
 
 Intervals cost nothing to configure: `GaussianPredictor` computes the exact
-central Gaussian interval at each requested level. The other requirements come
+central Gaussian interval at each requested level, and
+`PosteriorPredictivePredictor` the central interval between mixture quantiles. The other requirements come
 with choices the library will not make for you.
 
 ### CRPS: sample count and evaluation grid
