@@ -114,7 +114,7 @@ class PredictionRequirements:
 
     Attributes:
         fields: Union of the prediction fields the registered epoch metrics read.
-        predictive_sample_count: Number of predictive draws per scoring unit.
+        predictive_sample_count: Number of predictive samples per scoring unit.
             Required, and positive, when ``fields`` asks for predictive samples.
         evaluation_grid: Grid the CRPS metrics integrate over. Required when
             ``fields`` asks for an evaluation grid.
@@ -158,7 +158,7 @@ class ReferenceSamplesExtractor(Protocol):
     """Materialize reference samples at the JAX/domain boundary."""
 
     def __call__(self, batch: Batch, key: jax.Array, /) -> Any:
-        """Return samples shaped ``(n_scoring_units, n_draws)``."""
+        """Return samples shaped ``(n_scoring_units, n_samples)``."""
         ...
 
 
@@ -184,7 +184,7 @@ class GaussianPredictor:
     Attributes:
         coordinate_extractor: Optional explicit adapter for coordinate metadata.
         reference_samples_extractor: Optional explicit adapter for conditional CRPS
-            reference draws. It must return ``(n_scoring_units, n_draws)``.
+            reference samples. It must return ``(n_scoring_units, n_samples)``.
     """
 
     coordinate_extractor: CoordinateExtractor | None = None
@@ -383,16 +383,16 @@ def _materialize_predictive_samples(
     requirements: PredictionRequirements,
     key: jax.Array,
 ) -> NDArray[np.float64] | None:
-    """Materialize predictive draws when requested."""
+    """Materialize predictive samples when requested."""
     if not requirements.fields.predictive_samples:
         return None
     assert requirements.predictive_sample_count is not None
-    draws = prediction.sample(
+    samples = prediction.sample(
         jax.random.fold_in(key, 0),
         sample_shape=(requirements.predictive_sample_count,),
     )
-    return _draws_to_rows(
-        draws,
+    return _samples_to_rows(
+        samples,
         prediction_shape=prediction.batch_shape,
         name="predictive_samples",
     )
@@ -406,7 +406,7 @@ def _materialize_reference_samples(
     n_scoring_units: int,
     required: bool,
 ) -> NDArray[np.float64] | None:
-    """Materialize and validate empirical reference draws when requested."""
+    """Materialize and validate empirical reference samples when requested."""
     if not required:
         return None
     if extractor is None:
@@ -417,7 +417,7 @@ def _materialize_reference_samples(
     )
     if samples.ndim != 2 or samples.shape[0] != n_scoring_units:
         raise ValueError(
-            "reference samples must have shape (n_scoring_units, n_draws)."
+            "reference samples must have shape (n_scoring_units, n_samples)."
         )
     return samples
 
@@ -463,16 +463,16 @@ def _required_evaluation_grid(
     return requirements.evaluation_grid
 
 
-def _draws_to_rows(
-    draws: Any,
+def _samples_to_rows(
+    samples: Any,
     *,
     prediction_shape: tuple[int, ...],
     name: str,
 ) -> NDArray[np.float64]:
-    """Convert JAX sample-first draws to host scoring-unit rows."""
-    array = np.asarray(jax.device_get(draws), dtype=np.float64)
+    """Convert JAX sample-first samples to host scoring-unit rows."""
+    array = np.asarray(jax.device_get(samples), dtype=np.float64)
     if array.ndim != len(prediction_shape) + 1 or array.shape[1:] != prediction_shape:
-        raise ValueError(f"{name} must have shape (n_draws, *prediction_shape).")
+        raise ValueError(f"{name} must have shape (n_samples, *prediction_shape).")
     return np.moveaxis(array, 0, -1).reshape(-1, array.shape[0])
 
 
@@ -511,7 +511,7 @@ class MetricSuite:
             over the merged predictions.
         predictor: The [`Predictor`][probreg.jax.Predictor] that turns model
             outputs into host arrays. Required when ``epoch`` is non-empty.
-        predictive_sample_count: Number of predictive draws per scoring unit.
+        predictive_sample_count: Number of predictive samples per scoring unit.
             Required by sample-based epoch metrics.
         evaluation_grid: Grid the CRPS metrics integrate over. Required by CRPS
             epoch metrics.
@@ -647,16 +647,16 @@ def _concat_optional_vectors(
 def _concat_optional_samples(
     parts: Sequence[EpochPredictionData], name: str
 ) -> NDArray[np.float64] | None:
-    """Concatenate sample rows while requiring a stable draw count."""
+    """Concatenate sample rows while requiring a stable sample count."""
     values = [getattr(part, name) for part in parts]
     if all(value is None for value in values):
         return None
     if any(value is None for value in values):
         raise ValueError(f"{name} must be present for all batches or none.")
     matrices = values  # narrowed by checks above
-    draw_counts = {matrix.shape[1] for matrix in matrices if matrix is not None}
-    if len(draw_counts) != 1:
-        raise ValueError(f"{name} draw counts must match across batches.")
+    sample_counts = {matrix.shape[1] for matrix in matrices if matrix is not None}
+    if len(sample_counts) != 1:
+        raise ValueError(f"{name} sample counts must match across batches.")
     return np.concatenate(matrices, axis=0)  # type: ignore[arg-type]
 
 

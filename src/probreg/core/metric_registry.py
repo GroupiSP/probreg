@@ -31,7 +31,7 @@ def _matrix(values: object, *, name: str) -> FloatArray:
     """Return a validated, immutable C-contiguous scoring-unit matrix."""
     array = np.asarray(values, dtype=np.float64)
     if array.ndim != 2:
-        raise ValueError(f"{name} must have shape (n_scoring_units, n_draws).")
+        raise ValueError(f"{name} must have shape (n_scoring_units, n_samples).")
     if not all(array.shape):
         raise ValueError(f"{name} axes must not be empty.")
     if not np.all(np.isfinite(array)):
@@ -105,7 +105,7 @@ class EpochPredictionData:
     """Typed, host-materialized scalar predictions for one batch or epoch.
 
     Rows are independent scalar scoring units. Sample matrices use rows for scoring
-    units and columns for draws; non-scalar distribution events are intentionally not
+    units and columns for samples; non-scalar distribution events are intentionally not
     represented by this contract.
 
     Attributes:
@@ -113,12 +113,12 @@ class EpochPredictionData:
         mean: Predictive mean, one per scoring unit.
         variance: Non-negative predictive variance, one per scoring unit. Defaults
             to ``None`` when no metric requires it.
-        predictive_samples: Draws from the predictive distribution, one row per
-            scoring unit and one column per draw. Defaults to ``None`` when no
+        predictive_samples: Samples from the predictive distribution, one row per
+            scoring unit and one column per sample. Defaults to ``None`` when no
             metric requires them.
-        reference_samples: Draws from each scoring unit's reference distribution,
-            the empirical distribution the predictive draws are scored against,
-            one row per scoring unit and one column per draw. Defaults to ``None``
+        reference_samples: Samples from each scoring unit's reference distribution,
+            the empirical distribution the predictive samples are scored against,
+            one row per scoring unit and one column per sample. Defaults to ``None``
             when no metric requires them.
         intervals: Prediction intervals, each a
             [`PredictionInterval`][probreg.core.PredictionInterval] at a distinct
@@ -234,9 +234,9 @@ class MetricRequirements:
     Attributes:
         variance: Whether the predictive variance is required. Defaults to
             ``False``.
-        predictive_samples: Whether draws from the predictive distribution are
+        predictive_samples: Whether samples from the predictive distribution are
             required. Defaults to ``False``.
-        reference_samples: Whether draws from each scoring unit's reference
+        reference_samples: Whether samples from each scoring unit's reference
             distribution are required. Defaults to ``False``.
         interval_levels: Confidence levels, each in ``(0, 1)``, at which
             prediction intervals are required. Defaults to no levels.
@@ -445,7 +445,7 @@ class PointContinuousRankedProbabilityScore:
 
     @property
     def requirements(self) -> MetricRequirements:
-        """Require predictive draws and the shared evaluation grid."""
+        """Require predictive samples and the shared evaluation grid."""
         return MetricRequirements(predictive_samples=True, evaluation_grid=True)
 
     def __call__(self, data: EpochPredictionData, /) -> float:
@@ -517,7 +517,7 @@ class ContinuousRankedProbabilityScore:
 
     @property
     def requirements(self) -> MetricRequirements:
-        """Require predictive/reference draws and the shared grid."""
+        """Require predictive/reference samples and the shared grid."""
         return MetricRequirements(
             predictive_samples=True,
             reference_samples=True,
