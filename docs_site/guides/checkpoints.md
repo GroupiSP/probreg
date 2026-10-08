@@ -4,9 +4,9 @@ A checkpoint is everything needed to pick a staged workflow up again at the
 point it was taken: the training state, the model and optimizer state, the
 random key and the early stopper's progress. The runners save one whenever an
 early stopper reports a new best model, so that the best model can be put back
-once training stops. The mean stage goes on to finalize its best checkpoint as
-the one it hands on, so that a variance stage can start from it later, in a
-fresh training state.
+once training stops. Each stage goes on to finalize its best checkpoint as the
+one it hands on, so that, for example, a variance stage can start from the mean
+stage's checkpoint later, in a fresh training state.
 
 ## Checkpoints and stores
 
@@ -113,27 +113,28 @@ assert state.metric_history["supervised/train/loss"] == history[: best.epoch + 1
 The early stopper here monitors the training loss to stay self-contained; one
 that monitors a validation metric needs a validation strategy as well.
 
-## The mean stage's checkpoint
+## A stage's finalized checkpoint
 
-[`MeanStage`][probreg.jax.MeanStage] goes one step further when its options
-carry an early stopper and a checkpoint store. At the end of
-[`train`][probreg.jax.MeanStage.train] it restores its best checkpoint into the
-live mean model, so the variance stage computes residuals from the best mean
-model rather than the last one. It then saves that checkpoint again under the
-same key, finalized: its training state is now `MEAN_READY`, and its metadata
-records `{"stage": "mean", "stage_complete": True}`. The finalized checkpoint is
-the hand-off point between the two stages.
+[`MeanStage`][probreg.jax.MeanStage] and
+[`GammaVarianceStage`][probreg.jax.GammaVarianceStage] go one step further when
+their options carry an early stopper and a checkpoint store, and both follow the
+same rule. At the end of `train` the stage restores its best checkpoint into its
+live model, so the model it leaves behind is the best one rather than the last.
+It then saves that checkpoint again under the same key, finalized: its training
+state is at the stage's ready lifecycle state, `MEAN_READY` or `VARIANCE_READY`,
+and its metadata records the stage and `"stage_complete": True`, for example
+`{"stage": "mean", "stage_complete": True}`. The returned result reports the
+restored epoch's training metrics. So the variance stage computes residuals from
+the best mean model, and a finalized checkpoint is the hand-off point after each
+stage.
 
-[`GammaVarianceStage`][probreg.jax.GammaVarianceStage] saves its best
-checkpoint the same way but neither restores nor finalizes it: its live model
-holds the last epoch. The checkpoint is taken before the stage reaches
-`VARIANCE_READY`, so `restore_checkpoint` brings back the best variance model
-with its lifecycle still at `MEAN_READY`. It also re-registers only the model and
-optimizer you pass it, so `mean_model` and `mean_optimizer` are no longer
-registered. To get a state that passes the variance stage's
-[`validate`][probreg.jax.GammaVarianceStage.validate] again, register the mean
-model and its optimizer again and set `lifecycle_state` to `VARIANCE_READY`. If
-you only need the best weights, restore into a throwaway `TrainingState`.
+The variance checkpoint snapshots only the variance model and optimizer, since
+the mean model is frozen and already lives in the mean stage's checkpoint. When
+the variance stage restores it, it keeps the mean model and its optimizer
+registered under `mean_model_name` and `mean_optimizer_name`, so the state still
+passes [`validate`][probreg.jax.GammaVarianceStage.validate].
+`restore_checkpoint` on its own restores clean-slate: it registers only the
+model and optimizer you pass it.
 
 Both stages read the key from their own
 [`SupervisedStageOptions`][probreg.jax.SupervisedStageOptions], and both default
