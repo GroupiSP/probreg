@@ -906,3 +906,132 @@ def test_staged_restore_returns_bare_train_only_metrics(
     assert len(restored_history) == 1
     assert set(mean_result.metrics) == {"loss"}
     assert mean_result.loss == restored_history[-1]
+
+
+MakeVarianceStage = Callable[..., tuple[GammaVarianceStage, TrainingState]]
+
+
+def validation_loss_is_epoch(
+    current_state: TrainingState,
+    *,
+    epoch: int,
+) -> ValidationResult:
+    """Report a validation loss equal to the epoch, so only epoch 0 improves."""
+    del current_state
+    return ValidationResult(passed=True, metrics={"loss": float(epoch)})
+
+
+@pytest.fixture(scope="session")
+def make_variance_stage(make_mean_stage: MakeMeanStage) -> MakeVarianceStage:
+    """Return a factory of a variance stage on a trained mean stage's state."""
+
+    def make(
+        *,
+        epochs: int = 5,
+        checkpoint_store: CheckpointStore | None = None,
+        early_stopper: EarlyStopper | None = None,
+        validation: ValidationStrategy | None = None,
+    ) -> tuple[GammaVarianceStage, TrainingState]:
+        """Train a mean stage, then build an unprepared variance stage after it.
+
+        Args:
+            epochs: The variance stage's maximum number of epochs.
+            checkpoint_store: Where the variance stage saves its best checkpoint.
+            early_stopper: The variance stage's early stopper, if any.
+            validation: The variance stage's validation strategy, if any.
+
+        Returns:
+            The unprepared variance stage and the `MEAN_READY` training state.
+        """
+        mean_stage, state = make_mean_stage()
+        mean_stage.prepare(state)
+        mean_stage.train(state)
+        model = GammaHead(1, 1, rngs=nnx.Rngs(2))
+        stage = GammaVarianceStage(
+            model=model,
+            optimizer=create_optimizer(model, optax.sgd(0.1)),
+            source_loader=mean_loader,
+            options=SupervisedStageOptions(
+                epochs=epochs,
+                checkpoint_store=checkpoint_store,
+                checkpoint_key="variance-best",
+                early_stopper=early_stopper,
+                validation=validation,
+            ),
+            splits=("train",),
+        )
+        return stage, state
+
+    return make
+
+
+def test_variance_stage_restores_and_finalizes_best_checkpoint(
+    make_variance_stage: MakeVarianceStage,
+) -> None:
+    store = InMemoryCheckpointStore()
+    stage, state = make_variance_stage(
+        checkpoint_store=store,
+        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
+        validation=validation_loss_is_epoch,
+    )
+    expected_stage, expected_state = make_variance_stage(epochs=1)
+    mean_model = state.model_components["mean_model"]
+    mean_optimizer = state.optimizer_states["mean_optimizer"]
+
+    stage.prepare(state)
+    result = stage.train(state)
+    expected_stage.prepare(expected_state)
+    expected_stage.train(expected_state)
+
+    checkpoint = store.load("variance-best")
+    assert checkpoint.epoch == 0
+    assert checkpoint.state.lifecycle_state is StageState.VARIANCE_READY
+    assert checkpoint.metadata == {"stage": "variance", "stage_complete": True}
+    assert int(stage.optimizer.step.get_value()) == 1
+    assert len(state.metric_history["variance/train/loss"]) == 1
+    assert result.loss == state.metric_history["variance/train/loss"][-1]
+    assert stage.validate(state).passed
+    assert state.model_components["mean_model"] is mean_model
+    assert state.optimizer_states["mean_optimizer"] is mean_optimizer
+    assert all(
+        jnp.array_equal(actual, expected)
+        for actual, expected in zip(
+            jax.tree.leaves(nnx.state(stage.model)),
+            jax.tree.leaves(nnx.state(expected_stage.model)),
+            strict=True,
+        )
+    )
+
+
+def test_variance_stage_without_a_store_keeps_its_last_epoch(
+    make_variance_stage: MakeVarianceStage,
+) -> None:
+    stage, state = make_variance_stage(
+        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
+        validation=validation_loss_is_epoch,
+    )
+
+    stage.prepare(state)
+    result = stage.train(state)
+
+    assert int(stage.optimizer.step.get_value()) == 2
+    assert len(state.metric_history["variance/train/loss"]) == 2
+    assert result.loss == state.metric_history["variance/train/loss"][-1]
+    assert stage.validate(state).passed
+
+
+def test_variance_stage_restore_leaves_an_unregistered_mean_optimizer_out(
+    make_variance_stage: MakeVarianceStage,
+) -> None:
+    stage, state = make_variance_stage(
+        checkpoint_store=InMemoryCheckpointStore(),
+        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
+        validation=validation_loss_is_epoch,
+    )
+    del state.optimizer_states["mean_optimizer"]
+
+    stage.prepare(state)
+    stage.train(state)
+
+    assert "mean_optimizer" not in state.optimizer_states
+    assert stage.validate(state).passed

@@ -229,20 +229,18 @@ class MeanStage:
         if result.loss is None or not math.isfinite(result.loss):
             raise ValueError("mean stage produced a non-finite final loss.")
         state.lifecycle_state = StageState.MEAN_READY
-        return self._restore_and_finalize_checkpoint(state, result)
+        return _restore_and_finalize_best_checkpoint(
+            state,
+            result,
+            stage=self.name,
+            options=self.options,
+            model=self.model,
+            optimizer=self.optimizer,
+            restore=self._restore_live,
+        )
 
-    def _restore_and_finalize_checkpoint(
-        self,
-        state: TrainingState,
-        result: StageResult,
-    ) -> StageResult:
-        """Restore and finalize the selected best checkpoint when available."""
-        store = self.options.checkpoint_store
-        key = self.options.checkpoint_key
-        if self.options.early_stopper is None or store is None or not store.exists(key):
-            return result
-
-        checkpoint = store.load(key)
+    def _restore_live(self, state: TrainingState, checkpoint: Checkpoint) -> None:
+        """Restore a mean checkpoint into the live model and mark Step 1 ready."""
         restore_checkpoint(
             checkpoint,
             state=state,
@@ -253,22 +251,6 @@ class MeanStage:
         )
         state.lifecycle_state = StageState.MEAN_READY
         state.active_stage = self.name
-        finalized = Checkpoint(
-            state=freeze_training_state(state),
-            epoch=checkpoint.epoch,
-            parameters=snapshot(self.model),
-            optimizer_state=snapshot(self.optimizer),
-            rng_state=state.rng_state,
-            early_stopping_state=checkpoint.early_stopping_state,
-            metadata={
-                **checkpoint.metadata,
-                "stage": self.name,
-                "stage_complete": True,
-            },
-        )
-        store.save(key, finalized)
-        metrics = _latest_training_metrics(state, self.name)
-        return StageResult(state=state, metrics=metrics, loss=metrics["loss"])
 
     def validate(self, state: TrainingState) -> ValidationResult:
         """Validate mean-stage lifecycle and ownership invariants.
@@ -320,6 +302,8 @@ class GammaVarianceStage:
         source_loader: Factory producing original regression batches.
         options: Shared supervised-runner options.
         mean_model_name: Registry name of the prepared mean model.
+        mean_optimizer_name: Registry name of the mean optimizer, kept
+            registered when the stage restores its best checkpoint.
         model_name: State registry name for the variance model.
         optimizer_name: State registry name for the variance optimizer.
         splits: Source split names materialized as residual batches.
@@ -334,6 +318,7 @@ class GammaVarianceStage:
     source_loader: LoaderFactory
     options: SupervisedStageOptions
     mean_model_name: str = "mean_model"
+    mean_optimizer_name: str = "mean_optimizer"
     model_name: str = "variance_model"
     optimizer_name: str = "variance_optimizer"
     splits: Sequence[str] = ("train", "validation")
@@ -447,7 +432,38 @@ class GammaVarianceStage:
         if result.loss is None or not math.isfinite(result.loss):
             raise ValueError("variance stage produced a non-finite final loss.")
         state.lifecycle_state = StageState.VARIANCE_READY
-        return result
+        return _restore_and_finalize_best_checkpoint(
+            state,
+            result,
+            stage=self.name,
+            options=self.options,
+            model=self.model,
+            optimizer=self.optimizer,
+            restore=self._restore_live,
+        )
+
+    def _restore_live(self, state: TrainingState, checkpoint: Checkpoint) -> None:
+        """Restore a variance checkpoint, keeping the mean registrations live.
+
+        The variance checkpoint snapshots only the variance model and optimizer,
+        and ``restore_checkpoint`` restores clean-slate, so the mean model and,
+        if registered, the mean optimizer are carried across the restore.
+        """
+        mean_model = state.model_components[self.mean_model_name]
+        mean_optimizer = state.optimizer_states.get(self.mean_optimizer_name)
+        restore_checkpoint(
+            checkpoint,
+            state=state,
+            model=self.model,
+            optimizer=self.optimizer,
+            model_name=self.model_name,
+            optimizer_name=self.optimizer_name,
+        )
+        state.register_component(self.mean_model_name, mean_model)
+        if mean_optimizer is not None:
+            state.register_optimizer(self.mean_optimizer_name, mean_optimizer)
+        state.lifecycle_state = StageState.VARIANCE_READY
+        state.active_stage = self.name
 
     def validate(self, state: TrainingState) -> ValidationResult:
         """Validate variance-stage lifecycle, ownership, and freezing.
@@ -488,6 +504,60 @@ class GammaVarianceStage:
         if store is None or not store.exists(key):
             raise ValueError(f"checkpoint {key!r} is not available.")
         return CheckpointRef(key=key, metadata={"stage": self.name})
+
+
+def _restore_and_finalize_best_checkpoint(
+    state: TrainingState,
+    result: StageResult,
+    *,
+    stage: str,
+    options: SupervisedStageOptions,
+    model: nnx.Module,
+    optimizer: nnx.Optimizer,
+    restore: Callable[[TrainingState, Checkpoint], None],
+) -> StageResult:
+    """Restore a stage's best checkpoint and save it again as finalized.
+
+    Without an early stopper, a checkpoint store, or a saved best checkpoint,
+    ``result`` is returned unchanged.
+
+    Args:
+        state: State the stage has just trained and marked ready.
+        result: The supervised runner result of the stage.
+        stage: Name of the stage, recorded in the checkpoint metadata.
+        options: The stage's runner options, naming the store and key.
+        model: The stage's live model, snapshotted into the finalized checkpoint.
+        optimizer: The stage's live optimizer, snapshotted alongside ``model``.
+        restore: Restores a checkpoint into ``state`` and the live objects and
+            sets the stage's ready lifecycle state.
+
+    Returns:
+        ``result`` if nothing was restored, otherwise a result reporting the
+        restored epoch's training metrics.
+    """
+    store = options.checkpoint_store
+    key = options.checkpoint_key
+    if options.early_stopper is None or store is None or not store.exists(key):
+        return result
+
+    checkpoint = store.load(key)
+    restore(state, checkpoint)
+    finalized = Checkpoint(
+        state=freeze_training_state(state),
+        epoch=checkpoint.epoch,
+        parameters=snapshot(model),
+        optimizer_state=snapshot(optimizer),
+        rng_state=state.rng_state,
+        early_stopping_state=checkpoint.early_stopping_state,
+        metadata={
+            **checkpoint.metadata,
+            "stage": stage,
+            "stage_complete": True,
+        },
+    )
+    store.save(key, finalized)
+    metrics = _latest_training_metrics(state, stage)
+    return StageResult(state=state, metrics=metrics, loss=metrics["loss"])
 
 
 def _validate_named_registration(
