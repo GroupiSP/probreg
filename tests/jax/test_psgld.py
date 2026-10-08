@@ -4,6 +4,9 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.stats as jstats
 import numpy as np
+import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from probreg.core.types import Batch, PyTree
 from probreg.jax import IsotropicGaussianPrior, PosteriorProblem, PreconditionedSGLD
@@ -83,3 +86,47 @@ def test_retained_samples_match_the_bayesian_linear_regression_posterior() -> No
         draws.mean(axis=0), expected_mean, atol=0.25 * expected_spread.min()
     )
     np.testing.assert_allclose(draws.std(axis=0), expected_spread, rtol=0.15)
+
+
+_MAX_STEPS = 16
+
+
+@pytest.fixture(scope="session")
+def linear_regression_problem() -> PosteriorProblem:
+    """One Bayesian linear regression problem shared by the retention tests."""
+    return _linear_regression_problem(_linear_regression_batch())
+
+
+@pytest.fixture(scope="session")
+def every_position(linear_regression_problem: PosteriorProblem) -> PyTree:
+    """The first ``_MAX_STEPS`` positions of the chain, stacked."""
+    method = PreconditionedSGLD(step_size=0.01)
+    _run_chain(method, linear_regression_problem, _MAX_STEPS)
+    return method.posterior_state()
+
+
+@settings(deadline=None, max_examples=12)
+@given(
+    burn_in=st.integers(min_value=0, max_value=6),
+    thinning=st.integers(min_value=1, max_value=4),
+    steps=st.integers(min_value=0, max_value=_MAX_STEPS),
+)
+def test_burn_in_and_thinning_retain_exactly_the_due_positions(
+    linear_regression_problem: PosteriorProblem,
+    every_position: PyTree,
+    burn_in: int,
+    thinning: int,
+    steps: int,
+) -> None:
+    method = PreconditionedSGLD(step_size=0.01, burn_in=burn_in, thinning=thinning)
+
+    _run_chain(method, linear_regression_problem, steps)
+
+    due = list(range(burn_in + thinning, steps + 1, thinning))
+    if not due:
+        with pytest.raises(ValueError, match="no sample has been retained"):
+            method.posterior()
+        return
+    expected = jax.tree.map(lambda leaf: leaf[np.asarray(due) - 1], every_position)
+    assert method.posterior().num_draws == len(due)
+    jax.tree.map(np.testing.assert_array_equal, method.posterior_state(), expected)
