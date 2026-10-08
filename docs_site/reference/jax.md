@@ -9,6 +9,10 @@ module that defines it. Using it needs the `jax` extra.
 
 ::: probreg.jax.Gamma
 
+::: probreg.jax.PosteriorPredictive
+
+::: probreg.jax.MomentMatchedPredictive
+
 ::: probreg.jax.GaussianHead
 
 ::: probreg.jax.GammaHead

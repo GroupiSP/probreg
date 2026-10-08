@@ -10,6 +10,8 @@ from probreg.core.metric_registry import (
     EpochPredictionData,
     EvaluationGrid,
     IntervalCoverage,
+    MetricRequirements,
+    NegativeLogLikelihood,
     PointContinuousRankedProbabilityScore,
     PredictionInterval,
     RootMeanSquaredError,
@@ -234,3 +236,41 @@ def test_interval_coverage_is_bounded(values: list[float]) -> None:
 
     observed = IntervalCoverage()(data)
     assert 0.0 <= observed <= 1.0
+
+
+def test_negative_log_likelihood_averages_scoring_units_log_likelihood() -> None:
+    data = EpochPredictionData(
+        targets=np.zeros(3),
+        mean=np.zeros(3),
+        log_likelihood=np.array([-1.0, -3.0, 1.0]),
+    )
+
+    assert NegativeLogLikelihood()(data) == pytest.approx(1.0)
+    assert NegativeLogLikelihood().name == "nll"
+    assert NegativeLogLikelihood(name="validation_nll").name == "validation_nll"
+    assert NegativeLogLikelihood().requirements.log_likelihood
+
+
+def test_negative_log_likelihood_requires_the_log_likelihood_field() -> None:
+    data = EpochPredictionData(targets=np.array([0.0]), mean=np.array([0.0]))
+
+    with pytest.raises(ValueError, match="log_likelihood"):
+        NegativeLogLikelihood()(data)
+
+
+def test_log_likelihood_must_match_the_scoring_units_and_be_finite() -> None:
+    with pytest.raises(ValueError, match="log_likelihood must match"):
+        EpochPredictionData(
+            targets=np.zeros(2), mean=np.zeros(2), log_likelihood=np.zeros(3)
+        )
+    with pytest.raises(ValueError, match="finite"):
+        EpochPredictionData(
+            targets=np.zeros(1), mean=np.zeros(1), log_likelihood=np.array([-np.inf])
+        )
+
+
+def test_log_likelihood_requirement_survives_union() -> None:
+    combined = MetricRequirements().union(MetricRequirements(log_likelihood=True))
+
+    assert combined.log_likelihood
+    assert not MetricRequirements().log_likelihood
