@@ -87,6 +87,12 @@ def make_train_step(
 def resolve_checkpoint_key(checkpoint_key: str | None, stage: str) -> str:
     """Return the checkpoint key a stage saves its best checkpoint under.
 
+    Internal: not exported from ``probreg.jax``. It is the single definition
+    of the default key shared by
+    [`run_supervised`][probreg.jax.run_supervised],
+    [`MeanStage`][probreg.jax.MeanStage] and
+    [`GammaVarianceStage`][probreg.jax.GammaVarianceStage].
+
     Args:
         checkpoint_key: An explicitly configured checkpoint key, or ``None``.
         stage: The stage name scoping the default key.
@@ -145,7 +151,10 @@ def run_supervised(
         checkpoint_key: The checkpoint key under which the best checkpoint
             is saved. Defaults to ``None``, which resolves to the stage-scoped
             key ``f"{stage}/best"`` so that stages sharing one
-            ``checkpoint_store`` never overwrite each other.
+            ``checkpoint_store`` never overwrite each other; the
+            [`MeanStage`][probreg.jax.MeanStage] and
+            [`GammaVarianceStage`][probreg.jax.GammaVarianceStage] defaults
+            resolve the same way.
         stage: The stage name recorded on ``state`` and emitted events,
             and the stage segment of every metric tag recorded in
             ``state.metric_history``. Defaults to ``"supervised"``.
