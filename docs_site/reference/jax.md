@@ -51,6 +51,24 @@ module that defines it. Using it needs the `jax` extra.
 
 ::: probreg.jax.merge_epoch_prediction_data
 
+## `probreg.jax.posterior`
+
+::: probreg.jax.PosteriorProblem
+
+::: probreg.jax.Prior
+
+::: probreg.jax.IsotropicGaussianPrior
+
+::: probreg.jax.InferenceMethod
+
+::: probreg.jax.Posterior
+
+## `probreg.jax.posterior_stage`
+
+::: probreg.jax.PosteriorStageOptions
+
+::: probreg.jax.PosteriorStage
+
 ## `probreg.jax.rng`
 
 ::: probreg.jax.split_key
