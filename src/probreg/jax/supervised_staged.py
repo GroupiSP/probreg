@@ -463,6 +463,10 @@ class GammaVarianceStage:
 
     def restore(self, state: TrainingState, checkpoint: Checkpoint) -> None:
         """Restore the variance stage's finalized checkpoint."""
+        if self.mean_model_name not in state.model_components:
+            raise ValueError(
+                f"mean model component {self.mean_model_name!r} is not registered."
+            )
         self._restore_live(state, checkpoint)
 
     def _restore_live(self, state: TrainingState, checkpoint: Checkpoint) -> None:

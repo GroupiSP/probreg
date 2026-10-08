@@ -1116,3 +1116,18 @@ def test_stages_resume_a_fresh_state_from_their_finalized_checkpoints(
     restored, trained = variance_stage.model(inputs), trained_variance.model(inputs)
     assert jnp.array_equal(restored.concentration, trained.concentration)
     assert jnp.array_equal(restored.rate, trained.rate)
+
+
+def test_variance_restore_before_mean_restore_is_refused(
+    finalized_run: FinalizedRun,
+    make_fresh_stages: MakeFreshStages,
+) -> None:
+    _, _, store = finalized_run
+    _, variance_stage = make_fresh_stages()
+    state = TrainingState()
+
+    with pytest.raises(ValueError, match="mean model component 'mean_model'"):
+        variance_stage.restore(state, store.load("variance-best"))
+
+    assert state.lifecycle_state is StageState.NEW
+    assert state.model_components == {}
