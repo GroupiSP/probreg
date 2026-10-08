@@ -1,5 +1,6 @@
 """Optional JAX/Flax NNX training backend."""
 
+from probreg.jax.bayes_by_backprop import BayesByBackprop, MeanFieldGaussianPosterior
 from probreg.jax.distributions import (
     Gamma,
     GammaHead,
@@ -55,6 +56,7 @@ from probreg.jax.validation import HeldOutValidation
 
 __all__ = [
     "BatchMetric",
+    "BayesByBackprop",
     "BatchMetricSpec",
     "CoordinateExtractor",
     "Gamma",
@@ -66,6 +68,7 @@ __all__ = [
     "HeldOutValidation",
     "InferenceMethod",
     "IsotropicGaussianPrior",
+    "MeanFieldGaussianPosterior",
     "MeanStage",
     "MetricSuite",
     "MomentMatchedPredictive",
