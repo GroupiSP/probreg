@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import math
 from collections.abc import Callable
 from typing import Any
@@ -9,7 +10,7 @@ import jax.numpy as jnp
 import optax
 import pytest
 from flax import nnx
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from probreg.core.checkpoints import (
@@ -1198,3 +1199,110 @@ def test_variance_stage_refuses_the_mean_checkpoint(
         variance_stage.restore(state, store.load("mean-best"))
 
     assert mean_stage.validate(state).passed
+
+
+def _observable_state(
+    state: TrainingState,
+    stages: tuple[MeanStage, GammaVarianceStage],
+) -> tuple[Any, ...]:
+    """Return what a refused restore must leave unchanged, as comparable values."""
+    weights = tuple(
+        tuple(
+            jnp.asarray(leaf).tolist() for leaf in jax.tree.leaves(nnx.state(s.model))
+        )
+        for s in stages
+    )
+    return (
+        dict(state.model_components),
+        dict(state.optimizer_states),
+        dict(state.parameter_roles),
+        frozenset(state.frozen_components),
+        state.lifecycle_state,
+        weights,
+    )
+
+
+@given(
+    stage_name=st.sampled_from(["mean", "variance"]),
+    lifecycle=st.sampled_from(StageState),
+    metadata_stage=st.sampled_from(["mean", "variance", "other", None]),
+    stage_complete=st.sampled_from([True, False, None]),
+    mean_restored=st.booleans(),
+)
+@settings(deadline=None, max_examples=30)
+def test_a_refused_restore_leaves_the_state_and_live_models_unchanged(
+    finalized_run: FinalizedRun,
+    make_fresh_stages: MakeFreshStages,
+    stage_name: str,
+    lifecycle: StageState,
+    metadata_stage: str | None,
+    stage_complete: bool | None,
+    mean_restored: bool,
+) -> None:
+    _, _, store = finalized_run
+    stages = make_fresh_stages()
+    mean_stage, variance_stage = stages
+    stage = mean_stage if stage_name == "mean" else variance_stage
+    ready = StageState.MEAN_READY if stage_name == "mean" else StageState.VARIANCE_READY
+    finalized = lifecycle is ready and metadata_stage == stage_name and stage_complete
+    mean_missing = stage_name == "variance" and not mean_restored
+    assume(not finalized or mean_missing)
+    finalized_checkpoint = store.load(f"{stage_name}-best")
+    metadata = {
+        key: value
+        for key, value in {
+            "stage": metadata_stage,
+            "stage_complete": stage_complete,
+        }.items()
+        if value is not None
+    }
+    checkpoint = dataclasses.replace(
+        finalized_checkpoint,
+        state=dataclasses.replace(
+            finalized_checkpoint.state, lifecycle_state=lifecycle
+        ),
+        metadata=metadata,
+    )
+    state = TrainingState()
+    if mean_restored:
+        mean_stage.restore(state, store.load("mean-best"))
+    before = _observable_state(state, stages)
+
+    with pytest.raises(ValueError):
+        stage.restore(state, checkpoint)
+
+    assert _observable_state(state, stages) == before
+
+
+@given(
+    stage_name=st.sampled_from(["mean", "variance"]),
+    prior_lifecycle=st.sampled_from(StageState),
+    keep_mean_optimizer=st.booleans(),
+    stray_component=st.booleans(),
+)
+@settings(deadline=None, max_examples=20)
+def test_a_restored_finalized_checkpoint_passes_the_stage_validation(
+    finalized_run: FinalizedRun,
+    make_fresh_stages: MakeFreshStages,
+    stage_name: str,
+    prior_lifecycle: StageState,
+    keep_mean_optimizer: bool,
+    stray_component: bool,
+) -> None:
+    _, _, store = finalized_run
+    mean_stage, variance_stage = make_fresh_stages()
+    stage = mean_stage if stage_name == "mean" else variance_stage
+    state = TrainingState()
+    mean_stage.restore(state, store.load("mean-best"))
+    if not keep_mean_optimizer:
+        del state.optimizer_states["mean_optimizer"]
+    if stray_component:
+        state.register_component("stray", nnx.Linear(1, 1, rngs=nnx.Rngs(3)))
+    state.lifecycle_state = prior_lifecycle
+
+    stage.restore(state, store.load(f"{stage_name}-best"))
+
+    assert stage.validate(state).passed
+    assert state.model_components["mean_model"] is mean_stage.model
+    if stage_name == "variance":
+        assert ("mean_optimizer" in state.optimizer_states) is keep_mean_optimizer
