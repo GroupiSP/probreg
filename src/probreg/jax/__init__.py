@@ -26,6 +26,14 @@ from probreg.jax.metrics import (
     ReferenceSamplesExtractor,
     merge_epoch_prediction_data,
 )
+from probreg.jax.posterior import (
+    InferenceMethod,
+    IsotropicGaussianPrior,
+    Posterior,
+    PosteriorProblem,
+    Prior,
+)
+from probreg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
 from probreg.jax.rng import split_key
 from probreg.jax.state import (
     NnxSnapshot,
@@ -55,14 +63,21 @@ __all__ = [
     "GaussianHead",
     "GaussianPredictor",
     "HeldOutValidation",
+    "InferenceMethod",
+    "IsotropicGaussianPrior",
     "MeanStage",
     "MetricSuite",
     "MomentMatchedPredictive",
     "NnxSnapshot",
+    "Posterior",
     "PosteriorPredictive",
     "PosteriorPredictivePredictor",
+    "PosteriorProblem",
+    "PosteriorStage",
+    "PosteriorStageOptions",
     "PredictionRequirements",
     "Predictor",
+    "Prior",
     "ReferenceSamplesExtractor",
     "SupervisedLoss",
     "SupervisedStageOptions",
