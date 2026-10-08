@@ -34,7 +34,7 @@ from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.losses import make_supervised_loss
 from probreg.jax.metrics import MetricSuite
 from probreg.jax.state import freeze_training_state, restore_checkpoint, snapshot
-from probreg.jax.supervised import run_supervised
+from probreg.jax.supervised import resolve_checkpoint_key, run_supervised
 
 
 def materialize_residual_loader(
@@ -122,7 +122,11 @@ class SupervisedStageOptions:
         early_stopper: Optional early-stopping policy.
         event_sinks: Event consumers notified by the runner.
         checkpoint_store: Optional best-checkpoint store.
-        checkpoint_key: Explicit caller-selected best-checkpoint key.
+        checkpoint_key: The checkpoint key the stage saves its best checkpoint
+            under. Defaults to ``None``, which resolves to the stage-scoped
+            key ``f"{stage}/best"`` (``mean/best``, ``variance/best``), so
+            stages sharing one ``checkpoint_store`` never overwrite each
+            other.
         metrics: Batch and epoch metric registrations.
     """
 
@@ -131,7 +135,7 @@ class SupervisedStageOptions:
     early_stopper: EarlyStopper | None = None
     event_sinks: Sequence[EventSink] = ()
     checkpoint_store: CheckpointStore | None = None
-    checkpoint_key: str = "best"
+    checkpoint_key: str | None = None
     metrics: MetricSuite = field(default_factory=MetricSuite)
 
 
@@ -220,7 +224,9 @@ class MeanStage:
             early_stopper=self.options.early_stopper,
             event_sinks=self.options.event_sinks,
             checkpoint_store=self.options.checkpoint_store,
-            checkpoint_key=self.options.checkpoint_key,
+            checkpoint_key=resolve_checkpoint_key(
+                self.options.checkpoint_key, self.name
+            ),
             stage=self.name,
             model_name=self.model_name,
             optimizer_name=self.optimizer_name,
@@ -238,7 +244,7 @@ class MeanStage:
     ) -> StageResult:
         """Restore and finalize the selected best checkpoint when available."""
         store = self.options.checkpoint_store
-        key = self.options.checkpoint_key
+        key = resolve_checkpoint_key(self.options.checkpoint_key, self.name)
         if self.options.early_stopper is None or store is None or not store.exists(key):
             return result
 
@@ -291,20 +297,22 @@ class MeanStage:
         )
 
     def select_checkpoint(self, state: TrainingState) -> CheckpointRef:
-        """Return the explicitly configured mean checkpoint reference.
+        """Return a reference to the mean stage's best checkpoint.
 
         Args:
             state: Shared staged training state.
 
         Returns:
-            Reference to the configured best checkpoint.
+            Reference to the checkpoint key the stage saves under: the
+            configured ``checkpoint_key``, or ``f"{stage}/best"`` when none
+            was configured.
 
         Raises:
-            ValueError: If no configured checkpoint exists.
+            ValueError: If no checkpoint exists under that key.
         """
         del state
         store = self.options.checkpoint_store
-        key = self.options.checkpoint_key
+        key = resolve_checkpoint_key(self.options.checkpoint_key, self.name)
         if store is None or not store.exists(key):
             raise ValueError(f"checkpoint {key!r} is not available.")
         return CheckpointRef(key=key, metadata={"stage": self.name})
@@ -438,7 +446,9 @@ class GammaVarianceStage:
             early_stopper=self.options.early_stopper,
             event_sinks=self.options.event_sinks,
             checkpoint_store=self.options.checkpoint_store,
-            checkpoint_key=self.options.checkpoint_key,
+            checkpoint_key=resolve_checkpoint_key(
+                self.options.checkpoint_key, self.name
+            ),
             stage=self.name,
             model_name=self.model_name,
             optimizer_name=self.optimizer_name,
@@ -471,20 +481,22 @@ class GammaVarianceStage:
         )
 
     def select_checkpoint(self, state: TrainingState) -> CheckpointRef:
-        """Return the explicitly configured variance checkpoint reference.
+        """Return a reference to the variance stage's best checkpoint.
 
         Args:
             state: Shared staged training state.
 
         Returns:
-            Reference to the configured best checkpoint.
+            Reference to the checkpoint key the stage saves under: the
+            configured ``checkpoint_key``, or ``f"{stage}/best"`` when none
+            was configured.
 
         Raises:
-            ValueError: If no configured checkpoint exists.
+            ValueError: If no checkpoint exists under that key.
         """
         del state
         store = self.options.checkpoint_store
-        key = self.options.checkpoint_key
+        key = resolve_checkpoint_key(self.options.checkpoint_key, self.name)
         if store is None or not store.exists(key):
             raise ValueError(f"checkpoint {key!r} is not available.")
         return CheckpointRef(key=key, metadata={"stage": self.name})
