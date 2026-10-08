@@ -55,7 +55,7 @@ _Avoid_: Flat parameter name, hparam key
 
 **Scoring unit**:
 One scalar target together with everything predicted for it (mean, variance, samples, intervals, coordinate), the row an epoch metric scores. A target of any shape is flattened into as many scoring units as it has elements, and an epoch metric aggregates over all scoring units of a split, not over batches.
-_Avoid_: Sample (clashes with predictive draws), data point, observation
+_Avoid_: Sample (clashes with predictive samples), data point, observation
 
 **Best checkpoint**:
 The checkpoint a stage saves whenever its early stopper reports an improvement. A snapshot of training in progress: its lifecycle state is still the one the stage started from, so restoring it alone does not leave the stage ready.
@@ -68,6 +68,46 @@ _Avoid_: Hand-off checkpoint, final checkpoint (it holds the best epoch, not the
 **Checkpoint key**:
 The name a checkpoint is stored under in a checkpoint store, `stage/best` by default, so that stages sharing one store never overwrite each other's checkpoints.
 _Avoid_: Checkpoint name, checkpoint ID
+
+**Aleatoric variance**:
+The variance of the noise in the targets around their true mean, as estimated by the variance stage. It is a property of the data and does not shrink with more data.
+_Avoid_: Noise variance (ambiguous with the noise of an inference method), data uncertainty
+
+**Epistemic variance**:
+The spread of the mean function across the draws of a posterior, i.e. the uncertainty about the mean that more data would reduce.
+_Avoid_: Model uncertainty, parameter variance
+
+**Posterior stage**:
+The stage that follows the variance stage and replaces the single trained mean function with a posterior over mean functions, starting from the trained mean and holding the aleatoric variance fixed. Optional: a run that stops after the variance stage is complete without it.
+_Avoid_: Bayesian stage, BNN stage, Step 3
+
+**Inference method**:
+The interchangeable strategy a posterior stage uses to turn a posterior problem into a posterior: Markov chain Monte Carlo, variational inference, ensembles, MC-Dropout. The posterior stage decides what is inferred; the inference method decides how.
+_Avoid_: Sampler (excludes variational methods), inference engine, backend
+
+**Posterior problem**:
+Everything a posterior stage hands its inference method: the starting point taken from the trained mean, the likelihood of the targets under the fixed aleatoric variance, the prior, the training data and its size. Every inference method honors the prior; methods without an explicit prior use it as their regularizer.
+_Avoid_: Log-posterior (only one part of it), target density
+
+**Posterior**:
+What an inference method produces: an approximate posterior over mean functions, from which draws of the mean at given inputs can be taken. The members of an ensemble count as equally weighted draws.
+_Avoid_: BNN, weight samples, variational distribution (one kind of posterior)
+
+**Draw**:
+One mean function taken from a posterior: the same function at every input and in every batch, so predictions compared across inputs (such as a RUL curve) come from one consistent function. A posterior with a finite set of draws (retained samples, ensemble members) always uses all of them.
+_Avoid_: Sample (clashes with predictive samples), particle, predictive draw
+
+**Predictive sample**:
+One value of the target drawn from a predictive distribution, as used to estimate the CRPS. Not a draw: a draw is a mean function, a predictive sample is a target value.
+_Avoid_: Draw, predictive draw
+
+**Posterior predictive**:
+The predictive distribution of a posterior stage: the equally weighted mixture, over the draws, of Gaussians centred on each draw's mean with the aleatoric variance. Exact for the draws taken, so it may be skewed or multimodal.
+_Avoid_: BMA Gaussian, predictive Gaussian
+
+**Moment-matched predictive**:
+The single Gaussian with the posterior predictive's mean and variance (the aleatoric plus the epistemic variance). A summary of the posterior predictive, not a substitute for it.
+_Avoid_: Posterior predictive (that is the mixture)
 
 ## CMAPSS example
 
