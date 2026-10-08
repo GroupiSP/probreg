@@ -91,7 +91,11 @@ class PreconditionedSGLD:
 
     Burn-in and thinning count update steps, i.e. training batches, not
     epochs. Steps are numbered from 1; the position after step ``t`` is
-    retained when ``t = burn_in + k · thinning`` for some ``k ≥ 1``.
+    retained when ``t = burn_in + k · thinning`` for some ``k ≥ 1``. Until
+    the first position is retained,
+    [`posterior`][probreg.jax.PreconditionedSGLD.posterior] refuses, so a
+    posterior stage that validates every epoch needs ``burn_in + thinning``
+    to be at most the number of batches in the first epoch.
 
     SG-MCMC declares no early-stopping support, so a
     [`PosteriorStage`][probreg.jax.PosteriorStage] refuses an early stopper

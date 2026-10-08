@@ -108,6 +108,25 @@ def test_retained_samples_match_the_bayesian_linear_regression_posterior() -> No
     np.testing.assert_allclose(draws.std(axis=0), expected_spread, rtol=0.15)
 
 
+@pytest.mark.parametrize(
+    ("hyperparameters", "message"),
+    [
+        ({"step_size": 0.0}, "step_size"),
+        ({"step_size": float("nan")}, "step_size"),
+        ({"stability": 0.0}, "stability"),
+        ({"burn_in": -1}, "burn_in"),
+        ({"thinning": 0}, "thinning"),
+        ({"decay": 1.0}, "decay"),
+        ({"decay": -0.1}, "decay"),
+    ],
+)
+def test_invalid_hyperparameters_are_refused(
+    hyperparameters: dict[str, float], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        PreconditionedSGLD(**{"step_size": 0.01, **hyperparameters})
+
+
 _MAX_STEPS = 16
 
 
