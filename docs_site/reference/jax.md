@@ -75,6 +75,12 @@ module that defines it. Using it needs the `jax` extra.
 
 ::: probreg.jax.PosteriorStage
 
+## `probreg.jax.psgld`
+
+::: probreg.jax.PreconditionedSGLD
+
+::: probreg.jax.RetainedSamplesPosterior
+
 ## `probreg.jax.rng`
 
 ::: probreg.jax.split_key
