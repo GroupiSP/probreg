@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 
 import jax
@@ -11,9 +11,10 @@ import jax.numpy as jnp
 import jax.scipy.stats as jstats
 from flax import nnx
 
-from probreg.core.checkpoints import CheckpointStore
+from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.metric_registry import EpochPredictionData, NegativeLogLikelihood
+from probreg.core.naming import Split, metric_tag
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink
 from probreg.core.types import (
@@ -47,6 +48,12 @@ from probreg.jax.posterior import (
     Prior,
 )
 from probreg.jax.rng import split_key
+from probreg.jax.state import _restore_training_state, freeze_training_state
+from probreg.jax.supervised_staged import (
+    _STAGE_COMPLETE_METADATA_KEY,
+    _STAGE_METADATA_KEY,
+    _latest_training_metrics,
+)
 
 
 def _default_validation_metrics() -> MetricSuite:
@@ -260,11 +267,24 @@ class PosteriorStage:
     def train(self, state: TrainingState) -> StageResult:
         """Infer the posterior, register it and transition to ``POSTERIOR_READY``.
 
+        With an early stopper and a checkpoint store, every improvement saves a
+        best checkpoint whose ``parameters`` hold the inference method's full
+        [`state`][probreg.jax.InferenceMethod.state]. After the last epoch the
+        method resumes from the best checkpoint, if one was saved, and
+        ``state`` returns to the best epoch. The method's
+        [`posterior_state`][probreg.jax.InferenceMethod.posterior_state] is
+        then stored as ``state.posterior_state``, and, with a checkpoint store,
+        saved as the finalized checkpoint under the checkpoint key: lifecycle
+        state ``POSTERIOR_READY``, metadata ``{"stage": "posterior",
+        "stage_complete": True}``, and no parameters, so neither the mean and
+        variance weights nor the method's optimizer state are duplicated.
+
         Args:
             state: State the stage has been prepared on.
 
         Returns:
-            The epoch loop's result: the last epoch's training metrics.
+            The epoch loop's result: the training metrics of the best epoch
+            when a best checkpoint was restored, otherwise of the last epoch.
 
         Raises:
             ValueError: If the stage was not prepared or training produced a
@@ -289,13 +309,53 @@ class PosteriorStage:
         )
         if result.loss is None or not math.isfinite(result.loss):
             raise ValueError(f"{self.name} stage produced a non-finite final loss.")
-        posterior = method.posterior()
-        state.register_component(self.model_name, posterior)
-        state.parameter_roles[self.model_name] = ParameterRole.POSTERIOR
-        state.lifecycle_state = StageState.POSTERIOR_READY
-        self._posterior = posterior
+        store = options.checkpoint_store
+        key = resolve_checkpoint_key(options.checkpoint_key, self.name)
+        epoch = (
+            len(state.metric_history[metric_tag(self.name, Split.TRAIN, "loss")]) - 1
+        )
+        early_stopping_state = None
+        if (
+            options.early_stopper is not None
+            and store is not None
+            and store.exists(key)
+        ):
+            best = store.load(key)
+            method.load_state(best.parameters)
+            _restore_keeping_components(state, best, drop=())
+            epoch = best.epoch
+            early_stopping_state = best.early_stopping_state
+            metrics = _latest_training_metrics(state, self.name)
+            result = StageResult(state=state, metrics=metrics, loss=metrics["loss"])
+        self._register_posterior(state, method.posterior_state())
+        if store is not None:
+            store.save(
+                key,
+                Checkpoint(
+                    state=freeze_training_state(state),
+                    epoch=epoch,
+                    rng_state=state.rng_state,
+                    early_stopping_state=early_stopping_state,
+                    metadata={
+                        _STAGE_METADATA_KEY: self.name,
+                        _STAGE_COMPLETE_METADATA_KEY: True,
+                    },
+                ),
+            )
         self._prepared = False
         return result
+
+    def _register_posterior(
+        self, state: TrainingState, posterior_state: PyTree
+    ) -> None:
+        """Register the method's posterior and mark the state ``POSTERIOR_READY``."""
+        posterior = self.inference_method.posterior()
+        state.register_component(self.model_name, posterior)
+        state.parameter_roles[self.model_name] = ParameterRole.POSTERIOR
+        state.posterior_state = posterior_state
+        state.lifecycle_state = StageState.POSTERIOR_READY
+        state.active_stage = self.name
+        self._posterior = posterior
 
     def validate(self, state: TrainingState) -> ValidationResult:
         """Validate posterior-stage lifecycle, ownership and freezing.
@@ -414,6 +474,29 @@ class _PosteriorPredictiveValidation:
             epoch_metric_parts=parts if self.metrics.epoch else None,
         )
         return ValidationResult(passed=True, metrics=metrics, message=None)
+
+
+def _restore_keeping_components(
+    state: TrainingState, checkpoint: Checkpoint, *, drop: Collection[str]
+) -> None:
+    """Restore a checkpoint's saved state fields, keeping the live registrations.
+
+    A posterior-stage checkpoint holds no mean or variance weights, so every
+    registered model component and optimizer except those in ``drop`` is
+    carried across the restore.
+    """
+    components = {
+        name: component
+        for name, component in state.model_components.items()
+        if name not in drop
+    }
+    optimizers = dict(state.optimizer_states)
+    _restore_training_state(state, checkpoint.state)
+    state.rng_state = checkpoint.rng_state
+    for name, component in components.items():
+        state.register_component(name, component)
+    for name, optimizer in optimizers.items():
+        state.register_optimizer(name, optimizer)
 
 
 def _registered_module(

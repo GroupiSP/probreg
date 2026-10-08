@@ -169,6 +169,34 @@ class InferenceMethod(Protocol):
         """
         ...
 
+    def posterior_state(self) -> PyTree:
+        """Return the current posterior alone, independent of later updates.
+
+        This is what a finalized checkpoint stores: only what
+        [`load_posterior`][probreg.jax.InferenceMethod.load_posterior] needs
+        to rebuild the posterior, e.g. the variational parameters of a
+        variational method or the retained samples of an SG-MCMC method, but
+        no optimizer state.
+
+        Returns:
+            A tree of arrays.
+        """
+        ...
+
+    def load_posterior(self, state: PyTree) -> None:
+        """Rebuild a finalized posterior after
+        [`init`][probreg.jax.InferenceMethod.init].
+
+        Afterwards [`posterior`][probreg.jax.InferenceMethod.posterior]
+        returns the posterior that ``state`` describes. The method need not be
+        able to resume inference from it.
+
+        Args:
+            state: A state previously returned by
+                [`posterior_state`][probreg.jax.InferenceMethod.posterior_state].
+        """
+        ...
+
 
 @dataclass(frozen=True)
 class IsotropicGaussianPrior:

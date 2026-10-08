@@ -16,6 +16,7 @@ from flax import nnx
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from probreg.core.checkpoints import Checkpoint, InMemoryCheckpointStore
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.metric_registry import (
     EvaluationGrid,
@@ -183,6 +184,7 @@ class GradientAscentMethod:
     early_stopping: bool = True
     problem: PosteriorProblem | None = None
     parameters: PyTree = None
+    steps: int = 0
     posteriors: list[OffsetDrawsPosterior] = field(default_factory=list)
 
     @property
@@ -192,6 +194,7 @@ class GradientAscentMethod:
     def init(self, problem: PosteriorProblem) -> None:
         self.problem = problem
         self.parameters = problem.initial_parameters
+        self.steps = 0
 
     def update(self, batch: Batch, key: jax.Array) -> Mapping[str, Any]:
         del key
@@ -210,6 +213,7 @@ class GradientAscentMethod:
             self.parameters,
             grads,
         )
+        self.steps += 1
         return {"loss": loss}
 
     def posterior(self) -> OffsetDrawsPosterior:
@@ -221,10 +225,29 @@ class GradientAscentMethod:
         return posterior
 
     def state(self) -> PyTree:
-        return self.parameters
+        return {"parameters": self.parameters, "steps": jnp.asarray(self.steps)}
 
     def load_state(self, state: PyTree) -> None:
+        self.parameters = state["parameters"]
+        self.steps = int(state["steps"])
+
+    def posterior_state(self) -> PyTree:
+        return self.parameters
+
+    def load_posterior(self, state: PyTree) -> None:
         self.parameters = state
+
+
+class RecordingStore(InMemoryCheckpointStore):
+    """A store that also records every checkpoint saved, in order."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.saves: list[tuple[str, Checkpoint]] = []
+
+    def save(self, key: str, checkpoint: Checkpoint) -> None:
+        self.saves.append((key, checkpoint))
+        super().save(key, checkpoint)
 
 
 def _posterior_stage(method: GradientAscentMethod, **options: Any) -> PosteriorStage:
@@ -570,3 +593,68 @@ def test_posterior_stage_declares_its_place_in_the_lifecycle() -> None:
     assert stage.name == "posterior"
     assert stage.requires == frozenset({"mean", "variance"})
     assert stage.produces == frozenset({"posterior"})
+
+
+def test_a_method_without_early_stopping_writes_only_a_finalized_checkpoint(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    run = variance_ready_run()
+    store = RecordingStore()
+    method = GradientAscentMethod(early_stopping=False)
+    stage = _posterior_stage(
+        method,
+        validation_loader=regression_loader,
+        validation_metrics=_validation_suite(),
+        checkpoint_store=store,
+    )
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+
+    assert [key for key, _ in store.saves] == ["posterior/best"]
+    finalized = store.load("posterior/best")
+    assert finalized.metadata == {"stage": "posterior", "stage_complete": True}
+    assert finalized.state.lifecycle_state is StageState.POSTERIOR_READY
+    assert finalized.epoch == 2
+    assert _leaves_equal(finalized.state.posterior_state, method.parameters)
+    assert finalized.parameters is None
+    assert finalized.optimizer_state is None
+    assert finalized.state.model_components == {}
+
+
+def test_the_best_checkpoint_holds_the_method_state_and_is_finalized_as_its_posterior(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    run = variance_ready_run()
+    store = RecordingStore()
+    method = GradientAscentMethod()
+    stage = _posterior_stage(
+        method,
+        early_stopper=EarlyStopper(
+            metric="loss", mode="max", patience=10, source="train"
+        ),
+        checkpoint_store=store,
+    )
+
+    stage.prepare(run.state)
+    result = stage.train(run.state)
+
+    *bests, (final_key, finalized) = store.saves
+    assert final_key == "posterior/best"
+    assert bests and {key for key, _ in bests} == {"posterior/best"}
+    _, best = bests[-1]
+    assert best.epoch < 2
+    assert best.metadata == {}
+    assert best.state.lifecycle_state is StageState.VARIANCE_READY
+    assert int(best.parameters["steps"]) == 2 * (best.epoch + 1)
+    assert finalized.metadata == {"stage": "posterior", "stage_complete": True}
+    assert finalized.state.lifecycle_state is StageState.POSTERIOR_READY
+    assert finalized.epoch == best.epoch
+    assert finalized.early_stopping_state == best.early_stopping_state
+    assert finalized.parameters is None
+    assert _leaves_equal(finalized.state.posterior_state, best.parameters["parameters"])
+    assert _leaves_equal(
+        method.posteriors[-1].parameters, best.parameters["parameters"]
+    )
+    assert result.loss == best.state.metric_history["posterior/train/loss"][-1]
+    assert stage.validate(run.state).passed
