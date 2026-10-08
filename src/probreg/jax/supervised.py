@@ -7,23 +7,24 @@ from collections.abc import Callable, Mapping, Sequence
 import jax
 from flax import nnx
 
-from probreg.core.checkpoints import Checkpoint, CheckpointStore
+from probreg.core.checkpoints import CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
-from probreg.core.naming import Split, metric_tag
+from probreg.core.metric_registry import EpochPredictionData
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
-from probreg.core.tracking import Decision, EventSink, TrainingEvent
-from probreg.core.types import PyTree, StageResult, TrainingState
+from probreg.core.tracking import EventSink
+from probreg.core.types import Batch, PyTree, StageResult, TrainingState
+from probreg.jax.epoch_loop import (
+    StateSnapshot,
+    check_epoch_loop_arguments,
+    run_epoch_loop,
+)
 from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.metrics import (
     BatchMetricSpec,
     MetricSuite,
-    collect_step_metrics,
-    initialize_batch_metric_values,
-    maybe_collect_epoch_prediction_data,
-    reduce_metric_suite,
+    resolve_epoch_prediction_data,
 )
-from probreg.jax.rng import split_key
-from probreg.jax.state import freeze_training_state, snapshot
+from probreg.jax.state import snapshot
 
 
 def make_train_step(
@@ -82,25 +83,6 @@ def make_train_step(
         return values
 
     return train_step
-
-
-def resolve_checkpoint_key(checkpoint_key: str | None, stage: str) -> str:
-    """Return the checkpoint key a stage saves its best checkpoint under.
-
-    Internal: not exported from ``probreg.jax``. It is the single definition
-    of the default key shared by
-    [`run_supervised`][probreg.jax.run_supervised],
-    [`MeanStage`][probreg.jax.MeanStage] and
-    [`GammaVarianceStage`][probreg.jax.GammaVarianceStage].
-
-    Args:
-        checkpoint_key: An explicitly configured checkpoint key, or ``None``.
-        stage: The stage name scoping the default key.
-
-    Returns:
-        ``checkpoint_key`` when given, otherwise ``f"{stage}/best"``.
-    """
-    return checkpoint_key if checkpoint_key is not None else f"{stage}/best"
 
 
 def run_supervised(
@@ -178,393 +160,50 @@ def run_supervised(
             metric is not produced by training or validation.
         TypeError: If ``state.rng_state`` is not a JAX random key.
     """
-    if epochs <= 0:
-        raise ValueError("epochs must be positive.")
-    if not isinstance(state.rng_state, jax.Array):
-        raise TypeError("state.rng_state must be a JAX random key.")
-    if early_stopper and early_stopper.expects_validation() and validation is None:
-        raise ValueError("validation metric monitoring requires a validation strategy.")
-    # Build the first tag up front so an invalid stage fails before any mutation.
-    metric_tag(stage, Split.TRAIN, "loss")
-
-    _initialize_run_state(
-        state,
+    check_epoch_loop_arguments(
+        state=state,
+        epochs=epochs,
         stage=stage,
-        model=model,
-        optimizer=optimizer,
-        model_name=model_name,
-        optimizer_name=optimizer_name,
+        validation=validation,
+        early_stopper=early_stopper,
     )
-    metric_suite = metrics if metrics is not None else MetricSuite()
-    train_step = make_train_step(loss, metrics=metric_suite.batch)
-    latest_metrics: Mapping[str, float] = {}
-
-    for epoch in range(epochs):
-        epoch_metrics = _run_training_epoch(
-            model=model,
-            optimizer=optimizer,
-            train_loader=train_loader,
-            train_step=train_step,
-            state=state,
-            epoch=epoch,
-            metrics=metric_suite,
-        )
-        latest_metrics = epoch_metrics
-        _record_metrics(state, stage, Split.TRAIN, epoch_metrics)
-        _emit(
-            event_sinks,
-            "epoch_end",
-            stage=stage,
-            split=Split.TRAIN,
-            epoch=epoch,
-            state=state,
-            metrics=epoch_metrics,
-        )
-
-        validation_metrics = _run_validation_epoch(
-            validation=validation,
-            state=state,
-            stage=stage,
-            epoch=epoch,
-            event_sinks=event_sinks,
-        )
-        if _should_stop_early(
-            early_stopper=early_stopper,
-            training_metrics=epoch_metrics,
-            validation_metrics=validation_metrics,
-            checkpoint_store=checkpoint_store,
-            checkpoint_key=resolve_checkpoint_key(checkpoint_key, stage),
-            state=state,
-            model=model,
-            optimizer=optimizer,
-            epoch=epoch,
-            stage=stage,
-            event_sinks=event_sinks,
-        ):
-            break
-
-    return StageResult(state=state, metrics=latest_metrics, loss=latest_metrics["loss"])
-
-
-def _initialize_run_state(
-    state: TrainingState,
-    *,
-    stage: str,
-    model: nnx.Module,
-    optimizer: nnx.Optimizer,
-    model_name: str,
-    optimizer_name: str,
-) -> None:
-    """Register mutable training components on the live state.
-
-    Args:
-        state: The training state mutated across epochs.
-        stage: Stage name to record on ``state``.
-        model: Model trained by the runner.
-        optimizer: Optimizer updating ``model``.
-        model_name: Name under which ``model`` is registered.
-        optimizer_name: Name under which ``optimizer`` is registered.
-    """
     state.register_component(model_name, model)
     state.register_optimizer(optimizer_name, optimizer)
-    state.active_stage = stage
+    metric_suite = metrics if metrics is not None else MetricSuite()
+    train_step = make_train_step(loss, metrics=metric_suite.batch)
 
-
-def _run_training_epoch(
-    *,
-    model: nnx.Module,
-    optimizer: nnx.Optimizer,
-    train_loader: LoaderFactory,
-    train_step: Callable[..., Mapping[str, jax.Array]],
-    state: TrainingState,
-    epoch: int,
-    metrics: MetricSuite,
-) -> dict[str, float]:
-    """Run one training epoch and reduce all registered metrics.
-
-    Args:
-        model: The NNX model being trained.
-        optimizer: The NNX optimizer updating ``model``.
-        train_loader: Factory producing training batches.
-        train_step: JIT-compiled training step.
-        state: The live training state containing the RNG key.
-        epoch: Epoch index passed to ``train_loader``.
-        metrics: Registered batch and epoch metrics.
-
-    Returns:
-        Reduced epoch metrics containing ``"loss"`` and any registered metrics.
-    """
-    losses: list[float] = []
-    batch_metric_values = initialize_batch_metric_values(metrics.batch)
-    epoch_metric_parts = [] if metrics.epoch else None
-
-    for batch in train_loader(split="train", epoch=epoch):
-        state.rng_state, batch_key = split_key(state.rng_state)
-        maybe_collect_epoch_prediction_data(
-            epoch_metric_parts,
-            suite=metrics,
-            model=model,
-            batch=batch,
-            batch_key=batch_key,
-        )
-        step_output = train_step(
+    def step(batch: Batch, key: jax.Array, /) -> Mapping[str, jax.Array]:
+        return train_step(
             model,
             optimizer,
             batch.inputs,
             batch.targets,
             batch.sample_weight,
-            batch_key,
-        )
-        collect_step_metrics(
-            step_output,
-            metrics=metrics.batch,
-            losses=losses,
-            batch_metric_values=batch_metric_values,
-            context="train step",
+            key,
         )
 
-    return reduce_metric_suite(
-        suite=metrics,
-        losses=losses,
-        batch_metric_values=batch_metric_values,
-        epoch_metric_parts=epoch_metric_parts,
-    )
+    def snapshot_state() -> StateSnapshot:
+        return StateSnapshot(
+            parameters=snapshot(model), optimizer_state=snapshot(optimizer)
+        )
 
+    def epoch_predictions(batch: Batch, key: jax.Array, /) -> EpochPredictionData:
+        return resolve_epoch_prediction_data(
+            suite=metric_suite, model=model, batch=batch, key=key
+        )
 
-def _run_validation_epoch(
-    *,
-    validation: ValidationStrategy | None,
-    state: TrainingState,
-    stage: str,
-    epoch: int,
-    event_sinks: Sequence[EventSink],
-) -> Mapping[str, float]:
-    """Run validation for one epoch when configured.
-
-    Args:
-        validation: Optional validation strategy.
-        state: The live training state.
-        stage: Stage name used in emitted events and metric tags.
-        epoch: Epoch index being validated.
-        event_sinks: Event sinks notified on validation completion.
-
-    Returns:
-        Validation metrics, or an empty mapping when validation is disabled.
-    """
-    if validation is None:
-        return {}
-
-    validation_result = validation(state, epoch=epoch)
-    validation_metrics = validation_result.metrics
-    _record_metrics(state, stage, Split.VALIDATION, validation_metrics)
-    _emit(
-        event_sinks,
-        "validation_end",
-        stage=stage,
-        split=Split.VALIDATION,
-        epoch=epoch,
+    return run_epoch_loop(
+        step=step,
+        snapshot_state=snapshot_state,
+        train_loader=train_loader,
         state=state,
-        metrics=validation_metrics,
-    )
-    return validation_metrics
-
-
-def _select_monitored_metrics(
-    *,
-    early_stopper: EarlyStopper | None,
-    training_metrics: Mapping[str, float],
-    validation_metrics: Mapping[str, float],
-) -> Mapping[str, float]:
-    """Return the metric namespace observed by the early stopper.
-
-    Args:
-        early_stopper: Optional early-stopping policy.
-        training_metrics: Metrics produced by the training epoch.
-        validation_metrics: Metrics produced by validation.
-
-    Returns:
-        The metric mapping to observe for early stopping.
-    """
-    if early_stopper is None or not early_stopper.expects_validation():
-        return training_metrics
-    return validation_metrics
-
-
-def _should_stop_early(
-    *,
-    early_stopper: EarlyStopper | None,
-    training_metrics: Mapping[str, float],
-    validation_metrics: Mapping[str, float],
-    checkpoint_store: CheckpointStore | None,
-    checkpoint_key: str,
-    state: TrainingState,
-    model: nnx.Module,
-    optimizer: nnx.Optimizer,
-    epoch: int,
-    stage: str,
-    event_sinks: Sequence[EventSink],
-) -> bool:
-    """Observe metrics with the early stopper and emit side effects.
-
-    Args:
-        early_stopper: Optional early-stopping policy.
-        training_metrics: Metrics produced by the training epoch.
-        validation_metrics: Metrics produced by validation.
-        checkpoint_store: Optional checkpoint store for best-model snapshots.
-        checkpoint_key: Checkpoint key used for best-model snapshots.
-        state: The live training state.
-        model: The live model.
-        optimizer: The live optimizer.
-        epoch: Epoch index being observed.
-        stage: Stage name used in emitted events.
-        event_sinks: Event sinks notified on improvement or early stop.
-
-    Returns:
-        ``True`` when training should stop early, otherwise ``False``.
-
-    Raises:
-        ValueError: If the monitored metric is missing from the selected metric
-            mapping.
-    """
-    if early_stopper is None:
-        return False
-
-    monitored_metrics = _select_monitored_metrics(
+        epochs=epochs,
+        stage=stage,
+        checkpoint_key=checkpoint_key,
+        validation=validation,
         early_stopper=early_stopper,
-        training_metrics=training_metrics,
-        validation_metrics=validation_metrics,
-    )
-    metric_name = early_stopper.monitored_metric_name()
-    if metric_name not in monitored_metrics:
-        raise ValueError(f"monitored metric {metric_name!r} was not produced.")
-
-    value = monitored_metrics[metric_name]
-    verdict = early_stopper.observe(value, epoch=epoch)
-    split = verdict.state.source
-    decision = Decision(metric=metric_name, value=value)
-    if verdict.improved:
-        _save_checkpoint(
-            checkpoint_store,
-            checkpoint_key,
-            state,
-            model,
-            optimizer,
-            epoch,
-            verdict.state,
-        )
-        _emit(
-            event_sinks,
-            "best_model",
-            stage=stage,
-            split=split,
-            epoch=epoch,
-            state=state,
-            decision=decision,
-        )
-    if verdict.should_stop:
-        _emit(
-            event_sinks,
-            "early_stop",
-            stage=stage,
-            split=split,
-            epoch=epoch,
-            state=state,
-            decision=decision,
-        )
-    return verdict.should_stop
-
-
-def _record_metrics(
-    state: TrainingState,
-    stage: str,
-    split: Split,
-    metrics: Mapping[str, float],
-) -> None:
-    """Append metric values to ``state.metric_history`` under their tags.
-
-    Args:
-        state: The training state whose ``metric_history`` is updated.
-        stage: Stage that produced the metrics.
-        split: Split the metrics were measured on.
-        metrics: Mapping of bare metric name to the value observed this
-            epoch.
-    """
-    for name, value in metrics.items():
-        state.record_metric(metric_tag(stage, split, name), value)
-
-
-def _emit(
-    sinks: Sequence[EventSink],
-    name: str,
-    *,
-    stage: str,
-    split: Split,
-    epoch: int,
-    state: TrainingState,
-    metrics: Mapping[str, float] | None = None,
-    decision: Decision | None = None,
-) -> None:
-    """Build a training event and dispatch it to every sink.
-
-    Args:
-        sinks: The event sinks to notify.
-        name: The event name, e.g. ``"epoch_end"`` or ``"early_stop"``.
-        stage: The stage name associated with the event.
-        split: The split the event concerns.
-        epoch: The epoch at which the event occurred.
-        state: The training state associated with the event.
-        metrics: The metrics measured at this point, keyed by bare metric
-            name. Defaults to none, as for a decision event.
-        decision: The measurement a decision event judged. Defaults to
-            ``None``, as for an event that reports measurements.
-    """
-    event = TrainingEvent(
-        name=name,
-        stage=stage,
-        split=split,
-        iteration=state.outer_iteration,
-        step=epoch,
-        metrics={} if metrics is None else metrics,
-        state=state,
-        decision=decision,
-    )
-    for sink in sinks:
-        sink.on_event(event)
-
-
-def _save_checkpoint(
-    store: CheckpointStore | None,
-    key: str,
-    state: TrainingState,
-    model: nnx.Module,
-    optimizer: nnx.Optimizer,
-    epoch: int,
-    early_stopping_state: object,
-) -> None:
-    """Persist a best-model checkpoint if a store was configured.
-
-    Args:
-        store: The checkpoint store to write to, or ``None`` to skip
-            checkpointing entirely.
-        key: The key under which the checkpoint is saved.
-        state: The current training state, frozen into an independent
-            snapshot before being embedded in the checkpoint.
-        model: The model to snapshot for the checkpoint.
-        optimizer: The optimizer to snapshot for the checkpoint.
-        epoch: The epoch at which the improvement was observed.
-        early_stopping_state: The early-stopping state at the time of
-            the improvement.
-    """
-    if store is None:
-        return
-    store.save(
-        key,
-        Checkpoint(
-            state=freeze_training_state(state),
-            epoch=epoch,
-            parameters=snapshot(model),
-            optimizer_state=snapshot(optimizer),
-            rng_state=state.rng_state,
-            early_stopping_state=early_stopping_state,
-        ),
+        event_sinks=event_sinks,
+        checkpoint_store=checkpoint_store,
+        metrics=metric_suite,
+        epoch_predictions=epoch_predictions,
     )

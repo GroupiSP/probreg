@@ -34,7 +34,8 @@ from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.losses import make_supervised_loss
 from probreg.jax.metrics import MetricSuite
 from probreg.jax.state import freeze_training_state, restore_checkpoint, snapshot
-from probreg.jax.supervised import resolve_checkpoint_key, run_supervised
+from probreg.jax.epoch_loop import resolve_checkpoint_key
+from probreg.jax.supervised import run_supervised
 
 _STAGE_METADATA_KEY = "stage"
 """Checkpoint metadata key naming the stage that wrote the checkpoint."""
