@@ -36,6 +36,12 @@ from probreg.jax.metrics import MetricSuite
 from probreg.jax.state import freeze_training_state, restore_checkpoint, snapshot
 from probreg.jax.supervised import resolve_checkpoint_key, run_supervised
 
+_STAGE_METADATA_KEY = "stage"
+"""Checkpoint metadata key naming the stage that wrote the checkpoint."""
+
+_STAGE_COMPLETE_METADATA_KEY = "stage_complete"
+"""Checkpoint metadata key marking a stage's finalized checkpoint."""
+
 
 def materialize_residual_loader(
     mean_model: nnx.Module,
@@ -330,7 +336,7 @@ class MeanStage:
         key = resolve_checkpoint_key(self.options.checkpoint_key, self.name)
         if store is None or not store.exists(key):
             raise ValueError(f"checkpoint {key!r} is not available.")
-        return CheckpointRef(key=key, metadata={"stage": self.name})
+        return CheckpointRef(key=key, metadata={_STAGE_METADATA_KEY: self.name})
 
 
 @dataclass
@@ -586,7 +592,7 @@ class GammaVarianceStage:
         key = resolve_checkpoint_key(self.options.checkpoint_key, self.name)
         if store is None or not store.exists(key):
             raise ValueError(f"checkpoint {key!r} is not available.")
-        return CheckpointRef(key=key, metadata={"stage": self.name})
+        return CheckpointRef(key=key, metadata={_STAGE_METADATA_KEY: self.name})
 
 
 def _restore_and_finalize_best_checkpoint(
@@ -634,8 +640,8 @@ def _restore_and_finalize_best_checkpoint(
         early_stopping_state=checkpoint.early_stopping_state,
         metadata={
             **checkpoint.metadata,
-            "stage": stage,
-            "stage_complete": True,
+            _STAGE_METADATA_KEY: stage,
+            _STAGE_COMPLETE_METADATA_KEY: True,
         },
     )
     store.save(key, finalized)
@@ -652,13 +658,14 @@ def _require_finalized(
     """Reject a checkpoint that is not the named stage's finalized checkpoint."""
     if (
         checkpoint.state.lifecycle_state is not ready
-        or checkpoint.metadata.get("stage") != stage
-        or checkpoint.metadata.get("stage_complete") is not True
+        or checkpoint.metadata.get(_STAGE_METADATA_KEY) != stage
+        or checkpoint.metadata.get(_STAGE_COMPLETE_METADATA_KEY) is not True
     ):
         raise ValueError(
             f"checkpoint is not a finalized {stage!r} checkpoint: expected "
             f"lifecycle state {ready.value!r} and metadata "
-            f"{{'stage': {stage!r}, 'stage_complete': True}}."
+            f"{{{_STAGE_METADATA_KEY!r}: {stage!r}, "
+            f"{_STAGE_COMPLETE_METADATA_KEY!r}: True}}."
         )
 
 
