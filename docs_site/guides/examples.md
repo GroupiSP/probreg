@@ -61,6 +61,26 @@ reproduces the qualitative comparison motivated by Yi and Bessa (2025) with
 compact settings; it does not claim to reproduce the paper's architectures,
 runtime or reported values.
 
+A third script adds the optional [posterior stage](posterior-stage.md) after
+the two stages, once with Bayes by Backprop and once with pSGLD:
+
+```bash
+uv run --extra jax --extra plot python examples/jax/xsin/posterior.py
+```
+
+For each inference method it prints the NLL and the CRPS of the variance
+stage's Gaussian and of the posterior predictive, scored on one noisy
+observation per evaluation point, overall, inside the training domain and
+outside it. It plots the moment-matched predictive's 95% band over the variance
+stage's band, with the aleatoric and epistemic variance below. Under the
+seeded configuration both methods lower the overall NLL and CRPS, mostly
+in the extrapolation region, where the variance stage's band is far too narrow.
+pSGLD's epistemic variance grows away from the training data and its scores
+improve inside the training domain too; Bayes by Backprop's epistemic variance
+is spread through the training domain instead and slightly worsens the NLL
+there. Both bands remain far too narrow in extrapolation: the draws stay close
+to the trained mean, which extrapolates the oscillation poorly.
+
 Source:
 [`examples/jax/xsin/`](https://github.com/GroupiSP/probreg/tree/main/examples/jax/xsin)
 
