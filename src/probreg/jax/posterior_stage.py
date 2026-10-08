@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 
 import jax
@@ -11,9 +11,10 @@ import jax.numpy as jnp
 import jax.scipy.stats as jstats
 from flax import nnx
 
-from probreg.core.checkpoints import CheckpointStore
+from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.metric_registry import EpochPredictionData, NegativeLogLikelihood
+from probreg.core.naming import Split, metric_tag
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink
 from probreg.core.types import (
@@ -47,6 +48,14 @@ from probreg.jax.posterior import (
     Prior,
 )
 from probreg.jax.rng import split_key
+from probreg.jax.state import _restore_training_state, freeze_training_state
+from probreg.jax.supervised_staged import (
+    _STAGE_COMPLETE_METADATA_KEY,
+    _STAGE_METADATA_KEY,
+    _latest_training_metrics,
+    _require_component_names,
+    _require_finalized,
+)
 
 
 def _default_validation_metrics() -> MetricSuite:
@@ -83,9 +92,11 @@ class PosteriorStageOptions:
             method that does not support early stopping.
         event_sinks: Event consumers notified of ``posterior/...`` events.
         checkpoint_store: Optional store for the best checkpoint, which holds
-            the inference method's full state.
-        checkpoint_key: The checkpoint key of the best checkpoint. Defaults to
-            ``None``, which resolves to ``posterior/best``.
+            the inference method's full state, and for the finalized
+            checkpoint that replaces it at the end of training and holds the
+            posterior alone.
+        checkpoint_key: The key of the best and finalized checkpoints.
+            Defaults to ``None``, which resolves to ``posterior/best``.
     """
 
     epochs: int
@@ -229,25 +240,7 @@ class PosteriorStage:
             validation=validation,
             early_stopper=options.early_stopper,
         )
-        network = self.model if self.model is not None else nnx.clone(mean_model)
-        mean_parameters = nnx.state(mean_model, nnx.Param)
-        _require_same_parameter_tree(nnx.state(network, nnx.Param), mean_parameters)
-
-        nnx.update(network, jax.tree.map(jnp.copy, mean_parameters))
-        mean_function = _mean_function(network)
-        problem = PosteriorProblem(
-            initial_parameters=jax.tree.map(jnp.copy, nnx.state(network, nnx.Param)),
-            mean_function=mean_function,
-            log_likelihood=_scaled_log_likelihood(
-                mean_function,
-                _aleatoric_variance(variance_model),
-                dataset_size=self.dataset_size,
-            ),
-            prior=self.prior,
-            train_loader=self.train_loader,
-            dataset_size=self.dataset_size,
-        )
-        self.inference_method.init(problem)
+        self.inference_method.init(self._problem(mean_model, variance_model))
         state.frozen_components = state.frozen_components | {
             self.mean_model_name,
             self.variance_model_name,
@@ -260,11 +253,24 @@ class PosteriorStage:
     def train(self, state: TrainingState) -> StageResult:
         """Infer the posterior, register it and transition to ``POSTERIOR_READY``.
 
+        With an early stopper and a checkpoint store, every improvement saves a
+        best checkpoint whose ``parameters`` hold the inference method's full
+        [`state`][probreg.jax.InferenceMethod.state]. After the last epoch the
+        method resumes from the best checkpoint, if one was saved, and
+        ``state`` returns to the best epoch. The method's
+        [`posterior_state`][probreg.jax.InferenceMethod.posterior_state] is
+        then stored as ``state.posterior_state``, and, with a checkpoint store,
+        saved as the finalized checkpoint under the checkpoint key: lifecycle
+        state ``POSTERIOR_READY``, metadata ``{"stage": "posterior",
+        "stage_complete": True}``, and no parameters, so neither the mean and
+        variance weights nor the method's optimizer state are duplicated.
+
         Args:
             state: State the stage has been prepared on.
 
         Returns:
-            The epoch loop's result: the last epoch's training metrics.
+            The epoch loop's result: the training metrics of the best epoch
+            when a best checkpoint was restored, otherwise of the last epoch.
 
         Raises:
             ValueError: If the stage was not prepared or training produced a
@@ -289,13 +295,145 @@ class PosteriorStage:
         )
         if result.loss is None or not math.isfinite(result.loss):
             raise ValueError(f"{self.name} stage produced a non-finite final loss.")
-        posterior = method.posterior()
-        state.register_component(self.model_name, posterior)
-        state.parameter_roles[self.model_name] = ParameterRole.POSTERIOR
-        state.lifecycle_state = StageState.POSTERIOR_READY
-        self._posterior = posterior
+        store = options.checkpoint_store
+        key = resolve_checkpoint_key(options.checkpoint_key, self.name)
+        epoch = (
+            len(state.metric_history[metric_tag(self.name, Split.TRAIN, "loss")]) - 1
+        )
+        early_stopping_state = None
+        if (
+            options.early_stopper is not None
+            and store is not None
+            and store.exists(key)
+        ):
+            best = store.load(key)
+            method.load_state(best.parameters)
+            _restore_keeping_components(state, best, drop=())
+            epoch = best.epoch
+            early_stopping_state = best.early_stopping_state
+            metrics = _latest_training_metrics(state, self.name)
+            result = StageResult(state=state, metrics=metrics, loss=metrics["loss"])
+        self._register_posterior(state, method.posterior_state())
+        if store is not None:
+            store.save(
+                key,
+                Checkpoint(
+                    state=freeze_training_state(state),
+                    epoch=epoch,
+                    rng_state=state.rng_state,
+                    early_stopping_state=early_stopping_state,
+                    metadata={
+                        _STAGE_METADATA_KEY: self.name,
+                        _STAGE_COMPLETE_METADATA_KEY: True,
+                    },
+                ),
+            )
         self._prepared = False
         return result
+
+    def restore(self, state: TrainingState, checkpoint: Checkpoint) -> None:
+        """Restore the posterior stage's finalized checkpoint into ``state``.
+
+        Call it after the mean stage's
+        [`restore`][probreg.jax.MeanStage.restore] and the variance stage's
+        [`restore`][probreg.jax.GammaVarianceStage.restore]. The inference
+        method is initialized on the posterior problem of the registered mean
+        and variance models, then rebuilds the saved posterior with
+        [`load_posterior`][probreg.jax.InferenceMethod.load_posterior]; the
+        posterior is registered under ``model_name``. Every model component
+        and optimizer registered before, such as the mean and variance models,
+        stays registered. Afterwards the state passes
+        [`validate`][probreg.jax.PosteriorStage.validate].
+
+        Args:
+            state: Training state the mean and variance stages have been
+                restored into.
+            checkpoint: The posterior stage's finalized checkpoint.
+
+        Raises:
+            ValueError: If ``checkpoint`` is not finalized by this stage, that
+                is its lifecycle state is not ``POSTERIOR_READY``, its metadata
+                lacks ``"stage": "posterior"`` and ``"stage_complete": True``,
+                or it holds no posterior state; if it was saved with another
+                ``model_name``, ``mean_model_name`` or ``variance_model_name``;
+                if the mean or variance model is not registered with its role;
+                if ``dataset_size`` is not positive; or if the posterior
+                network's parameter tree differs from the mean network's. All
+                are checked before ``state`` changes.
+            TypeError: If the mean or variance model is not an NNX module, or
+                the checkpoint holds no JAX random key.
+        """
+        _require_finalized(
+            checkpoint, stage=self.name, ready=StageState.POSTERIOR_READY
+        )
+        for frozen in (self.mean_model_name, self.variance_model_name):
+            _require_component_names(
+                checkpoint,
+                model_name=self.model_name,
+                role=ParameterRole.POSTERIOR,
+                frozen=frozen,
+            )
+        posterior_state = checkpoint.state.posterior_state
+        if posterior_state is None:
+            raise ValueError("checkpoint holds no posterior state.")
+        if not isinstance(checkpoint.rng_state, jax.Array):
+            raise TypeError("checkpoint.rng_state must be a JAX random key.")
+        mean_model = _registered_module(
+            state, self.mean_model_name, ParameterRole.MEAN, kind="mean"
+        )
+        variance_model = _registered_module(
+            state, self.variance_model_name, ParameterRole.VARIANCE, kind="variance"
+        )
+        if self.dataset_size <= 0:
+            raise ValueError("dataset_size must be positive.")
+        problem = self._problem(mean_model, variance_model)
+
+        self.inference_method.init(problem)
+        self.inference_method.load_posterior(posterior_state)
+        _restore_keeping_components(state, checkpoint, drop={self.model_name})
+        self._register_posterior(state, posterior_state)
+        self._validation = None
+        self._prepared = False
+
+    def _problem(
+        self, mean_model: nnx.Module, variance_model: nnx.Module
+    ) -> PosteriorProblem:
+        """Warm-start the posterior network and build the posterior problem.
+
+        Raises:
+            ValueError: If the posterior network's parameter tree differs from
+                the mean network's, before the network changes.
+        """
+        network = self.model if self.model is not None else nnx.clone(mean_model)
+        mean_parameters = nnx.state(mean_model, nnx.Param)
+        _require_same_parameter_tree(nnx.state(network, nnx.Param), mean_parameters)
+
+        nnx.update(network, jax.tree.map(jnp.copy, mean_parameters))
+        mean_function = _mean_function(network)
+        return PosteriorProblem(
+            initial_parameters=jax.tree.map(jnp.copy, nnx.state(network, nnx.Param)),
+            mean_function=mean_function,
+            log_likelihood=_scaled_log_likelihood(
+                mean_function,
+                _aleatoric_variance(variance_model),
+                dataset_size=self.dataset_size,
+            ),
+            prior=self.prior,
+            train_loader=self.train_loader,
+            dataset_size=self.dataset_size,
+        )
+
+    def _register_posterior(
+        self, state: TrainingState, posterior_state: PyTree
+    ) -> None:
+        """Register the method's posterior and mark the state ``POSTERIOR_READY``."""
+        posterior = self.inference_method.posterior()
+        state.register_component(self.model_name, posterior)
+        state.parameter_roles[self.model_name] = ParameterRole.POSTERIOR
+        state.posterior_state = posterior_state
+        state.lifecycle_state = StageState.POSTERIOR_READY
+        state.active_stage = self.name
+        self._posterior = posterior
 
     def validate(self, state: TrainingState) -> ValidationResult:
         """Validate posterior-stage lifecycle, ownership and freezing.
@@ -414,6 +552,29 @@ class _PosteriorPredictiveValidation:
             epoch_metric_parts=parts if self.metrics.epoch else None,
         )
         return ValidationResult(passed=True, metrics=metrics, message=None)
+
+
+def _restore_keeping_components(
+    state: TrainingState, checkpoint: Checkpoint, *, drop: Collection[str]
+) -> None:
+    """Restore a checkpoint's saved state fields, keeping the live registrations.
+
+    A posterior-stage checkpoint holds no mean or variance weights, so every
+    registered model component and optimizer except those in ``drop`` is
+    carried across the restore.
+    """
+    components = {
+        name: component
+        for name, component in state.model_components.items()
+        if name not in drop
+    }
+    optimizers = dict(state.optimizer_states)
+    _restore_training_state(state, checkpoint.state)
+    state.rng_state = checkpoint.rng_state
+    for name, component in components.items():
+        state.register_component(name, component)
+    for name, optimizer in optimizers.items():
+        state.register_optimizer(name, optimizer)
 
 
 def _registered_module(
