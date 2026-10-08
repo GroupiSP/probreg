@@ -55,7 +55,9 @@ with pytest.raises(KeyError):
 [`run_supervised`][probreg.jax.run_supervised] saves a checkpoint only when it
 has both an `early_stopper` and a `checkpoint_store`, and only on an epoch where
 the early stopper reports an improvement. It saves under `checkpoint_key`, which
-defaults to `"best"`, so the store always holds the best epoch so far. Without
+defaults to the [checkpoint key](../glossary.md) `stage/best` (here
+`supervised/best`, the runner's default stage), so the store always holds the
+best epoch so far. Without
 an early stopper there is no notion of best, and nothing is saved.
 
 The runner leaves the live model at its last epoch, not its best one.
@@ -102,7 +104,7 @@ run_supervised(
     checkpoint_store=store,
 )
 
-best = store.load("best")
+best = store.load("supervised/best")
 history = state.metric_history["supervised/train/loss"]
 assert history[best.epoch] == min(history)
 
@@ -136,12 +138,12 @@ model and its optimizer again and set `lifecycle_state` to `VARIANCE_READY`. If
 you only need the best weights, restore into a throwaway `TrainingState`.
 
 Both stages read the key from their own
-[`SupervisedStageOptions`][probreg.jax.SupervisedStageOptions], and both default
-to `"best"`. When the two stages share a store, give each its own key, or the
-variance stage's best checkpoint replaces the mean stage's.
+[`SupervisedStageOptions`][probreg.jax.SupervisedStageOptions]. Left unset, it
+defaults to the stage's own key, `mean/best` or `variance/best`, so the two
+stages can share one store without overwriting each other's checkpoints. An
+explicit `checkpoint_key` still wins.
 [`select_checkpoint`][probreg.jax.MeanStage.select_checkpoint] returns a
-[`CheckpointRef`][probreg.core.CheckpointRef] to the key a stage was configured
-with.
+[`CheckpointRef`][probreg.core.CheckpointRef] to the key a stage saves under.
 
 ## Resuming across stages
 
@@ -195,7 +197,6 @@ mean_stage = MeanStage(
             metric="loss", mode="min", patience=1, source="train"
         ),
         checkpoint_store=store,
-        checkpoint_key="mean/best",
     ),
 )
 first_state = TrainingState(rng_state=jax.random.key(0))

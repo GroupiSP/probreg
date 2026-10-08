@@ -124,9 +124,10 @@ class SupervisedStageOptions:
         checkpoint_store: Optional best-checkpoint store.
         checkpoint_key: The checkpoint key the stage saves its best checkpoint
             under. Defaults to ``None``, which resolves to the stage-scoped
-            key ``f"{stage}/best"`` (``mean/best``, ``variance/best``), so
-            stages sharing one ``checkpoint_store`` never overwrite each
-            other.
+            key ``f"{stage}/best"`` (``mean/best``, ``variance/best``), the
+            same default as [`run_supervised`][probreg.jax.run_supervised],
+            so stages sharing one ``checkpoint_store`` never overwrite each
+            other's checkpoints.
         metrics: Batch and epoch metric registrations.
     """
 
