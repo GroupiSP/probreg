@@ -6,9 +6,16 @@ import jax
 import jax.numpy as jnp
 import optax
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from probreg.core.types import Batch, PyTree
-from probreg.jax import BayesByBackprop, IsotropicGaussianPrior, PosteriorProblem
+from probreg.jax import (
+    BayesByBackprop,
+    IsotropicGaussianPrior,
+    MeanFieldGaussianPosterior,
+    PosteriorProblem,
+)
 
 # Bayesian linear regression y = w x + b + noise with known noise. The inputs
 # are symmetric about zero, so the design's Gram matrix is diagonal, the exact
@@ -111,3 +118,61 @@ def test_draws_match_the_analytic_posterior_predictive_of_linear_regression(
     assert draws.shape == (4000, 7, 1)
     assert jnp.allclose(draws.mean(axis=0)[:, 0], mean, atol=0.2 * std.min())
     assert jnp.allclose(draws.std(axis=0)[:, 0], std, rtol=0.1)
+
+
+@pytest.fixture(scope="module")
+def warm_posterior() -> MeanFieldGaussianPosterior:
+    """A posterior a few steps from the warm start, with a wide spread."""
+    method = BayesByBackprop(optimizer=optax.adam(0.01), initial_std=0.5)
+    _fit(method, _problem(IsotropicGaussianPrior(_PRIOR_PRECISION)), epochs=2)
+    return method.posterior()
+
+
+@settings(deadline=None, max_examples=20)
+@given(
+    split=st.integers(1, 6),
+    num_samples=st.integers(1, 5),
+    seed=st.integers(0, 2**16),
+)
+def test_a_draw_is_the_same_function_at_every_input(
+    warm_posterior: MeanFieldGaussianPosterior,
+    split: int,
+    num_samples: int,
+    seed: int,
+) -> None:
+    inputs = jnp.linspace(-2.0, 2.0, 7)[:, None]
+    key = jax.random.key(seed)
+
+    together = warm_posterior.sample_means(inputs, key, num_samples)
+    apart = jnp.concatenate(
+        [
+            warm_posterior.sample_means(inputs[:split], key, num_samples),
+            warm_posterior.sample_means(inputs[split:], key, num_samples),
+        ],
+        axis=1,
+    )
+
+    assert jnp.allclose(together, apart)
+    # Each draw of the line model is itself a line through all seven inputs.
+    slopes = jnp.diff(together[..., 0], axis=1)
+    assert jnp.allclose(slopes, slopes[:, :1], atol=1e-5)
+
+
+def test_draw_s_does_not_depend_on_how_many_draws_are_taken(
+    warm_posterior: MeanFieldGaussianPosterior,
+) -> None:
+    key = jax.random.key(4)
+
+    few = warm_posterior.sample_means(_INPUTS, key, 3)
+    many = warm_posterior.sample_means(_INPUTS, key, 8)
+
+    assert jnp.array_equal(few, many[:3])
+    assert not jnp.allclose(many[0], many[1])
+
+
+def test_the_variational_posterior_is_unlimited(
+    warm_posterior: MeanFieldGaussianPosterior,
+) -> None:
+    assert warm_posterior.num_draws is None
+    with pytest.raises(ValueError, match="num_samples"):
+        warm_posterior.sample_means(_INPUTS, jax.random.key(0))
