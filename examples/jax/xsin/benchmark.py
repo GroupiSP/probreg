@@ -549,9 +549,9 @@ def run_xsin_posterior(
 ) -> XSinPosteriorResult:
     """Train mean, variance and posterior stages, then score both predictives.
 
-    The posterior stage validates every epoch on the training data with the
-    NLL and the point CRPS, reported as ``posterior/validation/nll`` and
-    ``posterior/validation/crps``.
+    The posterior stage validates every epoch on the training data with its
+    default metrics, the NLL and the CRPS, reported as
+    ``posterior/validation/nll`` and ``posterior/validation/crps``.
 
     Args:
         data: Shared XSin data.
@@ -576,7 +576,6 @@ def run_xsin_posterior(
             epochs=config.posterior_epochs,
             num_draws=config.posterior_num_draws,
             validation_loader=loader,
-            validation_metrics=_score_suite(PosteriorPredictivePredictor()),
             event_sinks=event_sinks,
         ),
     )

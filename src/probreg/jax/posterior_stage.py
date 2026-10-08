@@ -13,7 +13,11 @@ from flax import nnx
 
 from probreg.core.checkpoints import Checkpoint, CheckpointStore
 from probreg.core.early_stopping import EarlyStopper
-from probreg.core.metric_registry import EpochPredictionData, NegativeLogLikelihood
+from probreg.core.metric_registry import (
+    EpochPredictionData,
+    NegativeLogLikelihood,
+    SampleContinuousRankedProbabilityScore,
+)
 from probreg.core.naming import Split, metric_tag
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink
@@ -58,11 +62,18 @@ from probreg.jax.supervised_staged import (
 )
 
 
+_DEFAULT_PREDICTIVE_SAMPLE_COUNT = 100
+
+
 def _default_validation_metrics() -> MetricSuite:
-    """Score the exact posterior predictive's NLL."""
+    """Score the exact posterior predictive's NLL and its predictive samples' CRPS."""
     return MetricSuite(
-        epoch=(NegativeLogLikelihood(),),
+        epoch=(
+            NegativeLogLikelihood(),
+            SampleContinuousRankedProbabilityScore(name="crps"),
+        ),
         predictor=PosteriorPredictivePredictor(),
+        predictive_sample_count=_DEFAULT_PREDICTIVE_SAMPLE_COUNT,
     )
 
 
@@ -85,9 +96,10 @@ class PosteriorStageOptions:
             [`PosteriorPredictive`][probreg.jax.PosteriorPredictive], so it is
             normally a
             [`PosteriorPredictivePredictor`][probreg.jax.PosteriorPredictivePredictor].
-            Defaults to the NLL alone; add, for example,
-            ``PointContinuousRankedProbabilityScore(name="crps")`` with a
-            predictive sample count and an evaluation grid to report the CRPS.
+            Defaults to the exact NLL (``nll``) and the CRPS (``crps``) of
+            100 predictive samples per target, scored with
+            [`SampleContinuousRankedProbabilityScore`][probreg.core.SampleContinuousRankedProbabilityScore],
+            which needs no evaluation grid.
         early_stopper: Optional early-stopping policy. Refused for an inference
             method that does not support early stopping.
         event_sinks: Event consumers notified of ``posterior/...`` events.

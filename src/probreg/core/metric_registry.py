@@ -8,7 +8,7 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import NDArray
 
-from probreg.core.metrics import coverage, crps, point_crps, rmse, wsu
+from probreg.core.metrics import coverage, crps, point_crps, rmse, sample_crps, wsu
 
 FloatArray = NDArray[np.float64]
 
@@ -460,6 +460,44 @@ class PointContinuousRankedProbabilityScore:
             raise ValueError("Point CRPS requires an evaluation_grid.")
         scores = [
             point_crps(target, samples, data.evaluation_grid.values)
+            for target, samples in zip(
+                data.targets, data.predictive_samples, strict=True
+            )
+        ]
+        return float(np.mean(scores))
+
+
+@dataclass(frozen=True, slots=True)
+class SampleContinuousRankedProbabilityScore:
+    """Mean exact CRPS of predictive samples across scalar scoring units.
+
+    Each unit's predictive samples are scored against its target with
+    [`sample_crps`][probreg.core.sample_crps], the energy form of the CRPS,
+    so unlike [`PointContinuousRankedProbabilityScore`][probreg.core.PointContinuousRankedProbabilityScore]
+    it needs no evaluation grid.
+
+    Attributes:
+        name: Bare metric name the value is reported under. Defaults to
+            ``sample_crps``.
+    """
+
+    name: str = "sample_crps"
+
+    @property
+    def requirements(self) -> MetricRequirements:
+        """Require predictive samples only."""
+        return MetricRequirements(predictive_samples=True)
+
+    def __call__(self, data: EpochPredictionData, /) -> float:
+        """Compute one CRPS per unit, then average units equally.
+
+        Raises:
+            ValueError: If predictive samples are absent.
+        """
+        if data.predictive_samples is None:
+            raise ValueError("Sample CRPS requires predictive_samples.")
+        scores = [
+            sample_crps(target, samples)
             for target, samples in zip(
                 data.targets, data.predictive_samples, strict=True
             )

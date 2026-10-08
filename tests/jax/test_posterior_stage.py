@@ -535,6 +535,24 @@ def test_validation_scores_the_current_posterior_predictive(
     )
 
 
+def test_the_default_validation_reports_the_nll_and_the_crps_without_a_grid(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    run = variance_ready_run()
+    stage = _posterior_stage(
+        GradientAscentMethod(), validation_loader=regression_loader
+    )
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+
+    history = run.state.metric_history
+    for name in ("nll", "crps"):
+        values = history[f"posterior/validation/{name}"]
+        assert len(values) == 3
+        assert all(math.isfinite(value) and value > 0.0 for value in values)
+
+
 def test_an_unlimited_posterior_draws_the_configured_count_with_one_key_per_epoch(
     variance_ready_run: MakeVarianceReadyRun,
 ) -> None:

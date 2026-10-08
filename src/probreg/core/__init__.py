@@ -37,9 +37,18 @@ from probreg.core.metric_registry import (
     PointContinuousRankedProbabilityScore,
     PredictionInterval,
     RootMeanSquaredError,
+    SampleContinuousRankedProbabilityScore,
     WeightedSpread,
 )
-from probreg.core.metrics import cdf, coverage, crps, point_crps, rmse, wsu
+from probreg.core.metrics import (
+    cdf,
+    coverage,
+    crps,
+    point_crps,
+    rmse,
+    sample_crps,
+    wsu,
+)
 from probreg.core.naming import (
     MetricTag,
     Split,
@@ -112,6 +121,7 @@ __all__ = [
     "PredictiveDistribution",
     "PyTree",
     "RootMeanSquaredError",
+    "SampleContinuousRankedProbabilityScore",
     "Split",
     "SquaredErrorLoss",
     "StageResult",
@@ -133,6 +143,7 @@ __all__ = [
     "parse_metric_tag",
     "point_crps",
     "rmse",
+    "sample_crps",
     "validate_transition",
     "wsu",
 ]

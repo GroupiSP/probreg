@@ -120,7 +120,8 @@ with choices the library will not make for you.
 
 ### CRPS: sample count and evaluation grid
 
-Both CRPS metrics compare empirical CDFs numerically. They need a number of
+`PointContinuousRankedProbabilityScore` and `ContinuousRankedProbabilityScore`
+compare empirical CDFs numerically. They need a number of
 predictive draws per scoring unit and an
 [`EvaluationGrid`][probreg.core.EvaluationGrid], the strictly increasing
 points the CDFs are integrated over. Both are set once on the suite, so every
@@ -161,6 +162,22 @@ data were generated, as in a simulated benchmark. Those reference draws come
 from a `reference_samples_extractor` you give the predictor, a
 [`ReferenceSamplesExtractor`][probreg.jax.ReferenceSamplesExtractor] that maps a
 batch and a key to a `(n_scoring_units, n_draws)` array.
+
+`SampleContinuousRankedProbabilityScore` (`sample_crps`) scores the same
+pair as `point_crps` but needs no grid: it uses the energy form
+`E|X - y| - E|X - X'| / 2` over the predictive samples, which is the exact
+CRPS of their empirical distribution. It still needs a
+`predictive_sample_count`:
+
+```python
+from probreg.core import SampleContinuousRankedProbabilityScore
+
+suite = MetricSuite(
+    epoch=(SampleContinuousRankedProbabilityScore(),),
+    predictor=GaussianPredictor(),
+    predictive_sample_count=64,
+)
+```
 
 ### Spread: an explicit coordinate
 
