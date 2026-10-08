@@ -92,9 +92,11 @@ class PosteriorStageOptions:
             method that does not support early stopping.
         event_sinks: Event consumers notified of ``posterior/...`` events.
         checkpoint_store: Optional store for the best checkpoint, which holds
-            the inference method's full state.
-        checkpoint_key: The checkpoint key of the best checkpoint. Defaults to
-            ``None``, which resolves to ``posterior/best``.
+            the inference method's full state, and for the finalized
+            checkpoint that replaces it at the end of training and holds the
+            posterior alone.
+        checkpoint_key: The key of the best and finalized checkpoints.
+            Defaults to ``None``, which resolves to ``posterior/best``.
     """
 
     epochs: int
