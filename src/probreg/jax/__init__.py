@@ -1,6 +1,13 @@
 """Optional JAX/Flax NNX training backend."""
 
-from probreg.jax.distributions import Gamma, GammaHead, Gaussian, GaussianHead
+from probreg.jax.distributions import (
+    Gamma,
+    GammaHead,
+    Gaussian,
+    GaussianHead,
+    MomentMatchedPredictive,
+    PosteriorPredictive,
+)
 from probreg.jax.evaluation import (
     SupervisedLoss,
     evaluate_loader,
@@ -49,7 +56,9 @@ __all__ = [
     "HeldOutValidation",
     "MeanStage",
     "MetricSuite",
+    "MomentMatchedPredictive",
     "NnxSnapshot",
+    "PosteriorPredictive",
     "PredictionRequirements",
     "Predictor",
     "ReferenceSamplesExtractor",
