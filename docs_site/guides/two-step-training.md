@@ -83,7 +83,7 @@ from probreg.jax import (
 )
 
 inputs = jnp.linspace(-1.0, 1.0, 8).reshape(-1, 1)
-targets = 2.0 * inputs + 0.1 * jnp.sin(7.0 * inputs)
+targets = 2.0 * inputs + 0.1 * jnp.sin(7.0 * inputs) + 0.01 * jax.random.normal(jax.random.key(0), inputs.shape)
 
 
 def loader(*, split: str, epoch: int) -> list[Batch]:
