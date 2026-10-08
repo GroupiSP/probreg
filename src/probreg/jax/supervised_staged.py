@@ -251,11 +251,17 @@ class MeanStage:
             checkpoint: The mean stage's finalized checkpoint.
 
         Raises:
-            ValueError: Before changing anything, if ``checkpoint`` is not
-                finalized by this stage, that is its lifecycle state is not
-                ``MEAN_READY`` or its metadata lacks ``"stage": "mean"`` and
-                ``"stage_complete": True``, or if the live model or optimizer
-                is incompatible with it.
+            ValueError: If ``checkpoint`` is not finalized by this stage, that
+                is its lifecycle state is not ``MEAN_READY`` or its metadata
+                lacks ``"stage": "mean"`` and ``"stage_complete": True``; this
+                is checked before ``state`` or the live objects change. Also
+                raised, as by
+                [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
+                live model or optimizer is incompatible with the checkpoint,
+                which may leave them and ``state`` partially restored.
+            TypeError: As by
+                [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
+                checkpoint does not hold NNX snapshots or a JAX random key.
         """
         _require_finalized(checkpoint, stage=self.name, ready=StageState.MEAN_READY)
         self._restore_live(state, checkpoint)
@@ -463,12 +469,18 @@ class GammaVarianceStage:
             checkpoint: The variance stage's finalized checkpoint.
 
         Raises:
-            ValueError: Before changing anything, if ``checkpoint`` is not
-                finalized by this stage, that is its lifecycle state is not
-                ``VARIANCE_READY`` or its metadata lacks ``"stage":
-                "variance"`` and ``"stage_complete": True``, if no mean model
-                is registered under ``mean_model_name``, or if the live model
-                or optimizer is incompatible with it.
+            ValueError: If ``checkpoint`` is not finalized by this stage, that
+                is its lifecycle state is not ``VARIANCE_READY`` or its
+                metadata lacks ``"stage": "variance"`` and ``"stage_complete":
+                True``, or if no mean model is registered under
+                ``mean_model_name``; both are checked before ``state`` or the
+                live objects change. Also raised, as by
+                [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
+                live model or optimizer is incompatible with the checkpoint,
+                which may leave them and ``state`` partially restored.
+            TypeError: As by
+                [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
+                checkpoint does not hold NNX snapshots or a JAX random key.
         """
         _require_finalized(checkpoint, stage=self.name, ready=StageState.VARIANCE_READY)
         if self.mean_model_name not in state.model_components:
@@ -690,7 +702,17 @@ def _require_finalized(
     stage: str,
     ready: StageState,
 ) -> None:
-    """Reject a checkpoint that is not the named stage's finalized checkpoint."""
+    """Reject a checkpoint that is not the named stage's finalized checkpoint.
+
+    Args:
+        checkpoint: The checkpoint a stage is asked to restore.
+        stage: Name of the stage that must have finalized ``checkpoint``.
+        ready: The lifecycle state ``stage`` finalizes its checkpoint in.
+
+    Raises:
+        ValueError: If the checkpoint's lifecycle state is not ``ready``, or
+            its metadata does not name ``stage`` and mark it complete.
+    """
     if (
         checkpoint.state.lifecycle_state is not ready
         or checkpoint.metadata.get(_STAGE_METADATA_KEY) != stage
