@@ -247,7 +247,28 @@ class MeanStage:
         )
 
     def restore(self, state: TrainingState, checkpoint: Checkpoint) -> None:
-        """Restore the mean stage's finalized checkpoint."""
+        """Restore the mean stage's finalized checkpoint into ``state``.
+
+        The live model and optimizer take the checkpoint's weights in place and
+        are registered under ``model_name`` and ``optimizer_name``. The restore
+        is clean-slate, like
+        [`restore_checkpoint`][probreg.jax.restore_checkpoint]: other registered
+        components and optimizers are dropped. Afterwards the state passes
+        [`validate`][probreg.jax.MeanStage.validate], so the variance stage can
+        be prepared or restored next.
+
+        Args:
+            state: Training state to restore into, typically a fresh one.
+            checkpoint: The mean stage's finalized checkpoint.
+
+        Raises:
+            ValueError: Before changing anything, if ``checkpoint`` is not
+                finalized by this stage, that is its lifecycle state is not
+                ``MEAN_READY`` or its metadata lacks ``"stage": "mean"`` and
+                ``"stage_complete": True``, or if the live model or optimizer
+                is incompatible with it.
+        """
+        _require_finalized(checkpoint, stage=self.name, ready=StageState.MEAN_READY)
         self._restore_live(state, checkpoint)
 
     def _restore_live(self, state: TrainingState, checkpoint: Checkpoint) -> None:
@@ -462,7 +483,29 @@ class GammaVarianceStage:
         )
 
     def restore(self, state: TrainingState, checkpoint: Checkpoint) -> None:
-        """Restore the variance stage's finalized checkpoint."""
+        """Restore the variance stage's finalized checkpoint into ``state``.
+
+        Call it after the mean stage's
+        [`restore`][probreg.jax.MeanStage.restore]. The live variance model and
+        optimizer take the checkpoint's weights in place and are registered
+        under ``model_name`` and ``optimizer_name``. The mean model stays
+        registered under ``mean_model_name``, and the mean optimizer under
+        ``mean_optimizer_name`` if it was registered before. Afterwards the
+        state passes [`validate`][probreg.jax.GammaVarianceStage.validate].
+
+        Args:
+            state: Training state the mean stage has been restored into.
+            checkpoint: The variance stage's finalized checkpoint.
+
+        Raises:
+            ValueError: Before changing anything, if ``checkpoint`` is not
+                finalized by this stage, that is its lifecycle state is not
+                ``VARIANCE_READY`` or its metadata lacks ``"stage":
+                "variance"`` and ``"stage_complete": True``, if no mean model
+                is registered under ``mean_model_name``, or if the live model
+                or optimizer is incompatible with it.
+        """
+        _require_finalized(checkpoint, stage=self.name, ready=StageState.VARIANCE_READY)
         if self.mean_model_name not in state.model_components:
             raise ValueError(
                 f"mean model component {self.mean_model_name!r} is not registered."
@@ -585,6 +628,25 @@ def _restore_and_finalize_best_checkpoint(
     store.save(key, finalized)
     metrics = _latest_training_metrics(state, stage)
     return StageResult(state=state, metrics=metrics, loss=metrics["loss"])
+
+
+def _require_finalized(
+    checkpoint: Checkpoint,
+    *,
+    stage: str,
+    ready: StageState,
+) -> None:
+    """Reject a checkpoint that is not the named stage's finalized checkpoint."""
+    if (
+        checkpoint.state.lifecycle_state is not ready
+        or checkpoint.metadata.get("stage") != stage
+        or checkpoint.metadata.get("stage_complete") is not True
+    ):
+        raise ValueError(
+            f"checkpoint is not a finalized {stage!r} checkpoint: expected "
+            f"lifecycle state {ready.value!r} and metadata "
+            f"{{'stage': {stage!r}, 'stage_complete': True}}."
+        )
 
 
 def _validate_named_registration(

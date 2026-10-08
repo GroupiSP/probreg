@@ -12,7 +12,11 @@ from flax import nnx
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from probreg.core.checkpoints import CheckpointStore, InMemoryCheckpointStore
+from probreg.core.checkpoints import (
+    Checkpoint,
+    CheckpointStore,
+    InMemoryCheckpointStore,
+)
 from probreg.core.early_stopping import EarlyStopper
 from probreg.core.losses import (
     NegativeLogLikelihoodLoss,
@@ -1131,3 +1135,66 @@ def test_variance_restore_before_mean_restore_is_refused(
 
     assert state.lifecycle_state is StageState.NEW
     assert state.model_components == {}
+
+
+class FirstSaveStore(InMemoryCheckpointStore):
+    """A store that also keeps the first checkpoint saved under each key."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.first: dict[str, Checkpoint] = {}
+
+    def save(self, key: str, checkpoint: Checkpoint) -> None:
+        self.first.setdefault(key, checkpoint)
+        super().save(key, checkpoint)
+
+
+def test_stage_restore_refuses_a_best_checkpoint_that_was_not_finalized(
+    make_mean_stage: MakeMeanStage,
+    make_fresh_stages: MakeFreshStages,
+) -> None:
+    store = FirstSaveStore()
+    trained, trained_state = make_mean_stage(
+        checkpoint_store=store,
+        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
+        validation=validation_loss_is_epoch,
+    )
+    trained.prepare(trained_state)
+    trained.train(trained_state)
+    mean_stage, _ = make_fresh_stages()
+    state = TrainingState()
+
+    with pytest.raises(ValueError, match="finalized"):
+        mean_stage.restore(state, store.first["mean-best"])
+
+    assert state.lifecycle_state is StageState.NEW
+    assert state.model_components == {}
+
+
+def test_mean_stage_refuses_the_variance_checkpoint(
+    finalized_run: FinalizedRun,
+    make_fresh_stages: MakeFreshStages,
+) -> None:
+    _, _, store = finalized_run
+    mean_stage, _ = make_fresh_stages()
+    state = TrainingState()
+
+    with pytest.raises(ValueError, match="finalized"):
+        mean_stage.restore(state, store.load("variance-best"))
+
+    assert state.lifecycle_state is StageState.NEW
+
+
+def test_variance_stage_refuses_the_mean_checkpoint(
+    finalized_run: FinalizedRun,
+    make_fresh_stages: MakeFreshStages,
+) -> None:
+    _, _, store = finalized_run
+    mean_stage, variance_stage = make_fresh_stages()
+    state = TrainingState()
+    mean_stage.restore(state, store.load("mean-best"))
+
+    with pytest.raises(ValueError, match="finalized"):
+        variance_stage.restore(state, store.load("mean-best"))
+
+    assert mean_stage.validate(state).passed
