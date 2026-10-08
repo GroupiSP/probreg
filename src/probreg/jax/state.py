@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Collection
 from dataclasses import dataclass, replace
 
 import jax
@@ -186,6 +187,34 @@ def restore_checkpoint(
     state.rng_state = checkpoint.rng_state
     state.register_component(model_name, model)
     state.register_optimizer(optimizer_name, optimizer)
+
+
+def restore_keeping_components(
+    state: TrainingState, checkpoint: Checkpoint, *, drop: Collection[str]
+) -> None:
+    """Restore a checkpoint's saved state fields, keeping the live registrations.
+
+    For a checkpoint that holds no model or optimizer snapshots, such as a
+    posterior-stage checkpoint: every registered model component and
+    optimizer except those in ``drop`` is carried across the restore.
+
+    Args:
+        state: Existing shared training state to restore in place.
+        checkpoint: Checkpoint whose state fields and random key to restore.
+        drop: Model components not to carry across.
+    """
+    components = {
+        name: component
+        for name, component in state.model_components.items()
+        if name not in drop
+    }
+    optimizers = dict(state.optimizer_states)
+    _restore_training_state(state, checkpoint.state)
+    state.rng_state = checkpoint.rng_state
+    for name, component in components.items():
+        state.register_component(name, component)
+    for name, optimizer in optimizers.items():
+        state.register_optimizer(name, optimizer)
 
 
 def _restore_training_state(state: TrainingState, restored: TrainingState) -> None:
