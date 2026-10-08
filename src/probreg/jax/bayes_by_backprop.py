@@ -142,6 +142,11 @@ class BayesByBackprop:
         """Always ``True``: the variational parameters can stop anywhere."""
         return True
 
+    @property
+    def has_posterior(self) -> bool:
+        """Whether the method has been initialized."""
+        return self._problem is not None
+
     def init(self, problem: PosteriorProblem) -> None:
         """Warm-start the variational parameters from ``problem``.
 

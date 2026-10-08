@@ -139,12 +139,3 @@ def test_xsin_posterior_is_reproducible_with_finite_scores(
             scores.extrapolation_crps,
         )
     )
-
-
-def test_xsin_config_refuses_a_psgld_chain_retaining_nothing_in_the_first_epoch() -> (
-    None
-):
-    with pytest.raises(ValueError, match="first epoch"):
-        xsin_psgld(
-            XSinConfig(train_size=128, batch_size=32, psgld_burn_in=3, psgld_thinning=2)
-        )

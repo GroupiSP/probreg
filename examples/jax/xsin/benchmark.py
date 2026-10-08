@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -76,9 +75,7 @@ class XSinConfig:
         psgld_step_size: Langevin step size of pSGLD.
         psgld_burn_in: pSGLD update steps whose positions are discarded.
         psgld_thinning: pSGLD retains one position every this many steps
-            after burn-in. ``psgld_burn_in + psgld_thinning`` must not exceed
-            the batches of one epoch, so the posterior stage's first
-            validation finds a retained sample.
+            after burn-in.
         seed: Base JAX random seed for data, model, and training keys.
         train_min: Exclusive lower bound of the training-input domain.
         train_max: Exclusive upper bound of the training-input domain.
@@ -137,11 +134,6 @@ class XSinConfig:
             raise ValueError(
                 "evaluation bounds must strictly contain the training interval."
             )
-
-    @property
-    def batches_per_epoch(self) -> int:
-        """The number of training batches in one epoch."""
-        return math.ceil(self.train_size / self.batch_size)
 
 
 @dataclass(frozen=True)
@@ -522,17 +514,7 @@ def xsin_psgld(config: XSinConfig) -> PreconditionedSGLD:
 
     Returns:
         A fresh, uninitialized inference method.
-
-    Raises:
-        ValueError: If ``psgld_burn_in + psgld_thinning`` exceeds the batches
-            of one epoch. The posterior stage validates after every epoch, and
-            pSGLD has no posterior until its first sample is retained.
     """
-    if config.psgld_burn_in + config.psgld_thinning > config.batches_per_epoch:
-        raise ValueError(
-            "psgld_burn_in + psgld_thinning must fit in the first epoch's "
-            f"{config.batches_per_epoch} batches."
-        )
     return PreconditionedSGLD(
         step_size=config.psgld_step_size,
         burn_in=config.psgld_burn_in,

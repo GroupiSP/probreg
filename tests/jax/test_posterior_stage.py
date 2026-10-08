@@ -242,6 +242,10 @@ class GradientAscentMethod:
     def supports_early_stopping(self) -> bool:
         return self.early_stopping
 
+    @property
+    def has_posterior(self) -> bool:
+        return self.problem is not None
+
     def init(self, problem: PosteriorProblem) -> None:
         self.problem = problem
         self.parameters = problem.initial_parameters

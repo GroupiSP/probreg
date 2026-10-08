@@ -148,7 +148,8 @@ class PosteriorStage:
     prediction. The stage hands its inference method a
     [`PosteriorProblem`][probreg.jax.PosteriorProblem], drives the epoch loop
     with the method's ``update``, and validates every epoch on the current
-    posterior predictive.
+    posterior predictive, skipping epochs that end before the method
+    [`has_posterior`][probreg.jax.InferenceMethod.has_posterior].
 
     Attributes:
         inference_method: The [`InferenceMethod`][probreg.jax.InferenceMethod]
@@ -526,7 +527,10 @@ class _PosteriorPredictiveValidation:
     """Score the inference method's current posterior predictive.
 
     Each epoch draws one key for the posterior's draws, then one key per
-    validation batch for the metrics, both from ``state.rng_state``.
+    validation batch for the metrics, both from ``state.rng_state``. An epoch
+    that ends while the method has no posterior yet, such as during an
+    SG-MCMC burn-in, is skipped: it reports no metrics and leaves
+    ``state.rng_state`` unchanged.
     """
 
     inference_method: InferenceMethod
@@ -536,6 +540,12 @@ class _PosteriorPredictiveValidation:
     num_draws: int
 
     def __call__(self, state: TrainingState, *, epoch: int) -> ValidationResult:
+        if not self.inference_method.has_posterior:
+            return ValidationResult(
+                passed=True,
+                metrics={},
+                message="validation skipped: the method has no posterior yet.",
+            )
         posterior = self.inference_method.posterior()
         state.rng_state, draw_key = split_key(state.rng_state)
         model = _PosteriorPredictiveModel(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -373,3 +374,23 @@ def test_psgld_writes_only_a_finalized_checkpoint_that_restores_its_samples(
         restored_state.model_components["posterior"].sample_means(inputs, key),
         trained.sample_means(inputs, key),
     )
+
+
+def test_the_posterior_stage_skips_validation_until_psgld_retains_a_sample(
+    make_mean_and_variance: MakeMeanAndVariance,
+) -> None:
+    state = _variance_ready(make_mean_and_variance(InMemoryCheckpointStore()))
+    # Two batches per epoch: the first sample is retained in the third epoch.
+    method = PreconditionedSGLD(step_size=1e-3, burn_in=4, thinning=1)
+    stage = _psgld_stage(method, epochs=4, validation_loader=_line_loader)
+
+    stage.prepare(state)
+    stage.train(state)
+
+    history = state.metric_history
+    assert len(history["posterior/train/loss"]) == 4
+    for name in ("nll", "crps"):
+        values = history[f"posterior/validation/{name}"]
+        assert len(values) == 2
+        assert all(math.isfinite(value) for value in values)
+    assert state.model_components["posterior"].num_draws == 4

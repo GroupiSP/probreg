@@ -183,10 +183,10 @@ and storing samples. In the XSin example below, pSGLD's epistemic variance
 grows away from the training data, while Bayes by Backprop's does not.
 
 pSGLD counts `burn_in` and `thinning` in update steps, that is training
-batches. Because the stage validates after every epoch and pSGLD has no
-posterior before its first retained sample, keep `burn_in + thinning` within
-the number of batches of the first epoch. The chain starts from the trained
-mean, which already fits the data, so a short burn-in is usually enough:
+batches. It has no posterior before its first retained sample, so the stage
+skips validation for the epochs that end before then: they record no
+validation metrics. The chain starts from the trained mean, which already fits
+the data, so a short burn-in is usually enough:
 
 ```python
 from probreg.jax import PreconditionedSGLD

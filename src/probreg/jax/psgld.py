@@ -93,9 +93,10 @@ class PreconditionedSGLD:
     epochs. Steps are numbered from 1; the position after step ``t`` is
     retained when ``t = burn_in + k · thinning`` for some ``k ≥ 1``. Until
     the first position is retained,
-    [`posterior`][probreg.jax.PreconditionedSGLD.posterior] refuses, so a
-    posterior stage that validates every epoch needs ``burn_in + thinning``
-    to be at most the number of batches in the first epoch.
+    [`has_posterior`][probreg.jax.PreconditionedSGLD.has_posterior] is
+    ``False`` and [`posterior`][probreg.jax.PreconditionedSGLD.posterior]
+    refuses, so a posterior stage skips validation for the epochs of a
+    burn-in.
 
     SG-MCMC declares no early-stopping support, so a
     [`PosteriorStage`][probreg.jax.PosteriorStage] refuses an early stopper
@@ -149,6 +150,11 @@ class PreconditionedSGLD:
     def supports_early_stopping(self) -> bool:
         """``False``: an early stopper would truncate the chain."""
         return False
+
+    @property
+    def has_posterior(self) -> bool:
+        """Whether at least one sample has been retained."""
+        return bool(self._samples)
 
     def init(self, problem: PosteriorProblem) -> None:
         """Start a chain at the problem's warm start, discarding any samples.
