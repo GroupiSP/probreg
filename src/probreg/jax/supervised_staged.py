@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -227,36 +227,12 @@ class MeanStage:
         """
         if state.lifecycle_state is not StageState.INITIALIZED:
             raise ValueError("mean stage must be prepared before training.")
-        result = run_supervised(
-            model=self.model,
-            optimizer=self.optimizer,
-            train_loader=self.train_loader,
-            loss=self.loss,
-            state=state,
-            epochs=self.options.epochs,
-            validation=self.options.validation,
-            early_stopper=self.options.early_stopper,
-            event_sinks=self.options.event_sinks,
-            checkpoint_store=self.options.checkpoint_store,
-            checkpoint_key=resolve_checkpoint_key(
-                self.options.checkpoint_key, self.name
-            ),
-            stage=self.name,
-            model_name=self.model_name,
-            optimizer_name=self.optimizer_name,
-            metrics=self.options.metrics,
-        )
-        if result.loss is None or not math.isfinite(result.loss):
-            raise ValueError("mean stage produced a non-finite final loss.")
-        state.lifecycle_state = StageState.MEAN_READY
-        return _restore_and_finalize_best_checkpoint(
+        return _train_stage(
+            self,
             state,
-            result,
-            stage=self.name,
-            options=self.options,
-            model=self.model,
-            optimizer=self.optimizer,
-            restore=self._restore_live,
+            train_loader=self.train_loader,
+            validation=self.options.validation,
+            ready=StageState.MEAN_READY,
         )
 
     def restore(self, state: TrainingState, checkpoint: Checkpoint) -> None:
@@ -332,11 +308,7 @@ class MeanStage:
             ValueError: If no checkpoint exists under that key.
         """
         del state
-        store = self.options.checkpoint_store
-        key = resolve_checkpoint_key(self.options.checkpoint_key, self.name)
-        if store is None or not store.exists(key):
-            raise ValueError(f"checkpoint {key!r} is not available.")
-        return CheckpointRef(key=key, metadata={_STAGE_METADATA_KEY: self.name})
+        return _select_checkpoint(self)
 
 
 @dataclass
@@ -467,36 +439,12 @@ class GammaVarianceStage:
             raise ValueError("variance stage requires MEAN_READY lifecycle state.")
         if self._residual_loader is None:
             raise ValueError("variance stage must be prepared before training.")
-        result = run_supervised(
-            model=self.model,
-            optimizer=self.optimizer,
-            train_loader=self._residual_loader,
-            loss=self.loss,
-            state=state,
-            epochs=self.options.epochs,
-            validation=self._validation,
-            early_stopper=self.options.early_stopper,
-            event_sinks=self.options.event_sinks,
-            checkpoint_store=self.options.checkpoint_store,
-            checkpoint_key=resolve_checkpoint_key(
-                self.options.checkpoint_key, self.name
-            ),
-            stage=self.name,
-            model_name=self.model_name,
-            optimizer_name=self.optimizer_name,
-            metrics=self.options.metrics,
-        )
-        if result.loss is None or not math.isfinite(result.loss):
-            raise ValueError("variance stage produced a non-finite final loss.")
-        state.lifecycle_state = StageState.VARIANCE_READY
-        return _restore_and_finalize_best_checkpoint(
+        return _train_stage(
+            self,
             state,
-            result,
-            stage=self.name,
-            options=self.options,
-            model=self.model,
-            optimizer=self.optimizer,
-            restore=self._restore_live,
+            train_loader=self._residual_loader,
+            validation=self._validation,
+            ready=StageState.VARIANCE_READY,
         )
 
     def restore(self, state: TrainingState, checkpoint: Checkpoint) -> None:
@@ -588,64 +536,151 @@ class GammaVarianceStage:
             ValueError: If no checkpoint exists under that key.
         """
         del state
-        store = self.options.checkpoint_store
-        key = resolve_checkpoint_key(self.options.checkpoint_key, self.name)
-        if store is None or not store.exists(key):
-            raise ValueError(f"checkpoint {key!r} is not available.")
-        return CheckpointRef(key=key, metadata={_STAGE_METADATA_KEY: self.name})
+        return _select_checkpoint(self)
+
+
+class _CheckpointingStage(Protocol):
+    """A concrete supervised stage, as the shared training helpers see it.
+
+    Attributes:
+        name: Stage name, scoping metric tags and the default checkpoint key.
+        model: The stage's live model.
+        optimizer: The stage's live optimizer, bound to ``model``.
+        options: The stage's supervised-runner options.
+        model_name: State registry name for ``model``.
+        optimizer_name: State registry name for ``optimizer``.
+        loss: Scalar supervised loss used to train ``model``.
+    """
+
+    name: str
+    model: nnx.Module
+    optimizer: nnx.Optimizer
+    options: SupervisedStageOptions
+    model_name: str
+    optimizer_name: str
+    loss: SupervisedLoss
+
+    def _restore_live(self, state: TrainingState, checkpoint: Checkpoint) -> None:
+        """Restore a checkpoint into ``state`` and mark the stage ready."""
+        ...
+
+
+def _checkpoint_key(stage: _CheckpointingStage) -> str:
+    """Return the checkpoint key ``stage`` saves its best checkpoint under."""
+    return resolve_checkpoint_key(stage.options.checkpoint_key, stage.name)
+
+
+def _train_stage(
+    stage: _CheckpointingStage,
+    state: TrainingState,
+    *,
+    train_loader: LoaderFactory,
+    validation: ValidationStrategy | None,
+    ready: StageState,
+) -> StageResult:
+    """Run a stage's supervised training, mark it ready and finalize its best.
+
+    Args:
+        stage: The prepared stage to train.
+        state: State the stage has been prepared on.
+        train_loader: Factory producing the stage's training batches.
+        validation: The stage's validation strategy, if any.
+        ready: The lifecycle state the stage reaches once trained.
+
+    Returns:
+        The supervised runner result, or the restored epoch's training metrics
+        when the best checkpoint was restored.
+
+    Raises:
+        ValueError: If training produced a non-finite final loss.
+    """
+    options = stage.options
+    result = run_supervised(
+        model=stage.model,
+        optimizer=stage.optimizer,
+        train_loader=train_loader,
+        loss=stage.loss,
+        state=state,
+        epochs=options.epochs,
+        validation=validation,
+        early_stopper=options.early_stopper,
+        event_sinks=options.event_sinks,
+        checkpoint_store=options.checkpoint_store,
+        checkpoint_key=_checkpoint_key(stage),
+        stage=stage.name,
+        model_name=stage.model_name,
+        optimizer_name=stage.optimizer_name,
+        metrics=options.metrics,
+    )
+    if result.loss is None or not math.isfinite(result.loss):
+        raise ValueError(f"{stage.name} stage produced a non-finite final loss.")
+    state.lifecycle_state = ready
+    return _restore_and_finalize_best_checkpoint(stage, state, result)
+
+
+def _select_checkpoint(stage: _CheckpointingStage) -> CheckpointRef:
+    """Return a reference to the checkpoint ``stage`` saves its best under.
+
+    Args:
+        stage: The stage whose checkpoint to reference.
+
+    Returns:
+        Reference to the stage's checkpoint key, with the stage-name metadata.
+
+    Raises:
+        ValueError: If no checkpoint exists under that key.
+    """
+    store = stage.options.checkpoint_store
+    key = _checkpoint_key(stage)
+    if store is None or not store.exists(key):
+        raise ValueError(f"checkpoint {key!r} is not available.")
+    return CheckpointRef(key=key, metadata={_STAGE_METADATA_KEY: stage.name})
 
 
 def _restore_and_finalize_best_checkpoint(
+    stage: _CheckpointingStage,
     state: TrainingState,
     result: StageResult,
-    *,
-    stage: str,
-    options: SupervisedStageOptions,
-    model: nnx.Module,
-    optimizer: nnx.Optimizer,
-    restore: Callable[[TrainingState, Checkpoint], None],
 ) -> StageResult:
     """Restore a stage's best checkpoint and save it again as finalized.
 
-    Without an early stopper, a checkpoint store, or a saved best checkpoint,
-    ``result`` is returned unchanged.
+    The checkpoint is not finalized yet, so it is restored through the stage's
+    unchecked restore path rather than its public ``restore``. Without an
+    early stopper, a checkpoint store, or a saved best checkpoint, ``result``
+    is returned unchanged.
 
     Args:
+        stage: The stage that has just trained.
         state: State the stage has just trained and marked ready.
         result: The supervised runner result of the stage.
-        stage: Name of the stage, recorded in the checkpoint metadata.
-        options: The stage's runner options, naming the store and key.
-        model: The stage's live model, snapshotted into the finalized checkpoint.
-        optimizer: The stage's live optimizer, snapshotted alongside ``model``.
-        restore: Restores a checkpoint into ``state`` and the live objects and
-            sets the stage's ready lifecycle state.
 
     Returns:
         ``result`` if nothing was restored, otherwise a result reporting the
         restored epoch's training metrics.
     """
+    options = stage.options
     store = options.checkpoint_store
-    key = resolve_checkpoint_key(options.checkpoint_key, stage)
+    key = _checkpoint_key(stage)
     if options.early_stopper is None or store is None or not store.exists(key):
         return result
 
     checkpoint = store.load(key)
-    restore(state, checkpoint)
+    stage._restore_live(state, checkpoint)
     finalized = Checkpoint(
         state=freeze_training_state(state),
         epoch=checkpoint.epoch,
-        parameters=snapshot(model),
-        optimizer_state=snapshot(optimizer),
+        parameters=snapshot(stage.model),
+        optimizer_state=snapshot(stage.optimizer),
         rng_state=state.rng_state,
         early_stopping_state=checkpoint.early_stopping_state,
         metadata={
             **checkpoint.metadata,
-            _STAGE_METADATA_KEY: stage,
+            _STAGE_METADATA_KEY: stage.name,
             _STAGE_COMPLETE_METADATA_KEY: True,
         },
     )
     store.save(key, finalized)
-    metrics = _latest_training_metrics(state, stage)
+    metrics = _latest_training_metrics(state, stage.name)
     return StageResult(state=state, metrics=metrics, loss=metrics["loss"])
 
 
