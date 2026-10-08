@@ -94,7 +94,7 @@ def loader(*, split: str, epoch: int) -> list[Batch]:
 squared_error = make_supervised_loss(SquaredErrorLoss())
 gamma_nll = make_supervised_loss(
     NegativeLogLikelihoodLoss(target_transform=add_epsilon())
-)
+)  # add_epsilon() keeps the Gamma's targets positive, as required by its support.
 
 state = TrainingState(rng_state=jax.random.key(0))
 
