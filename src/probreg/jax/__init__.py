@@ -34,6 +34,7 @@ from probreg.jax.posterior import (
     Prior,
 )
 from probreg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
+from probreg.jax.psgld import PreconditionedSGLD, RetainedSamplesPosterior
 from probreg.jax.rng import split_key
 from probreg.jax.state import (
     NnxSnapshot,
@@ -75,10 +76,12 @@ __all__ = [
     "PosteriorProblem",
     "PosteriorStage",
     "PosteriorStageOptions",
+    "PreconditionedSGLD",
     "PredictionRequirements",
     "Predictor",
     "Prior",
     "ReferenceSamplesExtractor",
+    "RetainedSamplesPosterior",
     "SupervisedLoss",
     "SupervisedStageOptions",
     "create_optimizer",
