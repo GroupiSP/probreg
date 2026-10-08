@@ -77,8 +77,7 @@ seeded configuration both methods lower the overall NLL and CRPS, mostly
 in the extrapolation region, where the variance stage's band is far too narrow.
 pSGLD's epistemic variance grows away from the training data and its scores
 improve inside the training domain too; Bayes by Backprop's epistemic variance
-is spread through the training domain instead and slightly worsens the NLL
-there. Both bands remain far too narrow in extrapolation: the draws stay close
+is spread through the training domain instead and worsens both scores there. Both bands remain far too narrow in extrapolation: the draws stay close
 to the trained mean, which extrapolates the oscillation poorly.
 
 Source:
