@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+import math
 from dataclasses import dataclass
 
 import jax
@@ -176,3 +178,30 @@ def test_the_variational_posterior_is_unlimited(
     assert warm_posterior.num_draws is None
     with pytest.raises(ValueError, match="num_samples"):
         warm_posterior.sample_means(_INPUTS, jax.random.key(0))
+
+
+def test_the_default_warm_start_draws_stay_close_to_the_trained_mean() -> None:
+    problem = dataclasses.replace(
+        _problem(IsotropicGaussianPrior()),
+        initial_parameters={"w": jnp.asarray(1.5), "b": jnp.asarray(-0.5)},
+    )
+    method = BayesByBackprop()
+    method.init(problem)
+
+    draws = method.posterior().sample_means(_INPUTS, jax.random.key(0), 64)
+
+    trained = _line(problem.initial_parameters, _INPUTS)
+    assert jnp.max(jnp.abs(draws - trained)) < 0.01
+
+
+@pytest.mark.parametrize("initial_std", [0.0, -0.1, math.inf, math.nan])
+def test_a_non_positive_or_non_finite_initial_std_is_refused(
+    initial_std: float,
+) -> None:
+    with pytest.raises(ValueError, match="initial_std"):
+        BayesByBackprop(initial_std=initial_std)
+
+
+def test_an_uninitialized_method_has_no_posterior() -> None:
+    with pytest.raises(ValueError, match="init"):
+        BayesByBackprop().posterior()
