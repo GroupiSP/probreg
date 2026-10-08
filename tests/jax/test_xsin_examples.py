@@ -3,9 +3,12 @@ from __future__ import annotations
 import importlib.util
 import math
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import jax.numpy as jnp
+import pytest
 
 _BENCHMARK_PATH = (
     Path(__file__).parents[2] / "examples" / "jax" / "xsin" / "benchmark.py"
@@ -86,3 +89,62 @@ def test_xsin_methods_are_reproducible_and_improve_interpolation() -> None:
     )
     assert two_step.interpolation_mean_rmse < mve.interpolation_mean_rmse
     assert two_step.interpolation_variance_rmse < mve.interpolation_variance_rmse
+
+
+run_xsin_posterior = _BENCHMARK.run_xsin_posterior
+xsin_bayes_by_backprop = _BENCHMARK.xsin_bayes_by_backprop
+xsin_psgld = _BENCHMARK.xsin_psgld
+
+
+@pytest.mark.parametrize(
+    "make_method", [xsin_bayes_by_backprop, xsin_psgld], ids=["bbb", "psgld"]
+)
+def test_xsin_posterior_is_reproducible_with_finite_scores(
+    make_method: Callable[[Any], Any],
+) -> None:
+    config = XSinConfig(
+        train_size=128,
+        evaluation_size=41,
+        batch_size=32,
+        hidden_features=8,
+        mean_epochs=5,
+        variance_epochs=5,
+        posterior_epochs=2,
+        posterior_num_draws=4,
+        psgld_burn_in=2,
+        psgld_thinning=1,
+        seed=3,
+    )
+    data = make_xsin_data(config)
+
+    first = run_xsin_posterior(data, config, make_method(config))
+    second = run_xsin_posterior(data, config, make_method(config))
+
+    assert first.mean.shape == data.true_mean.shape
+    assert first.aleatoric_variance.shape == data.true_variance.shape
+    assert first.epistemic_variance.shape == data.true_variance.shape
+    assert bool(jnp.all(first.epistemic_variance >= 0.0))
+    assert jnp.array_equal(first.mean, second.mean)
+    assert jnp.array_equal(first.epistemic_variance, second.epistemic_variance)
+    assert first.posterior_scores == second.posterior_scores
+    assert all(
+        math.isfinite(value)
+        for scores in (first.posterior_scores, first.variance_stage_scores)
+        for value in (
+            scores.nll,
+            scores.crps,
+            scores.interpolation_nll,
+            scores.interpolation_crps,
+            scores.extrapolation_nll,
+            scores.extrapolation_crps,
+        )
+    )
+
+
+def test_xsin_config_refuses_a_psgld_chain_retaining_nothing_in_the_first_epoch() -> (
+    None
+):
+    with pytest.raises(ValueError, match="first epoch"):
+        xsin_psgld(
+            XSinConfig(train_size=128, batch_size=32, psgld_burn_in=3, psgld_thinning=2)
+        )
