@@ -12,10 +12,8 @@ Run with:
     uv run --extra jax --extra plot python examples/jax/xsin/posterior.py
 """
 
-from benchmark import (
-    StagePrintingEventSink,
-    XSinConfig,
-    make_xsin_data,
+from benchmark import StagePrintingEventSink, XSinConfig, make_xsin_data
+from posterior_benchmark import (
     plot_xsin_posterior,
     print_xsin_scores,
     run_xsin_posterior,
