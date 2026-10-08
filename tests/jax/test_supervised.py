@@ -362,6 +362,38 @@ def test_training_metric_stopping_saves_best_checkpoint_and_events(
     ]
 
 
+@pytest.mark.parametrize(
+    ("checkpoint_key", "expected_key"),
+    [(None, "mean/best"), ("best", "best")],
+)
+def test_best_checkpoint_key_defaults_to_the_stage_scoped_key(
+    make_components: MakeComponents,
+    squared_error: SupervisedLoss,
+    constant_loader: LoaderFactory,
+    checkpoint_key: str | None,
+    expected_key: str,
+) -> None:
+    model, optimizer, state = make_components(learning_rate=0.0)
+    store = InMemoryCheckpointStore()
+    stopper = EarlyStopper(metric="loss", mode="min", patience=0, source=Split.TRAIN)
+
+    run_supervised(
+        model=model,
+        optimizer=optimizer,
+        train_loader=constant_loader,
+        loss=squared_error,
+        state=state,
+        epochs=2,
+        early_stopper=stopper,
+        checkpoint_store=store,
+        checkpoint_key=checkpoint_key,
+        stage="mean",
+    )
+
+    assert store.exists(expected_key)
+    assert not store.exists("best" if checkpoint_key is None else "mean/best")
+
+
 def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs(
     make_components: MakeComponents,
     squared_error: SupervisedLoss,
@@ -386,7 +418,7 @@ def test_best_checkpoint_state_is_frozen_and_unaffected_by_later_epochs(
         checkpoint_store=store,
     )
 
-    checkpoint = store.load("best")
+    checkpoint = store.load("supervised/best")
 
     # The checkpoint was saved after epoch 0; its frozen state must only
     # contain that single observation, even though the live state keeps
