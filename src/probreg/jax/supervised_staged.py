@@ -253,8 +253,9 @@ class MeanStage:
         Raises:
             ValueError: If ``checkpoint`` is not finalized by this stage, that
                 is its lifecycle state is not ``MEAN_READY`` or its metadata
-                lacks ``"stage": "mean"`` and ``"stage_complete": True``; this
-                is checked before ``state`` or the live objects change. Also
+                lacks ``"stage": "mean"`` and ``"stage_complete": True``, or
+                if it was saved with another ``model_name``; this is checked
+                before ``state`` or the live objects change. Also
                 raised, as by
                 [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
                 live model or optimizer is incompatible with the checkpoint,
@@ -264,6 +265,9 @@ class MeanStage:
                 checkpoint does not hold NNX snapshots or a JAX random key.
         """
         _require_finalized(checkpoint, stage=self.name, ready=StageState.MEAN_READY)
+        _require_component_names(
+            checkpoint, model_name=self.model_name, role=ParameterRole.MEAN
+        )
         self._restore_live(state, checkpoint)
 
     def _restore_live(self, state: TrainingState, checkpoint: Checkpoint) -> None:
@@ -472,8 +476,9 @@ class GammaVarianceStage:
             ValueError: If ``checkpoint`` is not finalized by this stage, that
                 is its lifecycle state is not ``VARIANCE_READY`` or its
                 metadata lacks ``"stage": "variance"`` and ``"stage_complete":
-                True``, or if no mean model is registered under
-                ``mean_model_name``; both are checked before ``state`` or the
+                True``, if it was saved with another ``model_name`` or
+                ``mean_model_name``, or if no mean model is registered under
+                ``mean_model_name``; all are checked before ``state`` or the
                 live objects change. Also raised, as by
                 [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
                 live model or optimizer is incompatible with the checkpoint,
@@ -483,6 +488,12 @@ class GammaVarianceStage:
                 checkpoint does not hold NNX snapshots or a JAX random key.
         """
         _require_finalized(checkpoint, stage=self.name, ready=StageState.VARIANCE_READY)
+        _require_component_names(
+            checkpoint,
+            model_name=self.model_name,
+            role=ParameterRole.VARIANCE,
+            frozen=self.mean_model_name,
+        )
         if self.mean_model_name not in state.model_components:
             raise ValueError(
                 f"mean model component {self.mean_model_name!r} is not registered."
@@ -723,6 +734,42 @@ def _require_finalized(
             f"lifecycle state {ready.value!r} and metadata "
             f"{{{_STAGE_METADATA_KEY!r}: {stage!r}, "
             f"{_STAGE_COMPLETE_METADATA_KEY!r}: True}}."
+        )
+
+
+def _require_component_names(
+    checkpoint: Checkpoint,
+    *,
+    model_name: str,
+    role: ParameterRole,
+    frozen: str | None = None,
+) -> None:
+    """Reject a checkpoint saved under component names other than a stage's.
+
+    The checkpoint's parameter roles and frozen components are restored as
+    saved, while the live model is registered under ``model_name``, so the
+    names must agree for the restored state to pass the stage's validation.
+
+    Args:
+        checkpoint: The checkpoint a stage is asked to restore.
+        model_name: Name the stage registers its model under.
+        role: Role the checkpoint must give ``model_name``.
+        frozen: Component the checkpoint must mark frozen, if any.
+
+    Raises:
+        ValueError: If ``model_name`` does not have ``role`` in the checkpoint,
+            or ``frozen`` is not among its frozen components.
+    """
+    saved = checkpoint.state
+    if saved.parameter_roles.get(model_name) is not role:
+        raise ValueError(
+            f"checkpoint does not give model component {model_name!r} the "
+            f"{role.value!r} role; it was saved under other component names."
+        )
+    if frozen is not None and frozen not in saved.frozen_components:
+        raise ValueError(
+            f"checkpoint does not mark model component {frozen!r} frozen; it was "
+            "saved under other component names."
         )
 
 

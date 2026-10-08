@@ -1261,6 +1261,36 @@ def test_variance_stage_refuses_the_mean_checkpoint(
     assert mean_stage.validate(state).passed
 
 
+@pytest.mark.parametrize(
+    ("stage_name", "renamed"),
+    [
+        ("mean", "model_name"),
+        ("variance", "model_name"),
+        ("variance", "mean_model_name"),
+    ],
+)
+def test_stage_restore_refuses_a_checkpoint_saved_under_other_component_names(
+    finalized_run: FinalizedRun,
+    make_fresh_stages: MakeFreshStages,
+    stage_name: str,
+    renamed: str,
+) -> None:
+    _, _, store = finalized_run
+    stages = make_fresh_stages()
+    mean_stage, variance_stage = stages
+    state = TrainingState()
+    if stage_name == "variance":
+        mean_stage.restore(state, store.load("mean-best"))
+    stage = mean_stage if stage_name == "mean" else variance_stage
+    setattr(stage, renamed, "renamed")
+    before = _observable_state(state, stages)
+
+    with pytest.raises(ValueError, match="other component names"):
+        stage.restore(state, store.load(f"{stage_name}-best"))
+
+    assert _observable_state(state, stages) == before
+
+
 def _observable_state(
     state: TrainingState,
     stages: tuple[MeanStage, GammaVarianceStage],
