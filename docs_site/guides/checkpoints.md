@@ -146,11 +146,14 @@ with.
 
 ## Resuming across stages
 
-The finalized mean checkpoint is enough to run the variance stage in a new
-training state, with freshly built objects: a mean model and optimizer of the
-same architecture to restore into, and nothing else from the first run. The
-snippet below trains the mean stage, then starts over from the store alone, as a
-later process would:
+The finalized checkpoints are enough to pick a staged run up again in a new
+training state, with freshly built objects: models and optimizers of the same
+architecture to restore into, and nothing else from the first run. Each stage
+restores its own checkpoint with `restore`
+([`MeanStage.restore`][probreg.jax.MeanStage.restore] and
+[`GammaVarianceStage.restore`][probreg.jax.GammaVarianceStage.restore]), mean
+first, then variance. The snippet below trains both stages, then starts over
+from the store alone, as a later process would:
 
 ```python
 import jax
@@ -171,7 +174,6 @@ from probreg.jax import (
     MeanStage,
     SupervisedStageOptions,
     create_optimizer,
-    restore_checkpoint,
 )
 
 inputs = jnp.linspace(-1.0, 1.0, 8).reshape(-1, 1)
@@ -182,67 +184,82 @@ def loader(*, split: str, epoch: int) -> list[Batch]:
     return [Batch(inputs=inputs, targets=targets)]
 
 
+def build_stages(
+    store: InMemoryCheckpointStore, seed: int
+) -> tuple[MeanStage, GammaVarianceStage]:
+    mean_model = nnx.Linear(1, 1, rngs=nnx.Rngs(seed))
+    variance_model = GammaHead(1, 1, rngs=nnx.Rngs(seed + 1))
+    mean_stage = MeanStage(
+        model=mean_model,
+        optimizer=create_optimizer(mean_model, optax.adam(0.1)),
+        train_loader=loader,
+        options=SupervisedStageOptions(
+            epochs=3,
+            early_stopper=EarlyStopper(
+                metric="loss", mode="min", patience=1, source="train"
+            ),
+            checkpoint_store=store,
+            checkpoint_key="mean/best",
+        ),
+    )
+    variance_stage = GammaVarianceStage(
+        model=variance_model,
+        optimizer=create_optimizer(variance_model, optax.adam(0.1)),
+        source_loader=loader,
+        options=SupervisedStageOptions(
+            epochs=3,
+            early_stopper=EarlyStopper(
+                metric="loss", mode="min", patience=1, source="train"
+            ),
+            checkpoint_store=store,
+            checkpoint_key="variance/best",
+        ),
+        splits=("train",),
+    )
+    return mean_stage, variance_stage
+
+
 store = InMemoryCheckpointStore()
 
-# The first run trains the mean stage and keeps its best checkpoint.
-mean_model = nnx.Linear(1, 1, rngs=nnx.Rngs(0))
-mean_stage = MeanStage(
-    model=mean_model,
-    optimizer=create_optimizer(mean_model, optax.adam(0.1)),
-    train_loader=loader,
-    options=SupervisedStageOptions(
-        epochs=3,
-        early_stopper=EarlyStopper(
-            metric="loss", mode="min", patience=1, source="train"
-        ),
-        checkpoint_store=store,
-        checkpoint_key="mean/best",
-    ),
-)
+# The first run trains both stages and keeps their finalized checkpoints.
+first_mean, first_variance = build_stages(store, seed=0)
 first_state = TrainingState(rng_state=jax.random.key(0))
-mean_stage.prepare(first_state)
-mean_stage.train(first_state)
+for stage in (first_mean, first_variance):
+    stage.prepare(first_state)
+    stage.train(first_state)
 
-# A later run rebuilds the mean model and restores it from the store.
-checkpoint = store.load("mean/best")
-assert checkpoint.state.lifecycle_state is StageState.MEAN_READY
-assert checkpoint.metadata["stage_complete"]
-
-restored_model = nnx.Linear(1, 1, rngs=nnx.Rngs(1))
+# A later run rebuilds the stages and restores them from the store, mean first.
+mean_stage, variance_stage = build_stages(store, seed=10)
 state = TrainingState()
-restore_checkpoint(
-    checkpoint,
-    state=state,
-    model=restored_model,
-    optimizer=create_optimizer(restored_model, optax.adam(0.1)),
-    model_name="mean_model",
-    optimizer_name="mean_optimizer",
-)
-assert state.lifecycle_state is StageState.MEAN_READY
-assert jnp.allclose(restored_model(inputs), mean_model(inputs))
+mean_stage.restore(state, store.load("mean/best"))
+variance_stage.restore(state, store.load("variance/best"))
 
-# The variance stage starts from the restored state as if it had never stopped.
-variance_model = GammaHead(1, 1, rngs=nnx.Rngs(2))
-variance_stage = GammaVarianceStage(
-    model=variance_model,
-    optimizer=create_optimizer(variance_model, optax.adam(0.1)),
-    source_loader=loader,
-    options=SupervisedStageOptions(epochs=2),
-    splits=("train",),
-)
-variance_stage.prepare(state)
-variance_stage.train(state)
 assert state.lifecycle_state is StageState.VARIANCE_READY
-assert "mean/train/loss" in state.metric_history  # carried over by the checkpoint
+assert variance_stage.validate(state).passed
+assert state.model_components["mean_model"] is mean_stage.model
+assert jnp.allclose(mean_stage.model(inputs), first_mean.model(inputs))
+assert jnp.allclose(
+    variance_stage.model(inputs).rate, first_variance.model(inputs).rate
+)
 ```
 
-The restored model and optimizer must have the same structure as the ones that
-were saved; `restore_checkpoint` raises `ValueError` before changing anything if
-they do not. Pass the names the mean stage registered them under, `mean_model`
-and `mean_optimizer`, so the variance stage finds the mean model where it
-expects it. The restored state carries the mean stage's metric history, its
-parameter roles and the random key, so the variance stage continues the run
-rather than starting a new one.
+`restore` takes only the stage's own finalized checkpoint, and checks it before
+changing anything: it raises `ValueError` if the checkpoint's lifecycle state is
+not the stage's ready state, or its metadata does not name the stage and mark it
+complete. So the other stage's checkpoint, or a best checkpoint left behind by a
+run that stopped mid-stage, is refused. The variance stage also refuses while no
+mean model is registered, which is why the mean stage restores first. The
+restored models and optimizers must have the same structure as the ones that
+were saved, or `restore` raises `ValueError`, again before changing anything.
+
+The restored state carries the stages' metric history, their parameter roles
+and the random key. After the mean stage's `restore` alone, the state is
+`MEAN_READY`, so the variance stage can also be prepared and trained from there
+rather than restored, continuing the run rather than starting a new one.
+
+Calling [`restore_checkpoint`][probreg.jax.restore_checkpoint] directly on a
+staged checkpoint still works, but restores clean-slate and leaves the
+registry names to you; the stage methods are the way to resume a staged run.
 
 [Two-step mean/variance training](two-step-training.md) explains the stages
 themselves.
