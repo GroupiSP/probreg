@@ -246,6 +246,10 @@ class MeanStage:
             restore=self._restore_live,
         )
 
+    def restore(self, state: TrainingState, checkpoint: Checkpoint) -> None:
+        """Restore the mean stage's finalized checkpoint."""
+        self._restore_live(state, checkpoint)
+
     def _restore_live(self, state: TrainingState, checkpoint: Checkpoint) -> None:
         """Restore a mean checkpoint into the live model and mark Step 1 ready."""
         restore_checkpoint(
@@ -456,6 +460,10 @@ class GammaVarianceStage:
             optimizer=self.optimizer,
             restore=self._restore_live,
         )
+
+    def restore(self, state: TrainingState, checkpoint: Checkpoint) -> None:
+        """Restore the variance stage's finalized checkpoint."""
+        self._restore_live(state, checkpoint)
 
     def _restore_live(self, state: TrainingState, checkpoint: Checkpoint) -> None:
         """Restore a variance checkpoint, keeping the mean registrations live.

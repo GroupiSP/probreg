@@ -1035,3 +1035,84 @@ def test_variance_stage_restore_leaves_an_unregistered_mean_optimizer_out(
 
     assert "mean_optimizer" not in state.optimizer_states
     assert stage.validate(state).passed
+
+
+FinalizedRun = tuple[MeanStage, GammaVarianceStage, InMemoryCheckpointStore]
+MakeFreshStages = Callable[[], tuple[MeanStage, GammaVarianceStage]]
+
+
+@pytest.fixture(scope="session")
+def finalized_run(make_mean_stage: MakeMeanStage) -> FinalizedRun:
+    """Train both stages into one store, leaving a finalized checkpoint for each."""
+    store = InMemoryCheckpointStore()
+    mean_stage, state = make_mean_stage(
+        checkpoint_store=store,
+        early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
+        validation=validation_loss_is_epoch,
+    )
+    mean_stage.prepare(state)
+    mean_stage.train(state)
+    model = GammaHead(1, 1, rngs=nnx.Rngs(2))
+    variance_stage = GammaVarianceStage(
+        model=model,
+        optimizer=create_optimizer(model, optax.sgd(0.1)),
+        source_loader=mean_loader,
+        options=SupervisedStageOptions(
+            epochs=3,
+            checkpoint_store=store,
+            checkpoint_key="variance-best",
+            early_stopper=EarlyStopper(metric="loss", mode="min", patience=0),
+            validation=validation_loss_is_epoch,
+        ),
+        splits=("train",),
+    )
+    variance_stage.prepare(state)
+    variance_stage.train(state)
+    return mean_stage, variance_stage, store
+
+
+@pytest.fixture(scope="session")
+def make_fresh_stages(linear_model: type[Any]) -> MakeFreshStages:
+    """Return a factory of untrained stages with freshly initialized objects."""
+
+    def make() -> tuple[MeanStage, GammaVarianceStage]:
+        """Build both stages as a later process would, from new objects only."""
+        mean_model = linear_model(rngs=nnx.Rngs(7))
+        variance_model = GammaHead(1, 1, rngs=nnx.Rngs(8))
+        mean_stage = MeanStage(
+            model=mean_model,
+            optimizer=create_optimizer(mean_model, optax.sgd(0.1)),
+            train_loader=mean_loader,
+            options=SupervisedStageOptions(epochs=1),
+        )
+        variance_stage = GammaVarianceStage(
+            model=variance_model,
+            optimizer=create_optimizer(variance_model, optax.sgd(0.1)),
+            source_loader=mean_loader,
+            options=SupervisedStageOptions(epochs=1),
+            splits=("train",),
+        )
+        return mean_stage, variance_stage
+
+    return make
+
+
+def test_stages_resume_a_fresh_state_from_their_finalized_checkpoints(
+    finalized_run: FinalizedRun,
+    make_fresh_stages: MakeFreshStages,
+) -> None:
+    trained_mean, trained_variance, store = finalized_run
+    mean_stage, variance_stage = make_fresh_stages()
+    state = TrainingState()
+    inputs = mean_loader(split="train", epoch=0)[0].inputs
+
+    mean_stage.restore(state, store.load("mean-best"))
+    variance_stage.restore(state, store.load("variance-best"))
+
+    assert variance_stage.validate(state).passed
+    assert state.model_components["mean_model"] is mean_stage.model
+    assert state.optimizer_states["mean_optimizer"] is mean_stage.optimizer
+    assert jnp.array_equal(mean_stage.model(inputs), trained_mean.model(inputs))
+    restored, trained = variance_stage.model(inputs), trained_variance.model(inputs)
+    assert jnp.array_equal(restored.concentration, trained.concentration)
+    assert jnp.array_equal(restored.rate, trained.rate)
