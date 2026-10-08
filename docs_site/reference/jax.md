@@ -9,6 +9,10 @@ module that defines it. Using it needs the `jax` extra.
 
 ::: probreg.jax.Gamma
 
+::: probreg.jax.PosteriorPredictive
+
+::: probreg.jax.MomentMatchedPredictive
+
 ::: probreg.jax.GaussianHead
 
 ::: probreg.jax.GammaHead
@@ -40,6 +44,8 @@ module that defines it. Using it needs the `jax` extra.
 ::: probreg.jax.Predictor
 
 ::: probreg.jax.GaussianPredictor
+
+::: probreg.jax.PosteriorPredictivePredictor
 
 ::: probreg.jax.MetricSuite
 

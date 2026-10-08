@@ -61,6 +61,8 @@ grouped by the module that defines it.
 
 ::: probreg.core.RootMeanSquaredError
 
+::: probreg.core.NegativeLogLikelihood
+
 ::: probreg.core.IntervalCoverage
 
 ::: probreg.core.WeightedSpread
