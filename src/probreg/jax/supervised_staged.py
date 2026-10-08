@@ -198,11 +198,18 @@ class MeanStage:
     def train(self, state: TrainingState) -> StageResult:
         """Train the mean model and transition the workflow to ``MEAN_READY``.
 
+        With an early stopper and a checkpoint store configured, the stage then
+        restores its best checkpoint, so the live mean model holds the best
+        epoch's weights, and saves it again under the same key as a finalized
+        ``MEAN_READY`` checkpoint with metadata
+        ``{"stage": "mean", "stage_complete": True}``.
+
         Args:
             state: Prepared staged training state.
 
         Returns:
-            The supervised runner result.
+            The supervised runner result, or the restored epoch's training
+            metrics when the best checkpoint was restored.
 
         Raises:
             ValueError: If the stage was not prepared or training is non-finite.
@@ -399,11 +406,19 @@ class GammaVarianceStage:
     def train(self, state: TrainingState) -> StageResult:
         """Train the variance model and transition to ``VARIANCE_READY``.
 
+        With an early stopper and a checkpoint store configured, the stage then
+        restores its best checkpoint, so the live variance model holds the best
+        epoch's weights, while the mean model and, if registered, the mean
+        optimizer stay registered. It saves the checkpoint again under the same
+        key as a finalized ``VARIANCE_READY`` checkpoint with metadata
+        ``{"stage": "variance", "stage_complete": True}``.
+
         Args:
             state: Prepared state retaining a frozen mean component.
 
         Returns:
-            The supervised runner result.
+            The supervised runner result, or the restored epoch's training
+            metrics when the best checkpoint was restored.
 
         Raises:
             ValueError: If preparation is incomplete or training is non-finite.
