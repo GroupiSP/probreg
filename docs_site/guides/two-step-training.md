@@ -129,7 +129,7 @@ variance_stage = GammaVarianceStage(
         model=variance_model, loader=residuals, loss=gamma_nll
     ),
 )
-variance_stage.prepare(state)
+variance_stage.prepare(state)  # here, the squared residuals are computed and cached
 variance_stage.train(state)
 
 assert state.lifecycle_state is StageState.VARIANCE_READY
