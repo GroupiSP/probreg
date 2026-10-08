@@ -5,7 +5,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from flax import nnx
-from hypothesis import given
+from statistics import NormalDist
+
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from probreg.core.metric_registry import (
@@ -14,18 +16,21 @@ from probreg.core.metric_registry import (
     EvaluationGrid,
     IntervalCoverage,
     MetricRequirements,
+    NegativeLogLikelihood,
     PointContinuousRankedProbabilityScore,
     PredictionInterval,
     RootMeanSquaredError,
     WeightedSpread,
 )
 from probreg.core.types import Batch
-from probreg.jax.distributions import Gaussian
+from probreg.jax.distributions import Gaussian, PosteriorPredictive
 from probreg.jax.metrics import (
     GaussianPredictor,
     MetricSuite,
+    PosteriorPredictivePredictor,
     PredictionRequirements,
     merge_epoch_prediction_data,
+    reduce_metric_suite,
     metric_key,
     resolve_epoch_prediction_data,
 )
@@ -401,3 +406,165 @@ def test_weighted_spread_is_independent_of_loader_coordinate_order() -> None:
             )
         )
     )
+
+
+class MixtureModel(nnx.Module):
+    """A posterior predictive whose draws are the inputs shifted by fixed offsets."""
+
+    def __init__(self, offsets: list[float], variance: float = 0.25) -> None:
+        self.offsets = jnp.asarray(offsets)
+        self.variance = variance
+
+    def __call__(self, inputs: jax.Array) -> PosteriorPredictive:
+        draws = inputs[None] + self.offsets.reshape((-1,) + (1,) * inputs.ndim)
+        return PosteriorPredictive(
+            draws=draws, aleatoric_variance=jnp.full(inputs.shape, self.variance)
+        )
+
+
+class ShiftedGaussianModel(nnx.Module):
+    """The Gaussian a one-draw ``MixtureModel`` reduces to."""
+
+    def __init__(self, offset: float, variance: float = 0.25) -> None:
+        self.offset = offset
+        self.variance = variance
+
+    def __call__(self, inputs: jax.Array) -> Gaussian:
+        return Gaussian(
+            loc=inputs + self.offset,
+            scale=jnp.full(inputs.shape, self.variance**0.5),
+        )
+
+
+def _mixture_suite(predictor: object) -> MetricSuite:
+    return MetricSuite(
+        epoch=(
+            NegativeLogLikelihood(),
+            PointContinuousRankedProbabilityScore(name="crps"),
+            IntervalCoverage(level=0.9),
+        ),
+        predictor=predictor,  # type: ignore[arg-type]
+        predictive_sample_count=64,
+        evaluation_grid=EvaluationGrid(np.linspace(-8.0, 8.0, 161)),
+    )
+
+
+def _scores(suite: MetricSuite, model: nnx.Module, batch: Batch) -> dict[str, float]:
+    data = resolve_epoch_prediction_data(
+        suite=suite, model=model, batch=batch, key=metric_key(jax.random.key(3))
+    )
+    return reduce_metric_suite(
+        suite=suite, losses=None, batch_metric_values={}, epoch_metric_parts=[data]
+    )
+
+
+_MIXTURE_BATCH = Batch(
+    inputs=jnp.array([[-1.0], [0.0], [0.5], [2.0]]),
+    targets=jnp.array([[-0.5], [0.3], [1.5], [1.0]]),
+)
+
+
+@settings(deadline=None, max_examples=10)
+@given(offset=st.floats(min_value=-2.0, max_value=2.0, width=32))
+def test_posterior_predictive_predictor_with_one_draw_scores_as_the_gaussian(
+    offset: float,
+) -> None:
+    mixture = _scores(
+        _mixture_suite(PosteriorPredictivePredictor()),
+        MixtureModel([offset]),
+        _MIXTURE_BATCH,
+    )
+    gaussian = _scores(
+        _mixture_suite(GaussianPredictor()),
+        ShiftedGaussianModel(offset),
+        _MIXTURE_BATCH,
+    )
+
+    assert mixture.keys() == {"nll", "crps", "coverage"}
+    assert mixture == pytest.approx(gaussian, rel=1e-4)
+
+
+def test_posterior_predictive_predictor_scores_the_exact_mixture() -> None:
+    offsets = [-1.5, 0.0, 2.5]
+    variance = 0.25
+    level = 0.9
+    data = resolve_epoch_prediction_data(
+        suite=_mixture_suite(PosteriorPredictivePredictor()),
+        model=MixtureModel(offsets, variance),
+        batch=_MIXTURE_BATCH,
+        key=jax.random.key(0),
+    )
+    inputs = np.asarray(_MIXTURE_BATCH.inputs, np.float64).reshape(-1)
+    targets = np.asarray(_MIXTURE_BATCH.targets, np.float64).reshape(-1)
+    standard = NormalDist(sigma=variance**0.5)
+
+    def density(y: float, x: float) -> float:
+        return float(np.mean([standard.pdf(y - x - o) for o in offsets]))
+
+    def cdf(y: float, x: float) -> float:
+        return float(np.mean([standard.cdf(y - x - o) for o in offsets]))
+
+    assert data.log_likelihood is not None
+    np.testing.assert_allclose(
+        data.log_likelihood,
+        [np.log(density(y, x)) for y, x in zip(targets, inputs, strict=True)],
+        rtol=1e-4,
+    )
+    interval = data.interval(level)
+    np.testing.assert_allclose(
+        [cdf(lo, x) for lo, x in zip(interval.lower, inputs, strict=True)],
+        (1.0 - level) / 2.0,
+        atol=1e-4,
+    )
+    np.testing.assert_allclose(
+        [cdf(hi, x) for hi, x in zip(interval.upper, inputs, strict=True)],
+        (1.0 + level) / 2.0,
+        atol=1e-4,
+    )
+    assert data.predictive_samples is not None
+    assert data.predictive_samples.shape == (4, 64)
+
+
+def test_posterior_predictive_predictor_is_deterministic_for_metric_key() -> None:
+    suite = _mixture_suite(PosteriorPredictivePredictor())
+
+    first, second = (
+        resolve_epoch_prediction_data(
+            suite=suite,
+            model=MixtureModel([-1.0, 1.0]),
+            batch=_MIXTURE_BATCH,
+            key=metric_key(jax.random.key(1)),
+        )
+        for _ in range(2)
+    )
+
+    assert np.array_equal(first.predictive_samples, second.predictive_samples)
+    assert np.array_equal(first.log_likelihood, second.log_likelihood)
+    assert np.array_equal(first.interval(0.9).lower, second.interval(0.9).lower)
+
+
+def test_posterior_predictive_predictor_rejects_other_predictions() -> None:
+    suite = MetricSuite(
+        epoch=(RootMeanSquaredError(),), predictor=PosteriorPredictivePredictor()
+    )
+
+    with pytest.raises(TypeError, match="PosteriorPredictive"):
+        resolve_epoch_prediction_data(
+            suite=suite,
+            model=GaussianModel(),
+            batch=_MIXTURE_BATCH,
+            key=jax.random.key(0),
+        )
+
+
+def test_merge_concatenates_log_likelihood_across_batches() -> None:
+    parts = [
+        EpochPredictionData(
+            targets=np.zeros(n), mean=np.zeros(n), log_likelihood=np.full(n, -float(n))
+        )
+        for n in (1, 2)
+    ]
+
+    merged = merge_epoch_prediction_data(parts)
+
+    assert np.array_equal(merged.log_likelihood, np.array([-1.0, -2.0, -2.0]))

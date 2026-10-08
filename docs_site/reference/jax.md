@@ -45,6 +45,8 @@ module that defines it. Using it needs the `jax` extra.
 
 ::: probreg.jax.GaussianPredictor
 
+::: probreg.jax.PosteriorPredictivePredictor
+
 ::: probreg.jax.MetricSuite
 
 ::: probreg.jax.merge_epoch_prediction_data

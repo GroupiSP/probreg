@@ -21,8 +21,9 @@ from probreg.core.metric_registry import (
     MetricRequirements,
     PredictionInterval,
 )
+from probreg.core.distributions import PredictiveDistribution
 from probreg.core.types import Batch, PyTree
-from probreg.jax.distributions import Gaussian
+from probreg.jax.distributions import Gaussian, PosteriorPredictive
 
 _METRIC_RNG_NAMESPACE = 0x4D455452  # "METR" in ASCII
 
@@ -214,33 +215,121 @@ class GaussianPredictor:
         """
         targets = _require_targets(batch)
         prediction = _require_scalar_gaussian(model(batch.inputs))
-        mean, targets = _materialize_mean_and_targets(prediction, targets)
-        fields = requirements.fields
-
-        return EpochPredictionData(
+        return _materialize_epoch_data(
+            prediction,
             targets=targets,
-            mean=mean,
-            variance=_materialize_variance(prediction, required=fields.variance),
-            predictive_samples=_materialize_predictive_samples(
-                prediction,
-                requirements=requirements,
-                key=key,
-            ),
-            reference_samples=_materialize_reference_samples(
-                self.reference_samples_extractor,
-                batch=batch,
-                key=key,
-                n_scoring_units=targets.size,
-                required=fields.reference_samples,
-            ),
-            intervals=_materialize_intervals(prediction, fields.interval_levels),
-            coordinate=_materialize_coordinate(
-                self.coordinate_extractor,
-                batch=batch,
-                required=fields.coordinate,
-            ),
-            evaluation_grid=_required_evaluation_grid(requirements),
+            batch=batch,
+            requirements=requirements,
+            key=key,
+            interval=_gaussian_interval,
+            coordinate_extractor=self.coordinate_extractor,
+            reference_samples_extractor=self.reference_samples_extractor,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class PosteriorPredictivePredictor:
+    """Materialize scalar epoch data from a model returning ``PosteriorPredictive``.
+
+    Scores the exact mixture rather than its moment-matched Gaussian: the
+    log-likelihood is the mixture log-density, predictive samples are drawn
+    from the mixture, and prediction intervals are central mixture quantiles.
+
+    Attributes:
+        coordinate_extractor: Optional explicit adapter for coordinate metadata.
+        reference_samples_extractor: Optional explicit adapter for conditional CRPS
+            reference samples. It must return ``(n_scoring_units, n_samples)``.
+    """
+
+    coordinate_extractor: CoordinateExtractor | None = None
+    reference_samples_extractor: ReferenceSamplesExtractor | None = None
+
+    def __call__(
+        self,
+        model: nnx.Module,
+        batch: Batch,
+        requirements: PredictionRequirements,
+        key: jax.Array,
+        /,
+    ) -> EpochPredictionData:
+        """Materialize only fields requested by registered epoch metrics.
+
+        Args:
+            model: Model mapping batch inputs to a
+                [`PosteriorPredictive`][probreg.jax.PosteriorPredictive].
+            batch: Domain batch containing targets.
+            requirements: Combined fields and explicit sample/grid configuration.
+            key: Dedicated metric PRNG key.
+
+        Returns:
+            Validated host-resident prediction data.
+
+        Raises:
+            TypeError: If the model does not return a posterior predictive.
+            ValueError: If targets, extractors, or shapes are invalid.
+        """
+        targets = _require_targets(batch)
+        prediction = model(batch.inputs)
+        if not isinstance(prediction, PosteriorPredictive):
+            raise TypeError(
+                "PosteriorPredictivePredictor requires a model returning "
+                "PosteriorPredictive."
+            )
+        return _materialize_epoch_data(
+            prediction,
+            targets=targets,
+            batch=batch,
+            requirements=requirements,
+            key=key,
+            interval=_mixture_interval,
+            coordinate_extractor=self.coordinate_extractor,
+            reference_samples_extractor=self.reference_samples_extractor,
+        )
+
+
+def _materialize_epoch_data[Prediction: PredictiveDistribution](
+    prediction: Prediction,
+    *,
+    targets: Any,
+    batch: Batch,
+    requirements: PredictionRequirements,
+    key: jax.Array,
+    interval: Callable[[Prediction, float], PredictionInterval],
+    coordinate_extractor: CoordinateExtractor | None,
+    reference_samples_extractor: ReferenceSamplesExtractor | None,
+) -> EpochPredictionData:
+    """Materialize the requested fields of one scalar-event prediction."""
+    mean, target_values = _materialize_mean_and_targets(prediction, targets)
+    fields = requirements.fields
+    return EpochPredictionData(
+        targets=target_values,
+        mean=mean,
+        variance=_materialize_variance(prediction, required=fields.variance),
+        predictive_samples=_materialize_predictive_samples(
+            prediction,
+            requirements=requirements,
+            key=key,
+        ),
+        reference_samples=_materialize_reference_samples(
+            reference_samples_extractor,
+            batch=batch,
+            key=key,
+            n_scoring_units=target_values.size,
+            required=fields.reference_samples,
+        ),
+        intervals=tuple(
+            interval(prediction, level) for level in sorted(fields.interval_levels)
+        ),
+        coordinate=_materialize_coordinate(
+            coordinate_extractor,
+            batch=batch,
+            required=fields.coordinate,
+        ),
+        evaluation_grid=_required_evaluation_grid(requirements),
+        log_likelihood=_materialize_log_likelihood(
+            prediction, targets, required=fields.log_likelihood
+        ),
+    )
 
 
 def _require_targets(batch: Batch) -> Any:
@@ -260,7 +349,7 @@ def _require_scalar_gaussian(prediction: object) -> Gaussian:
 
 
 def _materialize_mean_and_targets(
-    prediction: Gaussian,
+    prediction: PredictiveDistribution,
     targets: Any,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Materialize shape-compatible predictive means and targets."""
@@ -275,7 +364,7 @@ def _materialize_mean_and_targets(
 
 
 def _materialize_variance(
-    prediction: Gaussian,
+    prediction: PredictiveDistribution,
     *,
     required: bool,
 ) -> NDArray[np.float64] | None:
@@ -289,7 +378,7 @@ def _materialize_variance(
 
 
 def _materialize_predictive_samples(
-    prediction: Gaussian,
+    prediction: PredictiveDistribution,
     *,
     requirements: PredictionRequirements,
     key: jax.Array,
@@ -333,12 +422,19 @@ def _materialize_reference_samples(
     return samples
 
 
-def _materialize_intervals(
-    prediction: Gaussian,
-    levels: frozenset[float],
-) -> tuple[PredictionInterval, ...]:
-    """Materialize exact Gaussian intervals in level order."""
-    return tuple(_gaussian_interval(prediction, level) for level in sorted(levels))
+def _materialize_log_likelihood(
+    prediction: PredictiveDistribution,
+    targets: Any,
+    *,
+    required: bool,
+) -> NDArray[np.float64] | None:
+    """Materialize each target's exact predictive log-density when requested."""
+    if not required:
+        return None
+    return np.broadcast_to(
+        np.asarray(jax.device_get(prediction.log_prob(targets)), dtype=np.float64),
+        prediction.batch_shape,
+    ).reshape(-1)
 
 
 def _materialize_coordinate(
@@ -385,6 +481,19 @@ def _gaussian_interval(prediction: Gaussian, level: float) -> PredictionInterval
     z_value = NormalDist().inv_cdf((1.0 + level) / 2.0)
     lower = prediction.loc - z_value * prediction.scale
     upper = prediction.loc + z_value * prediction.scale
+    return PredictionInterval(
+        level=level,
+        lower=np.asarray(jax.device_get(lower), dtype=np.float64).reshape(-1),
+        upper=np.asarray(jax.device_get(upper), dtype=np.float64).reshape(-1),
+    )
+
+
+def _mixture_interval(
+    prediction: PosteriorPredictive, level: float
+) -> PredictionInterval:
+    """Materialize a central interval from posterior predictive quantiles."""
+    lower = prediction.quantile((1.0 - level) / 2.0)
+    upper = prediction.quantile((1.0 + level) / 2.0)
     return PredictionInterval(
         level=level,
         lower=np.asarray(jax.device_get(lower), dtype=np.float64).reshape(-1),
@@ -519,6 +628,7 @@ def merge_epoch_prediction_data(
         intervals=intervals,
         coordinate=_concat_optional_vectors(parts, "coordinate"),
         evaluation_grid=_merge_grid(parts),
+        log_likelihood=_concat_optional_vectors(parts, "log_likelihood"),
     )
 
 
