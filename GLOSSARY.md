@@ -57,6 +57,18 @@ _Avoid_: Flat parameter name, hparam key
 One scalar target together with everything predicted for it (mean, variance, samples, intervals, coordinate), the row an epoch metric scores. A target of any shape is flattened into as many scoring units as it has elements, and an epoch metric aggregates over all scoring units of a split, not over batches.
 _Avoid_: Sample (clashes with predictive draws), data point, observation
 
+**Best checkpoint**:
+The checkpoint a stage saves whenever its early stopper reports an improvement. A snapshot of training in progress: its lifecycle state is still the one the stage started from, so restoring it alone does not leave the stage ready.
+_Avoid_: Hand-off checkpoint
+
+**Finalized checkpoint**:
+A stage's best checkpoint saved again once the stage completes, with the stage's ready lifecycle state and marked complete. The only kind of checkpoint a stage restores from, so a restore always leaves the stage ready.
+_Avoid_: Hand-off checkpoint, final checkpoint (it holds the best epoch, not the last)
+
+**Checkpoint key**:
+The name a checkpoint is stored under in a checkpoint store, `stage/best` by default, so that stages sharing one store never overwrite each other's checkpoints.
+_Avoid_: Checkpoint name, checkpoint ID
+
 ## CMAPSS example
 
 **Archive cache**:

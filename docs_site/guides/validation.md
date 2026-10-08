@@ -86,7 +86,7 @@ result = run_supervised(
 )
 
 assert len(state.metric_history["supervised/validation/loss"]) == 3
-assert store.exists("best")
+assert store.exists("supervised/best")
 ```
 
 The metric is `"loss"`, not `"validation_loss"`: a [metric name](../glossary.md)
@@ -206,7 +206,8 @@ metric and its value, and no metrics of their own.
 
 If you pass a [`CheckpointStore`][probreg.core.CheckpointStore], each
 improvement also saves a [`Checkpoint`][probreg.core.Checkpoint] under
-`checkpoint_key` (`"best"` by default), replacing the previous one. The runner
+`checkpoint_key`, replacing the previous one. The key defaults to `stage/best`,
+`supervised/best` for the runner's default stage. The runner
 does not restore it: when training ends, the live model holds the last epoch's
 parameters, not the best ones. To continue from the best model, load the
 checkpoint and pass it to

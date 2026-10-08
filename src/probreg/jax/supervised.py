@@ -84,6 +84,25 @@ def make_train_step(
     return train_step
 
 
+def resolve_checkpoint_key(checkpoint_key: str | None, stage: str) -> str:
+    """Return the checkpoint key a stage saves its best checkpoint under.
+
+    Internal: not exported from ``probreg.jax``. It is the single definition
+    of the default key shared by
+    [`run_supervised`][probreg.jax.run_supervised],
+    [`MeanStage`][probreg.jax.MeanStage] and
+    [`GammaVarianceStage`][probreg.jax.GammaVarianceStage].
+
+    Args:
+        checkpoint_key: An explicitly configured checkpoint key, or ``None``.
+        stage: The stage name scoping the default key.
+
+    Returns:
+        ``checkpoint_key`` when given, otherwise ``f"{stage}/best"``.
+    """
+    return checkpoint_key if checkpoint_key is not None else f"{stage}/best"
+
+
 def run_supervised(
     *,
     model: nnx.Module,
@@ -96,7 +115,7 @@ def run_supervised(
     early_stopper: EarlyStopper | None = None,
     event_sinks: Sequence[EventSink] = (),
     checkpoint_store: CheckpointStore | None = None,
-    checkpoint_key: str = "best",
+    checkpoint_key: str | None = None,
     stage: str = "supervised",
     model_name: str = "model",
     optimizer_name: str = "optimizer",
@@ -129,8 +148,13 @@ def run_supervised(
             and early-stop events.
         checkpoint_store: An optional store used to persist the best
             checkpoint when ``early_stopper`` reports an improvement.
-        checkpoint_key: The key under which the best checkpoint is
-            saved. Defaults to ``"best"``.
+        checkpoint_key: The checkpoint key under which the best checkpoint
+            is saved. Defaults to ``None``, which resolves to the stage-scoped
+            key ``f"{stage}/best"`` so that stages sharing one
+            ``checkpoint_store`` never overwrite each other; the
+            [`MeanStage`][probreg.jax.MeanStage] and
+            [`GammaVarianceStage`][probreg.jax.GammaVarianceStage] defaults
+            resolve the same way.
         stage: The stage name recorded on ``state`` and emitted events,
             and the stage segment of every metric tag recorded in
             ``state.metric_history``. Defaults to ``"supervised"``.
@@ -209,7 +233,7 @@ def run_supervised(
             training_metrics=epoch_metrics,
             validation_metrics=validation_metrics,
             checkpoint_store=checkpoint_store,
-            checkpoint_key=checkpoint_key,
+            checkpoint_key=resolve_checkpoint_key(checkpoint_key, stage),
             state=state,
             model=model,
             optimizer=optimizer,
