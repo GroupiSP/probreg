@@ -600,6 +600,53 @@ def test_finalized_mean_checkpoint_can_resume_variance_preparation(
     assert "mean_model" in resumed_state.frozen_components
 
 
+def test_stages_sharing_a_store_save_under_their_own_default_keys(
+    linear_model: type[Any],
+) -> None:
+    store = InMemoryCheckpointStore()
+
+    def stopper() -> EarlyStopper:
+        return EarlyStopper(metric="loss", mode="min", patience=0, source=Split.TRAIN)
+
+    mean_model = linear_model(rngs=nnx.Rngs(0))
+    mean_stage = MeanStage(
+        model=mean_model,
+        optimizer=create_optimizer(mean_model, optax.sgd(0.0)),
+        train_loader=mean_loader,
+        options=SupervisedStageOptions(
+            epochs=2,
+            early_stopper=stopper(),
+            checkpoint_store=store,
+        ),
+    )
+    variance_model = GammaHead(1, 1, rngs=nnx.Rngs(1))
+    variance_stage = GammaVarianceStage(
+        model=variance_model,
+        optimizer=create_optimizer(variance_model, optax.sgd(0.0)),
+        source_loader=mean_loader,
+        options=SupervisedStageOptions(
+            epochs=2,
+            early_stopper=stopper(),
+            checkpoint_store=store,
+        ),
+        splits=("train",),
+    )
+    state = TrainingState(rng_state=jax.random.key(2))
+
+    mean_stage.prepare(state)
+    mean_stage.train(state)
+    variance_stage.prepare(state)
+    variance_stage.train(state)
+
+    assert not store.exists("best")
+    mean_checkpoint = store.load("mean/best")
+    assert mean_checkpoint.state.lifecycle_state is StageState.MEAN_READY
+    assert mean_checkpoint.metadata == {"stage": "mean", "stage_complete": True}
+    assert "variance/train/loss" in store.load("variance/best").state.metric_history
+    assert mean_stage.select_checkpoint(state).key == "mean/best"
+    assert variance_stage.select_checkpoint(state).key == "variance/best"
+
+
 def test_mean_stage_rejects_missing_checkpoint(
     make_mean_stage: MakeMeanStage,
 ) -> None:
