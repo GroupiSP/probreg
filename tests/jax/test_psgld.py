@@ -9,7 +9,12 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from probreg.core.types import Batch, PyTree
-from probreg.jax import IsotropicGaussianPrior, PosteriorProblem, PreconditionedSGLD
+from probreg.jax import (
+    IsotropicGaussianPrior,
+    PosteriorProblem,
+    PreconditionedSGLD,
+    RetainedSamplesPosterior,
+)
 
 _NOISE_SCALE = 0.5
 _PRIOR_PRECISION = 1.0
@@ -130,3 +135,44 @@ def test_burn_in_and_thinning_retain_exactly_the_due_positions(
     expected = jax.tree.map(lambda leaf: leaf[np.asarray(due) - 1], every_position)
     assert method.posterior().num_draws == len(due)
     jax.tree.map(np.testing.assert_array_equal, method.posterior_state(), expected)
+
+
+def _five_lines() -> RetainedSamplesPosterior:
+    """A posterior of five retained lines."""
+    weights, biases = jax.random.normal(jax.random.key(5), (2, 5))
+    return RetainedSamplesPosterior(
+        mean_function=_linear_mean, samples={"weight": weights, "bias": biases}
+    )
+
+
+def test_a_retained_samples_posterior_refuses_an_explicit_draw_count() -> None:
+    posterior = _five_lines()
+
+    with pytest.raises(ValueError, match="num_samples must be None"):
+        posterior.sample_means(jnp.zeros((3, 1)), jax.random.key(0), num_samples=5)
+
+
+@settings(deadline=None, max_examples=20)
+@given(
+    split=st.integers(min_value=0, max_value=7),
+    seeds=st.tuples(st.integers(0, 2**31 - 1), st.integers(0, 2**31 - 1)),
+)
+def test_each_draw_is_the_same_function_across_inputs_and_keys(
+    split: int, seeds: tuple[int, int]
+) -> None:
+    posterior = _five_lines()
+    inputs = jnp.linspace(-1.0, 1.0, 7)[:, None]
+    first, second = (jax.random.key(seed) for seed in seeds)
+
+    whole = posterior.sample_means(inputs, first)
+    parts = jnp.concatenate(
+        [
+            posterior.sample_means(inputs[:split], first),
+            posterior.sample_means(inputs[split:], second),
+        ],
+        axis=1,
+    )
+
+    assert posterior.num_draws == 5
+    assert whole.shape == (5, 7)
+    np.testing.assert_allclose(parts, whole, rtol=1e-6)
