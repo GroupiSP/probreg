@@ -53,6 +53,8 @@ from probreg.jax.supervised_staged import (
     _STAGE_COMPLETE_METADATA_KEY,
     _STAGE_METADATA_KEY,
     _latest_training_metrics,
+    _require_component_names,
+    _require_finalized,
 )
 
 
@@ -236,25 +238,7 @@ class PosteriorStage:
             validation=validation,
             early_stopper=options.early_stopper,
         )
-        network = self.model if self.model is not None else nnx.clone(mean_model)
-        mean_parameters = nnx.state(mean_model, nnx.Param)
-        _require_same_parameter_tree(nnx.state(network, nnx.Param), mean_parameters)
-
-        nnx.update(network, jax.tree.map(jnp.copy, mean_parameters))
-        mean_function = _mean_function(network)
-        problem = PosteriorProblem(
-            initial_parameters=jax.tree.map(jnp.copy, nnx.state(network, nnx.Param)),
-            mean_function=mean_function,
-            log_likelihood=_scaled_log_likelihood(
-                mean_function,
-                _aleatoric_variance(variance_model),
-                dataset_size=self.dataset_size,
-            ),
-            prior=self.prior,
-            train_loader=self.train_loader,
-            dataset_size=self.dataset_size,
-        )
-        self.inference_method.init(problem)
+        self.inference_method.init(self._problem(mean_model, variance_model))
         state.frozen_components = state.frozen_components | {
             self.mean_model_name,
             self.variance_model_name,
@@ -344,6 +328,98 @@ class PosteriorStage:
             )
         self._prepared = False
         return result
+
+    def restore(self, state: TrainingState, checkpoint: Checkpoint) -> None:
+        """Restore the posterior stage's finalized checkpoint into ``state``.
+
+        Call it after the mean stage's
+        [`restore`][probreg.jax.MeanStage.restore] and the variance stage's
+        [`restore`][probreg.jax.GammaVarianceStage.restore]. The inference
+        method is initialized on the posterior problem of the registered mean
+        and variance models, then rebuilds the saved posterior with
+        [`load_posterior`][probreg.jax.InferenceMethod.load_posterior]; the
+        posterior is registered under ``model_name``. Every model component
+        and optimizer registered before, such as the mean and variance models,
+        stays registered. Afterwards the state passes
+        [`validate`][probreg.jax.PosteriorStage.validate].
+
+        Args:
+            state: Training state the mean and variance stages have been
+                restored into.
+            checkpoint: The posterior stage's finalized checkpoint.
+
+        Raises:
+            ValueError: If ``checkpoint`` is not finalized by this stage, that
+                is its lifecycle state is not ``POSTERIOR_READY``, its metadata
+                lacks ``"stage": "posterior"`` and ``"stage_complete": True``,
+                or it holds no posterior state; if it was saved with another
+                ``model_name``, ``mean_model_name`` or ``variance_model_name``;
+                if the mean or variance model is not registered with its role;
+                if ``dataset_size`` is not positive; or if the posterior
+                network's parameter tree differs from the mean network's. All
+                are checked before ``state`` changes.
+            TypeError: If the mean or variance model is not an NNX module, or
+                the checkpoint holds no JAX random key.
+        """
+        _require_finalized(
+            checkpoint, stage=self.name, ready=StageState.POSTERIOR_READY
+        )
+        for frozen in (self.mean_model_name, self.variance_model_name):
+            _require_component_names(
+                checkpoint,
+                model_name=self.model_name,
+                role=ParameterRole.POSTERIOR,
+                frozen=frozen,
+            )
+        posterior_state = checkpoint.state.posterior_state
+        if posterior_state is None:
+            raise ValueError("checkpoint holds no posterior state.")
+        if not isinstance(checkpoint.rng_state, jax.Array):
+            raise TypeError("checkpoint.rng_state must be a JAX random key.")
+        mean_model = _registered_module(
+            state, self.mean_model_name, ParameterRole.MEAN, kind="mean"
+        )
+        variance_model = _registered_module(
+            state, self.variance_model_name, ParameterRole.VARIANCE, kind="variance"
+        )
+        if self.dataset_size <= 0:
+            raise ValueError("dataset_size must be positive.")
+        problem = self._problem(mean_model, variance_model)
+
+        self.inference_method.init(problem)
+        self.inference_method.load_posterior(posterior_state)
+        _restore_keeping_components(state, checkpoint, drop={self.model_name})
+        self._register_posterior(state, posterior_state)
+        self._validation = None
+        self._prepared = False
+
+    def _problem(
+        self, mean_model: nnx.Module, variance_model: nnx.Module
+    ) -> PosteriorProblem:
+        """Warm-start the posterior network and build the posterior problem.
+
+        Raises:
+            ValueError: If the posterior network's parameter tree differs from
+                the mean network's, before the network changes.
+        """
+        network = self.model if self.model is not None else nnx.clone(mean_model)
+        mean_parameters = nnx.state(mean_model, nnx.Param)
+        _require_same_parameter_tree(nnx.state(network, nnx.Param), mean_parameters)
+
+        nnx.update(network, jax.tree.map(jnp.copy, mean_parameters))
+        mean_function = _mean_function(network)
+        return PosteriorProblem(
+            initial_parameters=jax.tree.map(jnp.copy, nnx.state(network, nnx.Param)),
+            mean_function=mean_function,
+            log_likelihood=_scaled_log_likelihood(
+                mean_function,
+                _aleatoric_variance(variance_model),
+                dataset_size=self.dataset_size,
+            ),
+            prior=self.prior,
+            train_loader=self.train_loader,
+            dataset_size=self.dataset_size,
+        )
 
     def _register_posterior(
         self, state: TrainingState, posterior_state: PyTree
