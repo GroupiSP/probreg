@@ -3,6 +3,12 @@
 Every symbol exported from `probreg.jax`, the JAX/Flax NNX training backend, grouped by the
 module that defines it. Using it needs the `jax` extra.
 
+## `probreg.jax.bayes_by_backprop`
+
+::: probreg.jax.BayesByBackprop
+
+::: probreg.jax.MeanFieldGaussianPosterior
+
 ## `probreg.jax.distributions`
 
 ::: probreg.jax.Gaussian
