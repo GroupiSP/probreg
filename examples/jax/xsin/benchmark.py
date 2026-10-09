@@ -201,6 +201,12 @@ class XSinBackbone(nnx.Module):
     It maps the training domain onto ``[-1, 1]`` before the first layer, and
     its unbounded activation lets outputs keep changing away from that
     domain instead of saturating.
+
+    Args:
+        hidden_features: Width of the backbone's hidden layers.
+        train_domain: Lower and upper bounds of the training inputs, which the
+            backbone maps onto ``[-1, 1]``.
+        rngs: Random streams that initialize the layers.
     """
 
     def __init__(
@@ -211,8 +217,8 @@ class XSinBackbone(nnx.Module):
         rngs: nnx.Rngs,
     ) -> None:
         train_min, train_max = train_domain
-        self.input_center = (train_min + train_max) / 2
-        self.input_half_width = (train_max - train_min) / 2
+        self.input_center: float = (train_min + train_max) / 2
+        self.input_half_width: float = (train_max - train_min) / 2
         self.input_layer = nnx.Linear(1, hidden_features, rngs=rngs)
         self.output_layer = nnx.Linear(hidden_features, hidden_features, rngs=rngs)
 
@@ -223,7 +229,14 @@ class XSinBackbone(nnx.Module):
 
 
 class XSinMeanModel(nnx.Module):
-    """Deterministic mean regressor for the XSin benchmark."""
+    """Deterministic mean regressor for the XSin benchmark.
+
+    Args:
+        hidden_features: Width of the backbone's hidden layers.
+        train_domain: Lower and upper bounds of the training inputs, which its
+            backbone maps onto ``[-1, 1]``.
+        rngs: Random streams that initialize the layers.
+    """
 
     def __init__(
         self,
@@ -242,7 +255,14 @@ class XSinMeanModel(nnx.Module):
 
 
 class XSinGaussianModel(nnx.Module):
-    """Joint Gaussian mean/scale regressor for the MVE comparison."""
+    """Joint Gaussian mean/scale regressor for the MVE comparison.
+
+    Args:
+        hidden_features: Width of the backbone's hidden layers.
+        train_domain: Lower and upper bounds of the training inputs, which its
+            backbone maps onto ``[-1, 1]``.
+        rngs: Random streams that initialize the layers.
+    """
 
     def __init__(
         self,
@@ -261,7 +281,14 @@ class XSinGaussianModel(nnx.Module):
 
 
 class XSinGammaModel(nnx.Module):
-    """Gamma residual regressor for the two-step comparison."""
+    """Gamma residual regressor for the two-step comparison.
+
+    Args:
+        hidden_features: Width of the backbone's hidden layers.
+        train_domain: Lower and upper bounds of the training inputs, which its
+            backbone maps onto ``[-1, 1]``.
+        rngs: Random streams that initialize the layers.
+    """
 
     def __init__(
         self,

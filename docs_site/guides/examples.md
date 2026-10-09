@@ -55,8 +55,8 @@ Each script prints its mean and variance errors against the known
 data-generating functions, overall, inside the training domain and outside
 it, and plots the result with the training-domain boundaries marked. Every
 model shares a SiLU backbone that maps the training domain onto `[-1, 1]`.
-Inside the training domain, both methods fit the mean and the variance
-closely, and which one scores lower depends on the seed.
+Inside the training domain, which method has the lower mean or variance error
+depends on the seed.
 Outside it, both mean errors grow large; they are reported, not assumed to
 improve. The benchmark
 reproduces the qualitative comparison motivated by Yi and Bessa (2025) with
@@ -76,8 +76,8 @@ observation per evaluation point, overall, inside the training domain and
 outside it. It plots the moment-matched predictive's 95% band over the variance
 stage's band, with the aleatoric and epistemic variance below. Under the
 seeded configuration both methods lower the overall NLL, in the extrapolation
-region, where the variance stage's band is far too narrow; neither lowers the
-overall CRPS. Both epistemic variances grow away from the training data.
+region, where the variance stage's band is far too narrow. Bayes by Backprop
+leaves the overall CRPS about unchanged and pSGLD raises it. Both epistemic variances grow away from the training data.
 pSGLD's grows the most relative to its variance inside the training domain,
 where its scores improve too; Bayes by Backprop's is also spread through the
 training domain and worsens both scores there. Both bands remain too narrow
