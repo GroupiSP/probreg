@@ -53,10 +53,12 @@ uv run --extra jax --extra plot python examples/jax/xsin/two_steps.py
 
 Each script prints its mean and variance errors against the known
 data-generating functions, overall, inside the training domain and outside
-it, and plots the result with the training-domain boundaries marked. Under the
-seeded configuration, two-step training improves both interpolation errors,
-because the variance objective can no longer distort the trained mean; the
-extrapolation errors are reported, not assumed to improve. The benchmark
+it, and plots the result with the training-domain boundaries marked. Every
+model shares a SiLU backbone that maps the training domain onto `[-1, 1]`.
+Inside the training domain, both methods fit the mean and the variance
+closely, and which one scores lower depends on the seed.
+Outside it, both mean errors grow large; they are reported, not assumed to
+improve. The benchmark
 reproduces the qualitative comparison motivated by Yi and Bessa (2025) with
 compact settings; it does not claim to reproduce the paper's architectures,
 runtime or reported values.
@@ -73,12 +75,13 @@ stage's Gaussian and of the posterior predictive, scored on one noisy
 observation per evaluation point, overall, inside the training domain and
 outside it. It plots the moment-matched predictive's 95% band over the variance
 stage's band, with the aleatoric and epistemic variance below. Under the
-seeded configuration both methods lower the overall NLL and CRPS, mostly
-in the extrapolation region, where the variance stage's band is far too narrow.
-pSGLD's epistemic variance grows away from the training data and its scores
-improve inside the training domain too; Bayes by Backprop's epistemic variance
-is spread through the training domain instead and worsens both scores there. Both bands remain far too narrow in extrapolation: the draws stay close
-to the trained mean, which extrapolates the oscillation poorly.
+seeded configuration both methods lower the overall NLL, in the extrapolation
+region, where the variance stage's band is far too narrow; neither lowers the
+overall CRPS. Both epistemic variances grow away from the training data.
+pSGLD's grows the most relative to its variance inside the training domain,
+where its scores improve too; Bayes by Backprop's is also spread through the
+training domain and worsens both scores there. Both bands remain too narrow
+in extrapolation, where the trained mean continues the oscillation poorly.
 
 Source:
 [`examples/jax/xsin/`](https://github.com/GroupiSP/probreg/tree/main/examples/jax/xsin)
