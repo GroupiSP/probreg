@@ -109,8 +109,8 @@ assert len(state.metric_history["posterior/validation/crps"]) == 3
 ```
 
 The mean network is copied for the posterior network, so `mean_model` itself is
-untouched. To use a different module with the same parameter tree, for example
-one with dropout, pass it as `model`. The prior defaults to an
+untouched. To use a different module with the same parameter tree, pass it as
+`model`; a copy of it is warm-started, so it is untouched as well. The prior defaults to an
 [`IsotropicGaussianPrior`][probreg.jax.IsotropicGaussianPrior] with precision 1;
 pass `prior` to change it.
 

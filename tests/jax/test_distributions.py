@@ -317,6 +317,23 @@ def test_posterior_predictive_quantile_inverts_the_mixture_cdf(
     )
 
 
+def test_posterior_predictive_keeps_the_draw_axis_out_of_broadcasting() -> None:
+    draws = jnp.array([[0.0, 1.0, 2.0], [-1.0, 0.5, 3.0]])
+    variance = jnp.array([[0.5], [1.0], [2.0]])
+    lower_rank = PosteriorPredictive(draws=draws, aleatoric_variance=variance)
+    aligned = PosteriorPredictive(draws=draws[:, None, :], aleatoric_variance=variance)
+    targets = jnp.array([0.3, -0.2, 1.5])
+
+    assert lower_rank.batch_shape == (3, 3)
+    for value, expected in [
+        (lower_rank.log_prob(targets), aligned.log_prob(targets)),
+        (lower_rank.cdf(targets), aligned.cdf(targets)),
+        (lower_rank.quantile(0.3), aligned.quantile(0.3)),
+    ]:
+        assert value.shape == lower_rank.batch_shape
+        np.testing.assert_allclose(value, expected, rtol=1e-6)
+
+
 @pytest.mark.parametrize("draws", [jnp.array(1.0), jnp.zeros((0, 3))])
 def test_posterior_predictive_requires_a_non_empty_draw_axis(draws: jax.Array) -> None:
     with pytest.raises(ValueError, match="draw axis"):

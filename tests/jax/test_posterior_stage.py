@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import dataclasses
 import math
 from collections.abc import Callable, Mapping
@@ -52,8 +53,13 @@ Tracker = Callable[[], Any]
 def shared_variance_ready_run(
     variance_ready_run: MakeVarianceReadyRun,
 ) -> VarianceReadyRun:
-    """One variance-ready run shared by tests that prepare but never train it."""
+    """One variance-ready run; take an ``_isolated`` copy before preparing it."""
     return variance_ready_run()
+
+
+def _isolated(run: VarianceReadyRun) -> VarianceReadyRun:
+    """A deep copy of ``run``, so preparing it cannot leak into other tests."""
+    return copy.deepcopy(run)
 
 
 @dataclass(frozen=True)
@@ -216,7 +222,7 @@ def test_the_warm_start_equals_the_mean_weights(
     linear_model: type[Any],
     network_seed: int | None,
 ) -> None:
-    run = shared_variance_ready_run
+    run = _isolated(shared_variance_ready_run)
     method = GradientAscentMethod()
     network = (
         None if network_seed is None else linear_model(rngs=nnx.Rngs(network_seed))
@@ -278,7 +284,7 @@ def test_the_likelihood_is_scaled_by_dataset_size_over_batch_size(
     dataset_size: int,
     rows: int,
 ) -> None:
-    run = shared_variance_ready_run
+    run = _isolated(shared_variance_ready_run)
     method = GradientAscentMethod()
     stage = dataclasses.replace(_posterior_stage(method), dataset_size=dataset_size)
     stage.prepare(run.state)
@@ -297,6 +303,29 @@ def test_the_likelihood_is_scaled_by_dataset_size_over_batch_size(
     assert float(log_likelihood) == pytest.approx(
         _independent_log_likelihood(run, batch, dataset_size), rel=1e-4
     )
+
+
+def test_the_likelihood_weights_each_row_by_its_sample_weight(
+    shared_variance_ready_run: VarianceReadyRun,
+) -> None:
+    run = _isolated(shared_variance_ready_run)
+    method = GradientAscentMethod()
+    _posterior_stage(method).prepare(run.state)
+    assert method.problem is not None
+    inputs, targets = regression_data()
+    weights = jnp.arange(inputs.shape[0]) % 3 / 2.0
+    weighted = Batch(inputs=inputs, targets=targets, sample_weight=weights)
+
+    log_likelihood = method.problem.log_likelihood(
+        method.problem.initial_parameters, weighted
+    )
+
+    variance = run.variance_model(inputs).mean()
+    rows = jax.scipy.stats.norm.logpdf(
+        targets, run.mean_model(inputs), jnp.sqrt(variance)
+    )
+    expected = DATASET_SIZE * float(jnp.mean(weights[:, None] * rows))
+    assert float(log_likelihood) == pytest.approx(expected, rel=1e-4)
 
 
 def _validation_suite() -> MetricSuite:
@@ -715,6 +744,32 @@ def test_a_refused_restore_leaves_the_state_and_live_models_unchanged(
     assert leaves_equal(nnx.state(stages.mean.model), mean_before)
     assert leaves_equal(nnx.state(stages.variance.model), variance_before)
     assert method.problem is None
+
+
+@dataclass
+class RefusingMethod(GradientAscentMethod):
+    """A method that refuses every saved posterior state."""
+
+    def load_posterior(self, state: PyTree) -> None:
+        raise ValueError("incompatible posterior state")
+
+
+def test_a_refused_posterior_state_leaves_the_method_and_model_unchanged(
+    finished_run: FinishedRun, make_stages: MakeStages, linear_model: type[Any]
+) -> None:
+    state = restore_mean_and_variance(make_stages(seed=7), finished_run.store)
+    before = _observable(state)
+    network = linear_model(rngs=nnx.Rngs(42))
+    network_before = _copy(network)
+    method = RefusingMethod()
+    stage = dataclasses.replace(_posterior_stage(method), model=network)
+
+    with pytest.raises(ValueError, match="incompatible"):
+        stage.restore(state, finished_run.store.load("posterior/best"))
+
+    assert _observable(state) == before
+    assert method.problem is None
+    assert leaves_equal(nnx.state(network), network_before)
 
 
 @pytest.mark.parametrize(

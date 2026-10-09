@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ from probreg.jax.epoch_loop import (
     resolve_checkpoint_key,
     run_epoch_loop,
 )
+from probreg.jax.losses import align_sample_weight
 from probreg.jax.metrics import (
     MetricSuite,
     PosteriorPredictivePredictor,
@@ -162,10 +164,10 @@ class PosteriorStage:
         prior: The prior over the posterior network's parameters. Defaults to
             [`IsotropicGaussianPrior`][probreg.jax.IsotropicGaussianPrior] with
             precision 1.
-        model: The posterior network, whose parameters are overwritten by the
-            warm start. Its parameter tree must equal the mean network's, but
-            its module may differ (e.g. add dropout). Defaults to ``None``,
-            which uses a copy of the mean network.
+        model: The posterior network. A copy of it is warm-started, so its own
+            parameters never change. Its parameter tree must equal the mean
+            network's, but its module may differ. Defaults to ``None``, which
+            uses a copy of the mean network.
         mean_model_name: Registry name of the trained mean model.
         variance_model_name: Registry name of the trained variance model.
         model_name: Registry name the posterior is registered under.
@@ -377,12 +379,18 @@ class PosteriorStage:
                 ``model_name``, ``mean_model_name`` or ``variance_model_name``;
                 if the mean or variance model is not registered with its role;
                 if ``dataset_size`` is not positive; or if the posterior
-                network's parameter tree differs from the mean network's. All
-                are checked before ``state`` changes.
+                network's parameter tree differs from the mean network's; or
+                if the inference method's ``load_posterior`` refuses the saved
+                posterior state. All are checked before ``state``, the inference
+                method or ``model`` changes.
             TypeError: If the mean or variance model is not an NNX module, or
                 the checkpoint holds no JAX random key.
         """
         posterior_state, problem = self._restorable(state, checkpoint)
+        # A dry run on a copy, so a refused posterior state leaves the method as is.
+        trial = copy.deepcopy(self.inference_method)
+        trial.init(problem)
+        trial.load_posterior(posterior_state)
 
         self.inference_method.init(problem)
         self.inference_method.load_posterior(posterior_state)
@@ -394,7 +402,7 @@ class PosteriorStage:
     def _restorable(
         self, state: TrainingState, checkpoint: Checkpoint
     ) -> tuple[PyTree, PosteriorProblem]:
-        """Check a restore, changing neither ``state`` nor the inference method.
+        """Check a restore without changing ``state``, the method or ``model``.
 
         Returns:
             The checkpoint's posterior state and the posterior problem of the
@@ -430,13 +438,13 @@ class PosteriorStage:
     def _problem(
         self, mean_model: nnx.Module, variance_model: nnx.Module
     ) -> PosteriorProblem:
-        """Warm-start the posterior network and build the posterior problem.
+        """Warm-start a copy of the posterior network and build the posterior problem.
 
         Raises:
             ValueError: If the posterior network's parameter tree differs from
-                the mean network's, before the network changes.
+                the mean network's.
         """
-        network = self.model if self.model is not None else nnx.clone(mean_model)
+        network = nnx.clone(self.model if self.model is not None else mean_model)
         mean_parameters = nnx.state(mean_model, nnx.Param)
         _require_same_parameter_tree(nnx.state(network, nnx.Param), mean_parameters)
 
@@ -659,7 +667,11 @@ def _scaled_log_likelihood(
     *,
     dataset_size: int,
 ) -> Callable[[PyTree, Batch], jax.Array]:
-    """Return the batch Gaussian log-likelihood scaled by ``N / B``."""
+    """Return the batch Gaussian log-likelihood scaled by ``N / B``.
+
+    Rows are weighted by ``batch.sample_weight`` when it is set, as in the supervised
+    losses.
+    """
 
     def log_likelihood(parameters: PyTree, batch: Batch) -> jax.Array:
         if batch.targets is None:
@@ -668,6 +680,9 @@ def _scaled_log_likelihood(
         means = mean_function(parameters, batch.inputs)
         scale = jnp.sqrt(aleatoric_variance(batch.inputs))
         log_density = jstats.norm.logpdf(targets, loc=means, scale=scale)
+        if batch.sample_weight is not None:
+            sample_weight = jnp.asarray(batch.sample_weight)
+            log_density = log_density * align_sample_weight(sample_weight, log_density)
         return dataset_size / targets.shape[0] * jnp.sum(log_density)
 
     return log_likelihood

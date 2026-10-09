@@ -266,6 +266,18 @@ class PosteriorPredictive:
         """The shape of a single predictive sample, always scalar."""
         return ()
 
+    def _components(self) -> tuple[jax.Array, jax.Array]:
+        """Return the draws' means and the shared scale, aligned on ``batch_shape``.
+
+        The means are shaped ``(S,) + batch_shape`` and the scale ``batch_shape``, so
+        broadcasting against them never crosses the leading draw axis.
+        """
+        missing = len(self.batch_shape) - (self.draws.ndim - 1)
+        draws = jnp.expand_dims(self.draws, tuple(range(1, 1 + missing)))
+        loc = jnp.broadcast_to(draws, (self.num_draws, *self.batch_shape))
+        scale = jnp.broadcast_to(jnp.sqrt(self.aleatoric_variance), self.batch_shape)
+        return loc, scale
+
     def log_prob(self, targets: jax.Array) -> jax.Array:
         """Compute the exact elementwise mixture log-density of ``targets``.
 
@@ -276,9 +288,8 @@ class PosteriorPredictive:
             ``logsumexp`` over draws of the component log-densities, minus
             ``log S``.
         """
-        component = jstats.norm.logpdf(
-            targets, loc=self.draws, scale=jnp.sqrt(self.aleatoric_variance)
-        )
+        loc, scale = self._components()
+        component = jstats.norm.logpdf(targets, loc=loc, scale=scale)
         return jsp.logsumexp(component, axis=0) - jnp.log(self.num_draws)
 
     def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> jax.Array:
@@ -324,9 +335,8 @@ class PosteriorPredictive:
         Returns:
             The average over draws of the component Gaussian CDFs.
         """
-        component = jstats.norm.cdf(
-            targets, loc=self.draws, scale=jnp.sqrt(self.aleatoric_variance)
-        )
+        loc, scale = self._components()
+        component = jstats.norm.cdf(targets, loc=loc, scale=scale)
         return jnp.mean(component, axis=0)
 
     def quantile(self, probability: float) -> jax.Array:
@@ -347,11 +357,10 @@ class PosteriorPredictive:
         """
         if not 0.0 < probability < 1.0:
             raise ValueError("probability must be strictly between 0 and 1.")
-        component = self.draws + NormalDist().inv_cdf(probability) * jnp.sqrt(
-            self.aleatoric_variance
-        )
-        lower = jnp.broadcast_to(jnp.min(component, axis=0), self.batch_shape)
-        upper = jnp.broadcast_to(jnp.max(component, axis=0), self.batch_shape)
+        loc, scale = self._components()
+        component = loc + NormalDist().inv_cdf(probability) * scale
+        lower = jnp.min(component, axis=0)
+        upper = jnp.max(component, axis=0)
 
         def bisect(
             _: int, bracket: tuple[jax.Array, jax.Array]
