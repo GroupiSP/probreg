@@ -9,16 +9,12 @@ data would reduce.
 
 ## When to add it
 
-A run that stops after the variance stage is complete. Its predictive is a
-Gaussian with the trained mean and the aleatoric variance, which is all you
-need when the inputs you predict at look like the training inputs.
+When a run that stops after the variance stage is complete, its predictive is a Gaussian with the trained mean and the aleatoric variance, which is all you need when the inputs you predict at look like the training inputs.
 
-Add the posterior stage when you predict where the training data is sparse or
-absent, such as extrapolation or rare operating conditions. There the trained
-mean is only one of many mean functions that fit the data equally well, and
-the aleatoric variance alone understates the uncertainty. The posterior stage
-costs another round of training and makes prediction cost grow with the number
-of draws.
+The posterior stage allows to quantify the epistemic uncertainty of the model predictions. This is useful in at least two situations:
+
+1. When you want to know the uncertainty of the model given the data, which is important for decision making and risk assessment.
+2. When you seek the uncertainty in regions where the data is scarse or absent, such as extrapolation or rare operating conditions. In these cases, the trained mean is only one of many mean functions that fit the data equally well, and the aleatoric variance alone understates the uncertainty.
 
 ## Terms
 
