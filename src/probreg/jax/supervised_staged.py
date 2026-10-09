@@ -18,7 +18,6 @@ from probreg.core.losses import (
     SquaredErrorLoss,
     add_epsilon,
 )
-from probreg.core.naming import Split, parse_metric_tag
 from probreg.core.protocols import LoaderFactory, ValidationStrategy
 from probreg.core.tracking import EventSink
 from probreg.core.types import (
@@ -33,14 +32,17 @@ from probreg.core.types import (
 from probreg.jax.evaluation import SupervisedLoss
 from probreg.jax.losses import make_supervised_loss
 from probreg.jax.metrics import MetricSuite
-from probreg.jax.state import freeze_training_state, restore_checkpoint, snapshot
-from probreg.jax.supervised import resolve_checkpoint_key, run_supervised
-
-_STAGE_METADATA_KEY = "stage"
-"""Checkpoint metadata key naming the stage that wrote the checkpoint."""
-
-_STAGE_COMPLETE_METADATA_KEY = "stage_complete"
-"""Checkpoint metadata key marking a stage's finalized checkpoint."""
+from probreg.jax.epoch_loop import resolve_checkpoint_key
+from probreg.jax.stage_checkpoints import (
+    finalized_checkpoint,
+    latest_training_result,
+    load_best_checkpoint,
+    require_component_names,
+    require_finalized,
+    select_checkpoint,
+)
+from probreg.jax.state import restore_checkpoint, snapshot
+from probreg.jax.supervised import run_supervised
 
 
 def materialize_residual_loader(
@@ -264,8 +266,8 @@ class MeanStage:
                 [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
                 checkpoint does not hold NNX snapshots or a JAX random key.
         """
-        _require_finalized(checkpoint, stage=self.name, ready=StageState.MEAN_READY)
-        _require_component_names(
+        require_finalized(checkpoint, stage=self.name, ready=StageState.MEAN_READY)
+        require_component_names(
             checkpoint, model_name=self.model_name, role=ParameterRole.MEAN
         )
         self._restore_live(state, checkpoint)
@@ -487,8 +489,8 @@ class GammaVarianceStage:
                 [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
                 checkpoint does not hold NNX snapshots or a JAX random key.
         """
-        _require_finalized(checkpoint, stage=self.name, ready=StageState.VARIANCE_READY)
-        _require_component_names(
+        require_finalized(checkpoint, stage=self.name, ready=StageState.VARIANCE_READY)
+        require_component_names(
             checkpoint,
             model_name=self.model_name,
             role=ParameterRole.VARIANCE,
@@ -653,11 +655,9 @@ def _select_checkpoint(stage: _CheckpointingStage) -> CheckpointRef:
     Raises:
         ValueError: If no checkpoint exists under that key.
     """
-    store = stage.options.checkpoint_store
-    key = _checkpoint_key(stage)
-    if store is None or not store.exists(key):
-        raise ValueError(f"checkpoint {key!r} is not available.")
-    return CheckpointRef(key=key, metadata={_STAGE_METADATA_KEY: stage.name})
+    return select_checkpoint(
+        stage.options.checkpoint_store, key=_checkpoint_key(stage), stage=stage.name
+    )
 
 
 def _restore_and_finalize_best_checkpoint(
@@ -684,93 +684,26 @@ def _restore_and_finalize_best_checkpoint(
     options = stage.options
     store = options.checkpoint_store
     key = _checkpoint_key(stage)
-    if options.early_stopper is None or store is None or not store.exists(key):
+    checkpoint = load_best_checkpoint(
+        early_stopper=options.early_stopper, checkpoint_store=store, key=key
+    )
+    if store is None or checkpoint is None:
         return result
 
-    checkpoint = store.load(key)
     stage._restore_live(state, checkpoint)
-    finalized = Checkpoint(
-        state=freeze_training_state(state),
-        epoch=checkpoint.epoch,
-        parameters=snapshot(stage.model),
-        optimizer_state=snapshot(stage.optimizer),
-        rng_state=state.rng_state,
-        early_stopping_state=checkpoint.early_stopping_state,
-        metadata={
-            **checkpoint.metadata,
-            _STAGE_METADATA_KEY: stage.name,
-            _STAGE_COMPLETE_METADATA_KEY: True,
-        },
+    store.save(
+        key,
+        finalized_checkpoint(
+            state,
+            stage=stage.name,
+            epoch=checkpoint.epoch,
+            early_stopping_state=checkpoint.early_stopping_state,
+            parameters=snapshot(stage.model),
+            optimizer_state=snapshot(stage.optimizer),
+            metadata=checkpoint.metadata,
+        ),
     )
-    store.save(key, finalized)
-    metrics = _latest_training_metrics(state, stage.name)
-    return StageResult(state=state, metrics=metrics, loss=metrics["loss"])
-
-
-def _require_finalized(
-    checkpoint: Checkpoint,
-    *,
-    stage: str,
-    ready: StageState,
-) -> None:
-    """Reject a checkpoint that is not the named stage's finalized checkpoint.
-
-    Args:
-        checkpoint: The checkpoint a stage is asked to restore.
-        stage: Name of the stage that must have finalized ``checkpoint``.
-        ready: The lifecycle state ``stage`` finalizes its checkpoint in.
-
-    Raises:
-        ValueError: If the checkpoint's lifecycle state is not ``ready``, or
-            its metadata does not name ``stage`` and mark it complete.
-    """
-    if (
-        checkpoint.state.lifecycle_state is not ready
-        or checkpoint.metadata.get(_STAGE_METADATA_KEY) != stage
-        or checkpoint.metadata.get(_STAGE_COMPLETE_METADATA_KEY) is not True
-    ):
-        raise ValueError(
-            f"checkpoint is not a finalized {stage!r} checkpoint: expected "
-            f"lifecycle state {ready.value!r} and metadata "
-            f"{{{_STAGE_METADATA_KEY!r}: {stage!r}, "
-            f"{_STAGE_COMPLETE_METADATA_KEY!r}: True}}."
-        )
-
-
-def _require_component_names(
-    checkpoint: Checkpoint,
-    *,
-    model_name: str,
-    role: ParameterRole,
-    frozen: str | None = None,
-) -> None:
-    """Reject a checkpoint saved under component names other than a stage's.
-
-    The checkpoint's parameter roles and frozen components are restored as
-    saved, while the live model is registered under ``model_name``, so the
-    names must agree for the restored state to pass the stage's validation.
-
-    Args:
-        checkpoint: The checkpoint a stage is asked to restore.
-        model_name: Name the stage registers its model under.
-        role: Role the checkpoint must give ``model_name``.
-        frozen: Component the checkpoint must mark frozen, if any.
-
-    Raises:
-        ValueError: If ``model_name`` does not have ``role`` in the checkpoint,
-            or ``frozen`` is not among its frozen components.
-    """
-    saved = checkpoint.state
-    if saved.parameter_roles.get(model_name) is not role:
-        raise ValueError(
-            f"checkpoint does not give model component {model_name!r} the "
-            f"{role.value!r} role; it was saved under other component names."
-        )
-    if frozen is not None and frozen not in saved.frozen_components:
-        raise ValueError(
-            f"checkpoint does not mark model component {frozen!r} frozen; it was "
-            "saved under other component names."
-        )
+    return latest_training_result(state, stage.name)
 
 
 def _validate_named_registration(
@@ -796,36 +729,3 @@ def _validate_parameter_role(
         raise ValueError(
             f"model component {component_name!r} already has role {registered.value!r}."
         )
-
-
-def _latest_training_metrics(
-    state: TrainingState,
-    stage_name: str,
-) -> dict[str, float]:
-    """Return the latest stage training metrics from persisted history.
-
-    History keys that are not metric tags, such as ones a caller recorded
-    directly, are skipped.
-
-    Args:
-        state: State whose ``metric_history`` is keyed by metric tags.
-        stage_name: Stage whose training metrics to return.
-
-    Returns:
-        The last recorded value of every training metric of the stage,
-        keyed by bare metric name.
-
-    Raises:
-        ValueError: If the stage recorded no training loss.
-    """
-    metrics = {}
-    for tag, values in state.metric_history.items():
-        try:
-            parsed = parse_metric_tag(tag)
-        except ValueError:
-            continue
-        if parsed.stage == stage_name and parsed.split is Split.TRAIN and values:
-            metrics[parsed.metric] = values[-1]
-    if "loss" not in metrics:
-        raise ValueError("selected checkpoint does not contain a training loss.")
-    return metrics

@@ -14,4 +14,4 @@ A stage's `restore` accepts only a finalized checkpoint: the stage's ready lifec
 
 ## Consequences
 
-Resuming across stages reads `mean_stage.restore(...)` followed by `variance_stage.restore(...)`, with no registry names passed by hand, and the order is enforced. Code that restores a staged checkpoint with `restore_checkpoint` directly still gets the clean-slate behaviour, and the guides point it to the stage methods instead.
+Resuming across stages reads `mean_stage.restore(...)` followed by `variance_stage.restore(...)`, with no registry names passed by hand, and the order is enforced. The posterior stage extends the chain to `mean_stage.restore(...)`, `variance_stage.restore(...)`, `posterior_stage.restore(...)`: its finalized checkpoint holds only the posterior, it carries the mean and variance registrations over the restore, and it refuses when either is missing. Code that restores a staged checkpoint with `restore_checkpoint` directly still gets the clean-slate behaviour, and the guides point it to the stage methods instead.

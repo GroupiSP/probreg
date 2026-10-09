@@ -8,7 +8,7 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import NDArray
 
-from probreg.core.metrics import coverage, crps, point_crps, rmse, wsu
+from probreg.core.metrics import coverage, crps, point_crps, rmse, sample_crps, wsu
 
 FloatArray = NDArray[np.float64]
 
@@ -31,7 +31,7 @@ def _matrix(values: object, *, name: str) -> FloatArray:
     """Return a validated, immutable C-contiguous scoring-unit matrix."""
     array = np.asarray(values, dtype=np.float64)
     if array.ndim != 2:
-        raise ValueError(f"{name} must have shape (n_scoring_units, n_draws).")
+        raise ValueError(f"{name} must have shape (n_scoring_units, n_samples).")
     if not all(array.shape):
         raise ValueError(f"{name} axes must not be empty.")
     if not np.all(np.isfinite(array)):
@@ -105,7 +105,7 @@ class EpochPredictionData:
     """Typed, host-materialized scalar predictions for one batch or epoch.
 
     Rows are independent scalar scoring units. Sample matrices use rows for scoring
-    units and columns for draws; non-scalar distribution events are intentionally not
+    units and columns for samples; non-scalar distribution events are intentionally not
     represented by this contract.
 
     Attributes:
@@ -113,12 +113,12 @@ class EpochPredictionData:
         mean: Predictive mean, one per scoring unit.
         variance: Non-negative predictive variance, one per scoring unit. Defaults
             to ``None`` when no metric requires it.
-        predictive_samples: Draws from the predictive distribution, one row per
-            scoring unit and one column per draw. Defaults to ``None`` when no
+        predictive_samples: Samples from the predictive distribution, one row per
+            scoring unit and one column per sample. Defaults to ``None`` when no
             metric requires them.
-        reference_samples: Draws from each scoring unit's reference distribution,
-            the empirical distribution the predictive draws are scored against,
-            one row per scoring unit and one column per draw. Defaults to ``None``
+        reference_samples: Samples from each scoring unit's reference distribution,
+            the empirical distribution the predictive samples are scored against,
+            one row per scoring unit and one column per sample. Defaults to ``None``
             when no metric requires them.
         intervals: Prediction intervals, each a
             [`PredictionInterval`][probreg.core.PredictionInterval] at a distinct
@@ -129,6 +129,9 @@ class EpochPredictionData:
         evaluation_grid: Shared [`EvaluationGrid`][probreg.core.EvaluationGrid]
             that distributional scores are integrated over. Defaults to ``None``
             when no metric requires it.
+        log_likelihood: Log-density of each scoring unit's target under the
+            predictive distribution. Defaults to ``None`` when no metric
+            requires it.
     """
 
     targets: FloatArray
@@ -139,6 +142,7 @@ class EpochPredictionData:
     intervals: tuple[PredictionInterval, ...] = ()
     coordinate: FloatArray | None = None
     evaluation_grid: EvaluationGrid | None = None
+    log_likelihood: FloatArray | None = None
 
     def __post_init__(self) -> None:
         """Validate all fields against the common scoring-unit axis.
@@ -196,6 +200,12 @@ class EpochPredictionData:
                 raise ValueError("coordinate must match the scoring-unit shape.")
             object.__setattr__(self, "coordinate", coordinate)
 
+        if self.log_likelihood is not None:
+            log_likelihood = _vector(self.log_likelihood, name="log_likelihood")
+            if log_likelihood.shape != targets.shape:
+                raise ValueError("log_likelihood must match the scoring-unit shape.")
+            object.__setattr__(self, "log_likelihood", log_likelihood)
+
     def interval(self, level: float) -> PredictionInterval:
         """Return the prediction interval registered at exactly ``level``.
 
@@ -224,9 +234,9 @@ class MetricRequirements:
     Attributes:
         variance: Whether the predictive variance is required. Defaults to
             ``False``.
-        predictive_samples: Whether draws from the predictive distribution are
+        predictive_samples: Whether samples from the predictive distribution are
             required. Defaults to ``False``.
-        reference_samples: Whether draws from each scoring unit's reference
+        reference_samples: Whether samples from each scoring unit's reference
             distribution are required. Defaults to ``False``.
         interval_levels: Confidence levels, each in ``(0, 1)``, at which
             prediction intervals are required. Defaults to no levels.
@@ -234,6 +244,8 @@ class MetricRequirements:
             Defaults to ``False``.
         evaluation_grid: Whether the shared evaluation grid is required. Defaults
             to ``False``.
+        log_likelihood: Whether each target's predictive log-density is
+            required. Defaults to ``False``.
     """
 
     variance: bool = False
@@ -242,6 +254,7 @@ class MetricRequirements:
     interval_levels: frozenset[float] = frozenset()
     coordinate: bool = False
     evaluation_grid: bool = False
+    log_likelihood: bool = False
 
     def __post_init__(self) -> None:
         """Validate requested interval levels.
@@ -273,6 +286,7 @@ class MetricRequirements:
             interval_levels=self.interval_levels | other.interval_levels,
             coordinate=self.coordinate or other.coordinate,
             evaluation_grid=self.evaluation_grid or other.evaluation_grid,
+            log_likelihood=self.log_likelihood or other.log_likelihood,
         )
 
 
@@ -312,6 +326,36 @@ class RootMeanSquaredError:
     def __call__(self, data: EpochPredictionData, /) -> float:
         """Compute RMSE from scalar targets and predictive means."""
         return rmse(data.targets, data.mean)
+
+
+@dataclass(frozen=True, slots=True)
+class NegativeLogLikelihood:
+    """Mean negative log-density of the targets under the predictive distribution.
+
+    The predictor computes each target's exact log-density, so a non-Gaussian
+    predictive (such as a mixture over draws) is scored without a Gaussian
+    approximation.
+
+    Attributes:
+        name: Bare metric name the value is reported under. Defaults to ``nll``.
+    """
+
+    name: str = "nll"
+
+    @property
+    def requirements(self) -> MetricRequirements:
+        """Require each target's predictive log-density."""
+        return MetricRequirements(log_likelihood=True)
+
+    def __call__(self, data: EpochPredictionData, /) -> float:
+        """Average the negative log-likelihood over scoring units.
+
+        Raises:
+            ValueError: If the log-likelihood is absent.
+        """
+        if data.log_likelihood is None:
+            raise ValueError("NLL requires log_likelihood.")
+        return float(-np.mean(data.log_likelihood))
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,7 +445,7 @@ class PointContinuousRankedProbabilityScore:
 
     @property
     def requirements(self) -> MetricRequirements:
-        """Require predictive draws and the shared evaluation grid."""
+        """Require predictive samples and the shared evaluation grid."""
         return MetricRequirements(predictive_samples=True, evaluation_grid=True)
 
     def __call__(self, data: EpochPredictionData, /) -> float:
@@ -424,6 +468,44 @@ class PointContinuousRankedProbabilityScore:
 
 
 @dataclass(frozen=True, slots=True)
+class SampleContinuousRankedProbabilityScore:
+    """Mean exact CRPS of predictive samples across scalar scoring units.
+
+    Each unit's predictive samples are scored against its target with
+    [`sample_crps`][probreg.core.sample_crps], the energy form of the CRPS,
+    so unlike [`PointContinuousRankedProbabilityScore`][probreg.core.PointContinuousRankedProbabilityScore]
+    it needs no evaluation grid.
+
+    Attributes:
+        name: Bare metric name the value is reported under. Defaults to
+            ``sample_crps``.
+    """
+
+    name: str = "sample_crps"
+
+    @property
+    def requirements(self) -> MetricRequirements:
+        """Require predictive samples only."""
+        return MetricRequirements(predictive_samples=True)
+
+    def __call__(self, data: EpochPredictionData, /) -> float:
+        """Compute one CRPS per unit, then average units equally.
+
+        Raises:
+            ValueError: If predictive samples are absent.
+        """
+        if data.predictive_samples is None:
+            raise ValueError("Sample CRPS requires predictive_samples.")
+        scores = [
+            sample_crps(target, samples)
+            for target, samples in zip(
+                data.targets, data.predictive_samples, strict=True
+            )
+        ]
+        return float(np.mean(scores))
+
+
+@dataclass(frozen=True, slots=True)
 class ContinuousRankedProbabilityScore:
     """Mean expected CRPS under per-unit empirical reference distributions.
 
@@ -435,7 +517,7 @@ class ContinuousRankedProbabilityScore:
 
     @property
     def requirements(self) -> MetricRequirements:
-        """Require predictive/reference draws and the shared grid."""
+        """Require predictive/reference samples and the shared grid."""
         return MetricRequirements(
             predictive_samples=True,
             reference_samples=True,

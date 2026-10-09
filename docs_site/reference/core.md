@@ -61,11 +61,15 @@ grouped by the module that defines it.
 
 ::: probreg.core.RootMeanSquaredError
 
+::: probreg.core.NegativeLogLikelihood
+
 ::: probreg.core.IntervalCoverage
 
 ::: probreg.core.WeightedSpread
 
 ::: probreg.core.PointContinuousRankedProbabilityScore
+
+::: probreg.core.SampleContinuousRankedProbabilityScore
 
 ::: probreg.core.ContinuousRankedProbabilityScore
 
@@ -76,6 +80,8 @@ grouped by the module that defines it.
 ::: probreg.core.crps
 
 ::: probreg.core.point_crps
+
+::: probreg.core.sample_crps
 
 ::: probreg.core.rmse
 

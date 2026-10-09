@@ -34,7 +34,7 @@ INTERVAL_MULTIPLIER = 1.96
 
 @dataclass(frozen=True)
 class XSinConfig:
-    """Configuration shared by the MVE and two-step XSin runs.
+    """Configuration shared by the MVE, two-step and posterior XSin runs.
 
     Attributes:
         train_size: Number of noisy training observations.
@@ -44,7 +44,18 @@ class XSinConfig:
         mve_epochs: Training epochs for the joint Gaussian MVE model.
         mean_epochs: Training epochs for the deterministic mean stage.
         variance_epochs: Training epochs for the Gamma variance stage.
+        posterior_epochs: Training epochs for the posterior stage.
+        posterior_num_draws: Draws taken from an unlimited posterior (Bayes by
+            Backprop) to form the posterior predictive.
         learning_rate: Adam learning rate used by all benchmark models.
+        bbb_learning_rate: Adam learning rate of Bayes by Backprop's
+            variational parameters.
+        bbb_initial_std: Standard deviation every variational parameter
+            starts with.
+        psgld_step_size: Langevin step size of pSGLD.
+        psgld_burn_in: pSGLD update steps whose positions are discarded.
+        psgld_thinning: pSGLD retains one position every this many steps
+            after burn-in.
         seed: Base JAX random seed for data, model, and training keys.
         train_min: Exclusive lower bound of the training-input domain.
         train_max: Exclusive upper bound of the training-input domain.
@@ -59,7 +70,14 @@ class XSinConfig:
     mve_epochs: int = 300
     mean_epochs: int = 300
     variance_epochs: int = 300
+    posterior_epochs: int = 100
+    posterior_num_draws: int = 64
     learning_rate: float = 0.01
+    bbb_learning_rate: float = 1e-2
+    bbb_initial_std: float = 1e-2
+    psgld_step_size: float = 3e-3
+    psgld_burn_in: int = 0
+    psgld_thinning: int = 8
     seed: int = 0
     train_min: float = 0.0
     train_max: float = 10.0
@@ -70,8 +88,9 @@ class XSinConfig:
         """Validate benchmark sizes and interpolation/extrapolation domains.
 
         Raises:
-            ValueError: If sizes are not positive or domain bounds are not
-                strictly ordered around the training interval.
+            ValueError: If sizes are not positive, ``psgld_burn_in`` is
+                negative, or domain bounds are not strictly ordered around the
+                training interval.
         """
         sizes = (
             self.train_size,
@@ -81,9 +100,14 @@ class XSinConfig:
             self.mve_epochs,
             self.mean_epochs,
             self.variance_epochs,
+            self.posterior_epochs,
+            self.posterior_num_draws,
+            self.psgld_thinning,
         )
         if any(value <= 0 for value in sizes):
             raise ValueError("benchmark sizes and epoch counts must be positive.")
+        if self.psgld_burn_in < 0:
+            raise ValueError("psgld_burn_in must not be negative.")
         if not (
             self.evaluation_min < self.train_min < self.train_max < self.evaluation_max
         ):
@@ -102,6 +126,8 @@ class XSinData:
         evaluation_inputs: Grid used to compare predictions with truth.
         true_mean: Exact mean function on ``evaluation_inputs``.
         true_variance: Exact aleatoric variance on ``evaluation_inputs``.
+        evaluation_targets: One noisy observation per evaluation input, which
+            the NLL and CRPS score predictive distributions against.
     """
 
     train_inputs: jax.Array
@@ -109,6 +135,7 @@ class XSinData:
     evaluation_inputs: jax.Array
     true_mean: jax.Array
     true_variance: jax.Array
+    evaluation_targets: jax.Array
 
 
 @dataclass(frozen=True)
@@ -249,12 +276,18 @@ def make_xsin_data(config: XSinConfig) -> XSinData:
         config.evaluation_max,
         config.evaluation_size,
     ).reshape(-1, 1)
+    true_mean = xsin_mean(evaluation_inputs)
+    true_variance = xsin_variance(evaluation_inputs)
+    evaluation_noise = jax.random.normal(
+        jax.random.fold_in(key, 2), evaluation_inputs.shape
+    )
     return XSinData(
         train_inputs=train_inputs,
         train_targets=train_targets,
         evaluation_inputs=evaluation_inputs,
-        true_mean=xsin_mean(evaluation_inputs),
-        true_variance=xsin_variance(evaluation_inputs),
+        true_mean=true_mean,
+        true_variance=true_variance,
+        evaluation_targets=true_mean + jnp.sqrt(true_variance) * evaluation_noise,
     )
 
 
@@ -316,7 +349,7 @@ def run_xsin_mve(data: XSinData, config: XSinConfig) -> XSinResult:
         stage="xsin_mve",
     )
     prediction = model(data.evaluation_inputs)
-    return _summarize(
+    return summarize_xsin(
         prediction.mean(),
         prediction.variance(),
         data,
@@ -339,6 +372,33 @@ def run_xsin_two_step(
 
     Returns:
         Two-step predictions and comparison metrics.
+    """
+    _, mean_model, variance_model = train_xsin_two_step(
+        data, config, event_sinks=event_sinks
+    )
+    return summarize_xsin(
+        mean_model(data.evaluation_inputs),
+        variance_model(data.evaluation_inputs).mean(),
+        data,
+        config,
+    )
+
+
+def train_xsin_two_step(
+    data: XSinData,
+    config: XSinConfig,
+    *,
+    event_sinks: Sequence[EventSink],
+) -> tuple[TrainingState, XSinMeanModel, XSinGammaModel]:
+    """Train the mean and Gamma variance stages on shared state.
+
+    Args:
+        data: Shared XSin data.
+        config: Benchmark configuration.
+        event_sinks: Sinks shared by the mean and variance stages.
+
+    Returns:
+        The trained state, mean model and variance model.
     """
     mean_key, variance_key, train_key = jax.random.split(
         jax.random.key(config.seed + 2),
@@ -385,13 +445,7 @@ def run_xsin_two_step(
     )
     variance_stage.prepare(state)
     variance_stage.train(state)
-
-    return _summarize(
-        mean_model(data.evaluation_inputs),
-        variance_model(data.evaluation_inputs).mean(),
-        data,
-        config,
-    )
+    return state, mean_model, variance_model
 
 
 def print_xsin_metrics(method: str, result: XSinResult) -> None:
@@ -520,19 +574,27 @@ def plot_xsin_result(
     plt.show()
 
 
-def _summarize(
+def summarize_xsin(
     mean: jax.Array,
     variance: jax.Array,
     data: XSinData,
     config: XSinConfig,
 ) -> XSinResult:
-    """Build common RMSE summaries for mean and aleatoric variance."""
+    """Build common RMSE summaries for mean and aleatoric variance.
+
+    Args:
+        mean: Predicted mean on the evaluation grid.
+        variance: Predicted aleatoric variance on the evaluation grid.
+        data: Shared XSin data.
+        config: Benchmark configuration.
+
+    Returns:
+        The predictions with their RMSEs over all, interpolation and
+        extrapolation inputs.
+    """
     mean_errors = jnp.square(mean - data.true_mean)
     variance_errors = jnp.square(variance - data.true_variance)
-    interpolation = (
-        (data.evaluation_inputs > config.train_min)
-        & (data.evaluation_inputs < config.train_max)
-    ).reshape(-1)
+    interpolation = interpolation_mask(data, config)
     extrapolation = ~interpolation
     return XSinResult(
         mean=mean,
@@ -553,3 +615,19 @@ def _masked_rmse(errors: jax.Array, mask: jax.Array) -> float:
     """Return root mean squared error over a one-dimensional boolean mask."""
     flattened_errors = errors.reshape(-1)
     return float(jnp.sqrt(jnp.mean(flattened_errors[mask])))
+
+
+def interpolation_mask(data: XSinData, config: XSinConfig) -> jax.Array:
+    """Return which evaluation inputs lie strictly inside the training domain.
+
+    Args:
+        data: Shared XSin data.
+        config: Benchmark configuration.
+
+    Returns:
+        A flat boolean mask over the evaluation inputs.
+    """
+    return (
+        (data.evaluation_inputs > config.train_min)
+        & (data.evaluation_inputs < config.train_max)
+    ).reshape(-1)

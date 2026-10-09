@@ -52,14 +52,14 @@ def make_supervised_loss(
         batch = Batch(inputs=inputs, targets=targets, sample_weight=sample_weight)
         per_example = objective.per_example(prediction, batch)
         if sample_weight is not None:
-            sample_weight = _align_sample_weight(sample_weight, per_example)
+            sample_weight = align_sample_weight(sample_weight, per_example)
             per_example = per_example * sample_weight
         return reduction(per_example)
 
     return supervised_loss
 
 
-def _align_sample_weight(
+def align_sample_weight(
     sample_weight: jax.Array,
     per_example: jax.Array,
 ) -> jax.Array:

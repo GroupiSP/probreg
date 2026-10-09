@@ -10,12 +10,15 @@ from probreg.core.metric_registry import (
     EpochPredictionData,
     EvaluationGrid,
     IntervalCoverage,
+    MetricRequirements,
+    NegativeLogLikelihood,
     PointContinuousRankedProbabilityScore,
     PredictionInterval,
     RootMeanSquaredError,
+    SampleContinuousRankedProbabilityScore,
     WeightedSpread,
 )
-from probreg.core.metrics import coverage, crps, point_crps, rmse, wsu
+from probreg.core.metrics import coverage, crps, point_crps, rmse, sample_crps, wsu
 
 AdapterType = type[
     RootMeanSquaredError
@@ -23,6 +26,7 @@ AdapterType = type[
     | WeightedSpread
     | PointContinuousRankedProbabilityScore
     | ContinuousRankedProbabilityScore
+    | SampleContinuousRankedProbabilityScore
 ]
 
 
@@ -92,6 +96,31 @@ def test_point_crps_scores_each_scalar_unit_before_averaging() -> None:
     assert PointContinuousRankedProbabilityScore()(data) == pytest.approx(expected)
 
 
+def test_sample_crps_scores_each_scalar_unit_without_a_grid() -> None:
+    targets = np.array([0.0, 2.0])
+    samples = np.array([[-0.5, 0.0, 0.5], [1.0, 2.0, 3.0]])
+    data = EpochPredictionData(
+        targets=targets,
+        mean=np.mean(samples, axis=1),
+        predictive_samples=samples,
+    )
+
+    expected = np.mean(
+        [sample_crps(target, row) for target, row in zip(targets, samples)]
+    )
+    assert SampleContinuousRankedProbabilityScore()(data) == pytest.approx(expected)
+    requirements = SampleContinuousRankedProbabilityScore().requirements
+    assert requirements.predictive_samples
+    assert not requirements.evaluation_grid
+
+
+def test_sample_crps_requires_predictive_samples() -> None:
+    data = EpochPredictionData(targets=np.zeros(2), mean=np.zeros(2))
+
+    with pytest.raises(ValueError, match="predictive_samples"):
+        SampleContinuousRankedProbabilityScore()(data)
+
+
 def test_conditional_crps_scores_paired_distributions_before_averaging() -> None:
     grid = EvaluationGrid(np.linspace(-2.0, 4.0, 61))
     reference = np.array([[-1.0, 0.0, 1.0], [1.0, 2.0, 3.0]])
@@ -130,6 +159,7 @@ _ADAPTER_DEFAULT_NAMES: list[tuple[AdapterType, str]] = [
     (WeightedSpread, "wsu"),
     (PointContinuousRankedProbabilityScore, "point_crps"),
     (ContinuousRankedProbabilityScore, "crps"),
+    (SampleContinuousRankedProbabilityScore, "sample_crps"),
 ]
 
 
@@ -234,3 +264,41 @@ def test_interval_coverage_is_bounded(values: list[float]) -> None:
 
     observed = IntervalCoverage()(data)
     assert 0.0 <= observed <= 1.0
+
+
+def test_negative_log_likelihood_averages_scoring_units_log_likelihood() -> None:
+    data = EpochPredictionData(
+        targets=np.zeros(3),
+        mean=np.zeros(3),
+        log_likelihood=np.array([-1.0, -3.0, 1.0]),
+    )
+
+    assert NegativeLogLikelihood()(data) == pytest.approx(1.0)
+    assert NegativeLogLikelihood().name == "nll"
+    assert NegativeLogLikelihood(name="validation_nll").name == "validation_nll"
+    assert NegativeLogLikelihood().requirements.log_likelihood
+
+
+def test_negative_log_likelihood_requires_the_log_likelihood_field() -> None:
+    data = EpochPredictionData(targets=np.array([0.0]), mean=np.array([0.0]))
+
+    with pytest.raises(ValueError, match="log_likelihood"):
+        NegativeLogLikelihood()(data)
+
+
+def test_log_likelihood_must_match_the_scoring_units_and_be_finite() -> None:
+    with pytest.raises(ValueError, match="log_likelihood must match"):
+        EpochPredictionData(
+            targets=np.zeros(2), mean=np.zeros(2), log_likelihood=np.zeros(3)
+        )
+    with pytest.raises(ValueError, match="finite"):
+        EpochPredictionData(
+            targets=np.zeros(1), mean=np.zeros(1), log_likelihood=np.array([-np.inf])
+        )
+
+
+def test_log_likelihood_requirement_survives_union() -> None:
+    combined = MetricRequirements().union(MetricRequirements(log_likelihood=True))
+
+    assert combined.log_likelihood
+    assert not MetricRequirements().log_likelihood

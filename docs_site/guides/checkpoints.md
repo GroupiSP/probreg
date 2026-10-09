@@ -261,6 +261,37 @@ Calling [`restore_checkpoint`][probreg.jax.restore_checkpoint] directly on a
 staged checkpoint still works, but restores clean-slate and leaves the
 registry names to you; the stage methods are the way to resume a staged run.
 
+### The posterior stage
+
+The optional [`PosteriorStage`][probreg.jax.PosteriorStage] saves under
+`posterior/best` by default, so it can share the store with the other two
+stages. With an early stopper, every improvement saves a best checkpoint holding
+the inference method's full [`state`][probreg.jax.InferenceMethod.state], e.g.
+variational parameters plus optimizer state. At the end of training the method
+resumes from the best one, and the stage overwrites it with its finalized
+checkpoint, which holds the posterior alone: the method's
+[`posterior_state`][probreg.jax.InferenceMethod.posterior_state], kept as the
+saved state's `posterior_state`, with lifecycle state `POSTERIOR_READY`.
+Neither the mean and variance weights nor the optimizer state are saved again.
+A method that does not support early stopping, such as SG-MCMC, writes only the
+finalized checkpoint, at the end.
+
+A later process resumes all three stages in order:
+
+```{.python notest}
+mean_stage.restore(state, store.load("mean/best"))
+variance_stage.restore(state, store.load("variance/best"))
+posterior_stage.restore(state, store.load("posterior/best"))
+```
+
+[`PosteriorStage.restore`][probreg.jax.PosteriorStage.restore] initializes its
+inference method on the restored mean and variance models and hands it the
+saved posterior state through
+[`load_posterior`][probreg.jax.InferenceMethod.load_posterior]. It keeps the
+mean and variance registrations, and refuses, before changing anything, while
+either is missing, when the checkpoint is not its finalized checkpoint, or when
+it was saved under other component names.
+
 [Two-step mean/variance training](two-step-training.md) explains the stages
 themselves.
 

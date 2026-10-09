@@ -1,6 +1,14 @@
 """Optional JAX/Flax NNX training backend."""
 
-from probreg.jax.distributions import Gamma, GammaHead, Gaussian, GaussianHead
+from probreg.jax.bayes_by_backprop import BayesByBackprop, MeanFieldGaussianPosterior
+from probreg.jax.distributions import (
+    Gamma,
+    GammaHead,
+    Gaussian,
+    GaussianHead,
+    MomentMatchedPredictive,
+    PosteriorPredictive,
+)
 from probreg.jax.evaluation import (
     SupervisedLoss,
     evaluate_loader,
@@ -13,11 +21,21 @@ from probreg.jax.metrics import (
     CoordinateExtractor,
     GaussianPredictor,
     MetricSuite,
+    PosteriorPredictivePredictor,
     PredictionRequirements,
     Predictor,
     ReferenceSamplesExtractor,
     merge_epoch_prediction_data,
 )
+from probreg.jax.posterior import (
+    InferenceMethod,
+    IsotropicGaussianPrior,
+    Posterior,
+    PosteriorProblem,
+    Prior,
+)
+from probreg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
+from probreg.jax.psgld import PreconditionedSGLD, RetainedSamplesPosterior
 from probreg.jax.rng import split_key
 from probreg.jax.state import (
     NnxSnapshot,
@@ -38,6 +56,7 @@ from probreg.jax.validation import HeldOutValidation
 
 __all__ = [
     "BatchMetric",
+    "BayesByBackprop",
     "BatchMetricSpec",
     "CoordinateExtractor",
     "Gamma",
@@ -47,12 +66,25 @@ __all__ = [
     "GaussianHead",
     "GaussianPredictor",
     "HeldOutValidation",
+    "InferenceMethod",
+    "IsotropicGaussianPrior",
+    "MeanFieldGaussianPosterior",
     "MeanStage",
     "MetricSuite",
+    "MomentMatchedPredictive",
     "NnxSnapshot",
+    "Posterior",
+    "PosteriorPredictive",
+    "PosteriorPredictivePredictor",
+    "PosteriorProblem",
+    "PosteriorStage",
+    "PosteriorStageOptions",
+    "PreconditionedSGLD",
     "PredictionRequirements",
     "Predictor",
+    "Prior",
     "ReferenceSamplesExtractor",
+    "RetainedSamplesPosterior",
     "SupervisedLoss",
     "SupervisedStageOptions",
     "create_optimizer",

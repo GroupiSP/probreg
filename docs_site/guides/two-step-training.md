@@ -47,8 +47,9 @@ with pytest.raises(ValueError, match="expected 'initialized'"):
     validate_transition(StageState.NEW, StageState.MEAN_READY)
 ```
 
-`StageState` continues past `VARIANCE_READY` with `POSTERIOR_READY` and
-`COMPLETED`, which no shipped stage reaches yet.
+`StageState` continues past `VARIANCE_READY` with `POSTERIOR_READY`, reached by
+the optional [`PosteriorStage`][probreg.jax.PosteriorStage], and `COMPLETED`, which
+no shipped stage reaches yet. A run that stops at `VARIANCE_READY` is complete.
 
 ## A two-step run
 

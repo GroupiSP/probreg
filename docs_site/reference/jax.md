@@ -3,11 +3,21 @@
 Every symbol exported from `probreg.jax`, the JAX/Flax NNX training backend, grouped by the
 module that defines it. Using it needs the `jax` extra.
 
+## `probreg.jax.bayes_by_backprop`
+
+::: probreg.jax.BayesByBackprop
+
+::: probreg.jax.MeanFieldGaussianPosterior
+
 ## `probreg.jax.distributions`
 
 ::: probreg.jax.Gaussian
 
 ::: probreg.jax.Gamma
+
+::: probreg.jax.PosteriorPredictive
+
+::: probreg.jax.MomentMatchedPredictive
 
 ::: probreg.jax.GaussianHead
 
@@ -41,9 +51,35 @@ module that defines it. Using it needs the `jax` extra.
 
 ::: probreg.jax.GaussianPredictor
 
+::: probreg.jax.PosteriorPredictivePredictor
+
 ::: probreg.jax.MetricSuite
 
 ::: probreg.jax.merge_epoch_prediction_data
+
+## `probreg.jax.posterior`
+
+::: probreg.jax.PosteriorProblem
+
+::: probreg.jax.Prior
+
+::: probreg.jax.IsotropicGaussianPrior
+
+::: probreg.jax.InferenceMethod
+
+::: probreg.jax.Posterior
+
+## `probreg.jax.posterior_stage`
+
+::: probreg.jax.PosteriorStageOptions
+
+::: probreg.jax.PosteriorStage
+
+## `probreg.jax.psgld`
+
+::: probreg.jax.PreconditionedSGLD
+
+::: probreg.jax.RetainedSamplesPosterior
 
 ## `probreg.jax.rng`
 

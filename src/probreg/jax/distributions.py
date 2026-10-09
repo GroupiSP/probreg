@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from statistics import NormalDist
 
 import jax
 import jax.numpy as jnp
 import jax.scipy.special as jsp
 import jax.scipy.stats as jstats
 from flax import nnx
+
+# Halvings of the quantile bracket; enough to reach float32 resolution.
+_BISECTION_STEPS = 64
 
 
 @dataclass(frozen=True)
@@ -144,6 +148,250 @@ class Gamma:
     def variance(self) -> jax.Array:
         """Return the Gamma variance, i.e. ``concentration / rate ** 2``."""
         return self.concentration / jnp.square(self.rate)
+
+
+@dataclass(frozen=True)
+class MomentMatchedPredictive:
+    """The Gaussian with a posterior predictive's mean and variance.
+
+    A named summary of a [`PosteriorPredictive`][probreg.jax.PosteriorPredictive],
+    not a substitute for it: its variance is split into the aleatoric and the
+    epistemic part. Obtain one from
+    [`PosteriorPredictive.moment_matched`][probreg.jax.PosteriorPredictive.moment_matched].
+
+    Attributes:
+        loc: The predictive mean, the average of the draws' means.
+        aleatoric_variance: The aleatoric variance shared by every draw.
+        epistemic_variance: The variance of the draws' means around ``loc``.
+    """
+
+    loc: jax.Array
+    aleatoric_variance: jax.Array
+    epistemic_variance: jax.Array
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        """The broadcast shape of the mean and both variance parts."""
+        return jnp.broadcast_shapes(
+            self.loc.shape,
+            self.aleatoric_variance.shape,
+            self.epistemic_variance.shape,
+        )
+
+    @property
+    def event_shape(self) -> tuple[int, ...]:
+        """The shape of a single predictive sample, always scalar."""
+        return ()
+
+    def _gaussian(self) -> Gaussian:
+        """Return the equivalent scale-parametrized Gaussian."""
+        return Gaussian(loc=self.loc, scale=jnp.sqrt(self.variance()))
+
+    def log_prob(self, targets: jax.Array) -> jax.Array:
+        """Compute the elementwise Gaussian log-density of ``targets``.
+
+        Args:
+            targets: Target values broadcastable against ``batch_shape``.
+
+        Returns:
+            The elementwise log-density under the moment-matched Gaussian.
+        """
+        return self._gaussian().log_prob(targets)
+
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> jax.Array:
+        """Draw predictive samples from the moment-matched Gaussian.
+
+        Args:
+            key: A JAX PRNG key.
+            sample_shape: Leading sample dimensions prepended to
+                ``batch_shape``.
+
+        Returns:
+            Predictive samples shaped ``sample_shape + batch_shape``.
+        """
+        return jnp.broadcast_to(
+            self._gaussian().sample(key, sample_shape),
+            sample_shape + self.batch_shape,
+        )
+
+    def mean(self) -> jax.Array:
+        """Return the predictive mean, i.e. ``loc``."""
+        return self.loc
+
+    def variance(self) -> jax.Array:
+        """Return the aleatoric plus the epistemic variance."""
+        return self.aleatoric_variance + self.epistemic_variance
+
+
+@dataclass(frozen=True)
+class PosteriorPredictive:
+    """The posterior predictive: an equally weighted mixture of Gaussians over draws.
+
+    Each component is a Gaussian centred on one draw's mean with the aleatoric
+    variance, so the mixture is exact for the draws taken and may be skewed or
+    multimodal. Its single-Gaussian summary is
+    [`moment_matched`][probreg.jax.PosteriorPredictive.moment_matched].
+
+    Attributes:
+        draws: The mean of each draw at the predicted inputs, shaped
+            ``[S, *batch]`` with ``S >= 1`` draws on the leading axis.
+        aleatoric_variance: The positive aleatoric variance, broadcastable
+            against ``draws[0]`` and shared by every draw.
+    """
+
+    draws: jax.Array
+    aleatoric_variance: jax.Array
+
+    def __post_init__(self) -> None:
+        """Validate the leading draw axis.
+
+        Raises:
+            ValueError: If ``draws`` has no leading draw axis or no draws.
+        """
+        if jnp.ndim(self.draws) == 0 or jnp.shape(self.draws)[0] == 0:
+            raise ValueError("draws must have a non-empty leading draw axis.")
+
+    @property
+    def num_draws(self) -> int:
+        """The number of draws ``S`` the mixture averages over."""
+        return self.draws.shape[0]
+
+    @property
+    def batch_shape(self) -> tuple[int, ...]:
+        """The broadcast shape of the draws' means and the aleatoric variance."""
+        return jnp.broadcast_shapes(self.draws.shape[1:], self.aleatoric_variance.shape)
+
+    @property
+    def event_shape(self) -> tuple[int, ...]:
+        """The shape of a single predictive sample, always scalar."""
+        return ()
+
+    def _components(self) -> tuple[jax.Array, jax.Array]:
+        """Return the draws' means and the shared scale, aligned on ``batch_shape``.
+
+        The means are shaped ``(S,) + batch_shape`` and the scale ``batch_shape``, so
+        broadcasting against them never crosses the leading draw axis.
+        """
+        missing = len(self.batch_shape) - (self.draws.ndim - 1)
+        draws = jnp.expand_dims(self.draws, tuple(range(1, 1 + missing)))
+        loc = jnp.broadcast_to(draws, (self.num_draws, *self.batch_shape))
+        scale = jnp.broadcast_to(jnp.sqrt(self.aleatoric_variance), self.batch_shape)
+        return loc, scale
+
+    def log_prob(self, targets: jax.Array) -> jax.Array:
+        """Compute the exact elementwise mixture log-density of ``targets``.
+
+        Args:
+            targets: Target values broadcastable against ``batch_shape``.
+
+        Returns:
+            ``logsumexp`` over draws of the component log-densities, minus
+            ``log S``.
+        """
+        loc, scale = self._components()
+        component = jstats.norm.logpdf(targets, loc=loc, scale=scale)
+        return jsp.logsumexp(component, axis=0) - jnp.log(self.num_draws)
+
+    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> jax.Array:
+        """Draw predictive samples, each from a uniformly chosen draw's Gaussian.
+
+        The Gaussian noise uses ``key`` exactly as
+        [`Gaussian.sample`][probreg.jax.Gaussian.sample] does, so with one draw
+        the samples equal that Gaussian's.
+
+        Args:
+            key: A JAX PRNG key.
+            sample_shape: Leading sample dimensions prepended to
+                ``batch_shape``.
+
+        Returns:
+            Predictive samples shaped ``sample_shape + batch_shape``.
+        """
+        shape = sample_shape + self.batch_shape
+        noise = jax.random.normal(key, shape)
+        component = jax.random.randint(
+            jax.random.fold_in(key, 1), shape, 0, self.num_draws
+        )
+        means = jnp.broadcast_to(
+            jnp.moveaxis(self.draws, 0, -1), shape + (self.num_draws,)
+        )
+        loc = jnp.take_along_axis(means, component[..., None], axis=-1)[..., 0]
+        return loc + jnp.sqrt(self.aleatoric_variance) * noise
+
+    def mean(self) -> jax.Array:
+        """Return the mixture mean, the average of the draws' means."""
+        return jnp.broadcast_to(jnp.mean(self.draws, axis=0), self.batch_shape)
+
+    def variance(self) -> jax.Array:
+        """Return the mixture variance, aleatoric plus epistemic."""
+        return self.moment_matched().variance()
+
+    def cdf(self, targets: jax.Array) -> jax.Array:
+        """Compute the elementwise mixture cumulative distribution of ``targets``.
+
+        Args:
+            targets: Target values broadcastable against ``batch_shape``.
+
+        Returns:
+            The average over draws of the component Gaussian CDFs.
+        """
+        loc, scale = self._components()
+        component = jstats.norm.cdf(targets, loc=loc, scale=scale)
+        return jnp.mean(component, axis=0)
+
+    def quantile(self, probability: float) -> jax.Array:
+        """Compute the elementwise mixture quantile at ``probability``.
+
+        The mixture CDF has no closed-form inverse, so the quantile is found
+        by bisection between the smallest and the largest of the draws'
+        Gaussian quantiles, which bracket it.
+
+        Args:
+            probability: The cumulative probability, strictly between 0 and 1.
+
+        Returns:
+            The quantile, shaped like ``batch_shape``.
+
+        Raises:
+            ValueError: If ``probability`` is not strictly between 0 and 1.
+        """
+        if not 0.0 < probability < 1.0:
+            raise ValueError("probability must be strictly between 0 and 1.")
+        loc, scale = self._components()
+        component = loc + NormalDist().inv_cdf(probability) * scale
+        lower = jnp.min(component, axis=0)
+        upper = jnp.max(component, axis=0)
+
+        def bisect(
+            _: int, bracket: tuple[jax.Array, jax.Array]
+        ) -> tuple[jax.Array, jax.Array]:
+            low, high = bracket
+            middle = 0.5 * (low + high)
+            below = self.cdf(middle) < probability
+            return jnp.where(below, middle, low), jnp.where(below, high, middle)
+
+        lower, upper = jax.lax.fori_loop(0, _BISECTION_STEPS, bisect, (lower, upper))
+        return 0.5 * (lower + upper)
+
+    def moment_matched(self) -> MomentMatchedPredictive:
+        """Summarize the mixture by the Gaussian with its mean and variance.
+
+        By the law of total variance, the mixture variance is the aleatoric
+        variance plus the epistemic variance of the draws' means.
+
+        Returns:
+            The [`MomentMatchedPredictive`][probreg.jax.MomentMatchedPredictive],
+            with both variance parts broadcast to ``batch_shape``.
+        """
+        return MomentMatchedPredictive(
+            loc=self.mean(),
+            aleatoric_variance=jnp.broadcast_to(
+                self.aleatoric_variance, self.batch_shape
+            ),
+            epistemic_variance=jnp.broadcast_to(
+                jnp.var(self.draws, axis=0), self.batch_shape
+            ),
+        )
 
 
 class GaussianHead(nnx.Module):

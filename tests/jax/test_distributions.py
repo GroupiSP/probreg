@@ -2,12 +2,36 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
+from statistics import NormalDist
 from flax import nnx
-from hypothesis import example, given
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
+from hypothesis.extra.numpy import arrays
 
-from probreg.jax.distributions import Gamma, GammaHead, Gaussian, GaussianHead
+from probreg.jax.distributions import (
+    Gamma,
+    GammaHead,
+    Gaussian,
+    GaussianHead,
+    PosteriorPredictive,
+)
+
+_FINITE = st.floats(min_value=-10.0, max_value=10.0, width=32)
+_POSITIVE = st.floats(min_value=0.0625, max_value=10.0, width=32)
+
+
+@st.composite
+def posterior_predictives(
+    draw: st.DrawFn, *, num_draws: st.SearchStrategy[int] | None = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Draw component means ``[S, B]`` and an aleatoric variance ``[B]``."""
+    count = draw(num_draws if num_draws is not None else st.integers(1, 6))
+    batch = draw(st.integers(1, 4))
+    means = draw(arrays(np.float32, (count, batch), elements=_FINITE))
+    variance = draw(arrays(np.float32, (batch,), elements=_POSITIVE))
+    return means, variance
 
 
 def test_gaussian_log_prob_matches_analytic_normal_density() -> None:
@@ -166,3 +190,163 @@ def test_gamma_head_rejects_invalid_configuration(
 ) -> None:
     with pytest.raises(ValueError):
         GammaHead(1, out_features, rngs=nnx.Rngs(0), eps=eps)
+
+
+@settings(deadline=None, max_examples=25)
+@given(
+    components=posterior_predictives(num_draws=st.just(1)),
+    targets=_FINITE,
+    seed=st.integers(0, 2**31 - 1),
+)
+def test_posterior_predictive_with_one_draw_is_the_gaussian(
+    components: tuple[np.ndarray, np.ndarray], targets: float, seed: int
+) -> None:
+    means, variance = components
+    mixture = PosteriorPredictive(
+        draws=jnp.asarray(means), aleatoric_variance=jnp.asarray(variance)
+    )
+    gaussian = Gaussian(loc=jnp.asarray(means[0]), scale=jnp.sqrt(variance))
+    key = jax.random.key(seed)
+    y = jnp.full(variance.shape, targets)
+
+    assert mixture.batch_shape == gaussian.batch_shape
+    assert mixture.event_shape == ()
+    np.testing.assert_allclose(mixture.log_prob(y), gaussian.log_prob(y), rtol=1e-5)
+    np.testing.assert_allclose(mixture.mean(), gaussian.mean(), rtol=1e-6)
+    np.testing.assert_allclose(mixture.variance(), gaussian.variance(), rtol=1e-6)
+    np.testing.assert_allclose(
+        mixture.sample(key, (3,)), gaussian.sample(key, (3,)), rtol=1e-6
+    )
+
+
+def _normal_log_density(y: np.ndarray, loc: np.ndarray, var: np.ndarray) -> np.ndarray:
+    return -0.5 * np.log(2.0 * np.pi * var) - 0.5 * (y - loc) ** 2 / var
+
+
+@settings(deadline=None, max_examples=25)
+@given(components=posterior_predictives(), targets=_FINITE)
+def test_posterior_predictive_log_prob_is_logsumexp_of_components_minus_log_s(
+    components: tuple[np.ndarray, np.ndarray], targets: float
+) -> None:
+    means, variance = components
+    mixture = PosteriorPredictive(
+        draws=jnp.asarray(means), aleatoric_variance=jnp.asarray(variance)
+    )
+    y = np.full(variance.shape, targets, dtype=np.float64)
+    component = _normal_log_density(y, means.astype(np.float64), variance)
+    peak = component.max(axis=0)
+    expected = (
+        peak + np.log(np.exp(component - peak).sum(axis=0)) - np.log(means.shape[0])
+    )
+
+    np.testing.assert_allclose(mixture.log_prob(jnp.asarray(y)), expected, atol=1e-3)
+
+
+@settings(deadline=None, max_examples=25)
+@given(components=posterior_predictives())
+def test_posterior_predictive_moments_obey_the_law_of_total_variance(
+    components: tuple[np.ndarray, np.ndarray],
+) -> None:
+    means, variance = components
+    mixture = PosteriorPredictive(
+        draws=jnp.asarray(means), aleatoric_variance=jnp.asarray(variance)
+    )
+    draws = means.astype(np.float64)
+    expected_mean = draws.mean(axis=0)
+    epistemic = ((draws - expected_mean) ** 2).mean(axis=0)
+    summary = mixture.moment_matched()
+
+    np.testing.assert_allclose(mixture.mean(), expected_mean, atol=1e-4)
+    np.testing.assert_allclose(mixture.variance(), variance + epistemic, atol=1e-3)
+    np.testing.assert_allclose(summary.aleatoric_variance, variance, rtol=1e-6)
+    np.testing.assert_allclose(summary.epistemic_variance, epistemic, atol=1e-3)
+    np.testing.assert_allclose(summary.mean(), mixture.mean(), rtol=1e-6)
+    np.testing.assert_allclose(summary.variance(), mixture.variance(), rtol=1e-6)
+    assert summary.batch_shape == mixture.batch_shape
+    assert summary.event_shape == ()
+
+
+@settings(deadline=None, max_examples=15)
+@given(components=posterior_predictives(), seed=st.integers(0, 2**31 - 1))
+def test_posterior_predictive_sample_moments_match_its_mean_and_variance(
+    components: tuple[np.ndarray, np.ndarray], seed: int
+) -> None:
+    means, variance = components
+    mixture = PosteriorPredictive(
+        draws=jnp.asarray(means), aleatoric_variance=jnp.asarray(variance)
+    )
+    count = 20_000
+
+    samples = np.asarray(mixture.sample(jax.random.key(seed), (count,)), np.float64)
+
+    assert samples.shape == (count, *mixture.batch_shape)
+    mean = np.asarray(mixture.mean(), np.float64)
+    var = np.asarray(mixture.variance(), np.float64)
+    centred = samples - samples.mean(axis=0)
+    fourth = (centred**4).mean(axis=0)
+    assert np.all(np.abs(samples.mean(axis=0) - mean) <= 6.0 * np.sqrt(var / count))
+    assert np.all(
+        np.abs(samples.var(axis=0) - var) <= 6.0 * np.sqrt(fourth / count) + 1e-3
+    )
+
+
+def _mixture_cdf(y: np.ndarray, means: np.ndarray, variance: np.ndarray) -> np.ndarray:
+    standard = NormalDist()
+    z = (y - means.astype(np.float64)) / np.sqrt(variance.astype(np.float64))
+    return np.vectorize(standard.cdf)(z).mean(axis=0)
+
+
+@settings(deadline=None, max_examples=25)
+@given(
+    components=posterior_predictives(),
+    probability=st.floats(min_value=0.01, max_value=0.99),
+)
+def test_posterior_predictive_quantile_inverts_the_mixture_cdf(
+    components: tuple[np.ndarray, np.ndarray], probability: float
+) -> None:
+    means, variance = components
+    mixture = PosteriorPredictive(
+        draws=jnp.asarray(means), aleatoric_variance=jnp.asarray(variance)
+    )
+
+    quantile = np.asarray(mixture.quantile(probability), np.float64)
+
+    assert quantile.shape == mixture.batch_shape
+    np.testing.assert_allclose(
+        _mixture_cdf(quantile, means, variance), probability, atol=1e-4
+    )
+
+
+def test_posterior_predictive_keeps_the_draw_axis_out_of_broadcasting() -> None:
+    draws = jnp.array([[0.0, 1.0, 2.0], [-1.0, 0.5, 3.0]])
+    variance = jnp.array([[0.5], [1.0], [2.0]])
+    lower_rank = PosteriorPredictive(draws=draws, aleatoric_variance=variance)
+    aligned = PosteriorPredictive(draws=draws[:, None, :], aleatoric_variance=variance)
+    targets = jnp.array([0.3, -0.2, 1.5])
+
+    assert lower_rank.batch_shape == (3, 3)
+    for value, expected in [
+        (lower_rank.log_prob(targets), aligned.log_prob(targets)),
+        (lower_rank.cdf(targets), aligned.cdf(targets)),
+        (lower_rank.quantile(0.3), aligned.quantile(0.3)),
+    ]:
+        assert value.shape == lower_rank.batch_shape
+        np.testing.assert_allclose(value, expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize("draws", [jnp.array(1.0), jnp.zeros((0, 3))])
+def test_posterior_predictive_requires_a_non_empty_draw_axis(draws: jax.Array) -> None:
+    with pytest.raises(ValueError, match="draw axis"):
+        PosteriorPredictive(draws=draws, aleatoric_variance=jnp.ones(3))
+
+
+@pytest.mark.parametrize("probability", [0.0, 1.0, float("nan")])
+def test_posterior_predictive_quantile_rejects_probabilities_outside_unit_interval(
+    probability: float,
+) -> None:
+    mixture = PosteriorPredictive(
+        draws=jnp.zeros((2, 3)), aleatoric_variance=jnp.ones(3)
+    )
+
+    with pytest.raises(ValueError, match="probability"):
+        mixture.quantile(probability)

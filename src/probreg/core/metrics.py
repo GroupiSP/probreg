@@ -100,6 +100,35 @@ def point_crps(y_true: float, samples_pred: ArrayLike, x_grid: ArrayLike) -> flo
     return float(np.trapezoid((true_cdf - predicted_cdf) ** 2, grid))
 
 
+def sample_crps(y_true: float, samples_pred: ArrayLike) -> float:
+    """Return the exact CRPS between a scalar target and empirical predictions.
+
+    It uses the energy form ``E|X - y| - E|X - X'| / 2`` of the CRPS, with ``X``
+    and ``X'`` drawn from the empirical distribution of ``samples_pred``, so
+    no evaluation grid is needed. It equals the integral of the squared
+    distance between the empirical and the target's CDFs over the whole line.
+
+    Args:
+        y_true: Scalar reference target.
+        samples_pred: Samples from the predictive scalar distribution.
+
+    Returns:
+        The CRPS of the empirical predictive distribution at ``y_true``.
+
+    Raises:
+        ValueError: If the target is not finite, or the samples are empty,
+            non-finite, or not one-dimensional.
+    """
+    if not np.isfinite(y_true):
+        raise ValueError("y_true must be finite.")
+    samples = np.sort(_as_nonempty_vector(samples_pred, name="samples_pred"))
+    count = samples.size
+    absolute_error = np.mean(np.abs(samples - y_true))
+    ranks = 2.0 * np.arange(count) - count + 1.0
+    mean_pairwise_distance = 2.0 * np.dot(ranks, samples) / count**2
+    return float(absolute_error - mean_pairwise_distance / 2.0)
+
+
 def rmse(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     """Return the root mean squared error."""
     target, prediction = _matching_vectors(("y_true", y_true), ("y_pred", y_pred))
