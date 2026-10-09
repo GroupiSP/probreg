@@ -1,15 +1,15 @@
 # Two-step mean/variance training
 
 Training a mean and a variance jointly, as a Gaussian head under a negative
-log-likelihood does
-([Nix & Weigend, 1994](https://doi.org/10.1109/ICNN.1994.374138)), couples their
-gradients: the variance can grow to excuse a poor mean fit, and the mean can
-stall where the variance is large
+log-likelihood does ([Nix & Weigend, 1994](https://doi.org/10.1109/ICNN.1994.374138)),
+couples their gradients: the variance can grow to excuse a poor mean fit, and
+the mean can stall where the variance is large
 ([Detlefsen et al., 2019](https://doi.org/10.48550/arXiv.1906.03260)). Two-step
-training removes the coupling, as warm-up schemes that fit the mean first also
-do ([Sluijterman et al., 2024](https://doi.org/10.1016/j.neucom.2024.127929)). A first stage fits a deterministic mean model with
-a squared-error loss. A second stage freezes it, takes its squared residuals as
-targets, and fits a Gamma model to them, whose mean is the aleatoric variance.
+training removes the coupling; warm-up schemes that fit the mean first
+([Sluijterman et al., 2024](https://doi.org/10.1016/j.neucom.2024.127929)) apply
+the same idea for part of training. A first stage fits a deterministic mean model with a squared-error loss. A
+second stage freezes it, takes its squared residuals as targets, and fits a
+Gamma model to them, whose mean is the aleatoric variance.
 
 The JAX backend ships both stages, [`MeanStage`][probreg.jax.MeanStage] and
 [`GammaVarianceStage`][probreg.jax.GammaVarianceStage]. They share one

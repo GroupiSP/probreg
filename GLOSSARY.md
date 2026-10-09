@@ -7,11 +7,11 @@ One section per area. A term belongs in the training-and-tracking section when t
 ## Training and tracking
 
 **Stage**:
-One named step of a run (mean, variance, posterior) that requires the lifecycle state the previous step left, trains and validates, and hands on a finalized checkpoint. A run is a sequence of stages rather than one opaque fit.
-_Avoid_: Step, phase, training loop
+One named part of a run (mean, variance, posterior) that requires the lifecycle state the previous stage left, trains and validates, and hands on a finalized checkpoint. A run is a sequence of stages rather than one opaque fit.
+_Avoid_: Phase, training loop
 
 **Joint training**:
-Fitting a mean and a variance together under one Gaussian negative log-likelihood, as classic mean-variance estimation does. The alternative staged training replaces, because it couples the two fits: the variance can grow to excuse a poor mean, and the mean stalls where the variance is large.
+Fitting a mean and a variance together under one Gaussian negative log-likelihood, as classic mean-variance estimation does. Training in stages replaces it, because joint training couples the two fits: the variance can grow to excuse a poor mean, and the mean stalls where the variance is large.
 _Avoid_: Combined training, MVE training, single-step training
 
 **Training event**:

@@ -17,11 +17,12 @@ everything at once leaves open:
   couples the two fits: the variance can grow to excuse a poor mean fit, and the
   mean stalls where the variance is large
   ([Detlefsen et al., 2019](https://doi.org/10.48550/arXiv.1906.03260)).
-  Fitting the mean before the variance, as warm-up schemes also do
-  ([Sluijterman et al., 2024](https://doi.org/10.1016/j.neucom.2024.127929)),
-  removes the coupling.
+  Fitting the mean before the variance removes the coupling; warm-up schemes
+  that fit the mean first
+  ([Sluijterman et al., 2024](https://doi.org/10.1016/j.neucom.2024.127929))
+  apply the same idea for part of training.
 - **It disentangles aleatoric and epistemic uncertainty.** Once its own stage
-  has fixed the aleatoric variance, a later Bayesian stage can attribute the
+  has fixed the aleatoric variance, a later posterior stage can attribute the
   remaining spread of mean functions to epistemic variance, so neither absorbs
   the other ([Yi & Bessa, 2025](https://doi.org/10.48550/arXiv.2505.02743)).
 
