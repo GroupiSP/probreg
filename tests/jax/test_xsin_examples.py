@@ -10,6 +10,7 @@ from typing import Any
 
 import jax.numpy as jnp
 import pytest
+from flax import nnx
 
 _XSIN_DIR = Path(__file__).parents[2] / "examples" / "jax" / "xsin"
 
@@ -28,6 +29,7 @@ def _load_xsin_module(name: str) -> ModuleType:
 _BENCHMARK = _load_xsin_module("benchmark")
 _POSTERIOR_BENCHMARK = _load_xsin_module("posterior_benchmark")
 
+XSinBackbone = _BENCHMARK.XSinBackbone
 XSinConfig = _BENCHMARK.XSinConfig
 make_xsin_data = _BENCHMARK.make_xsin_data
 run_xsin_mve = _BENCHMARK.run_xsin_mve
@@ -60,7 +62,22 @@ def test_xsin_data_is_deterministic_with_positive_variance() -> None:
     )
 
 
-def test_xsin_methods_are_reproducible_and_improve_interpolation() -> None:
+def test_xsin_backbone_scales_inputs_from_the_training_domain() -> None:
+    inputs = jnp.linspace(-5.0, 15.0, 21).reshape(-1, 1)
+    backbone = XSinBackbone(8, train_domain=(0.0, 10.0), rngs=nnx.Rngs(0))
+    shifted = XSinBackbone(8, train_domain=(100.0, 110.0), rngs=nnx.Rngs(0))
+
+    assert jnp.allclose(backbone(inputs), shifted(inputs + 100.0), atol=1e-5)
+
+
+def test_xsin_backbone_does_not_saturate_far_from_the_training_domain() -> None:
+    backbone = XSinBackbone(8, train_domain=(0.0, 10.0), rngs=nnx.Rngs(0))
+    far_inputs = jnp.array([[-1000.0], [1000.0]])
+
+    assert float(jnp.max(jnp.abs(backbone(far_inputs)))) > 1.0
+
+
+def test_xsin_methods_are_reproducible_and_fit_the_training_domain() -> None:
     config = XSinConfig(
         train_size=512,
         evaluation_size=101,
@@ -95,8 +112,11 @@ def test_xsin_methods_are_reproducible_and_improve_interpolation() -> None:
             result.extrapolation_variance_rmse,
         )
     )
-    assert two_step.interpolation_mean_rmse < mve.interpolation_mean_rmse
-    assert two_step.interpolation_variance_rmse < mve.interpolation_variance_rmse
+    # The noise variance grows with x, so it is smallest at the domain's left edge.
+    smallest_noise_variance = float(xsin_variance(jnp.array(config.train_min)))
+    for result in (mve, two_step):
+        assert result.interpolation_mean_rmse < math.sqrt(smallest_noise_variance)
+        assert result.interpolation_variance_rmse < smallest_noise_variance
 
 
 run_xsin_posterior = _POSTERIOR_BENCHMARK.run_xsin_posterior

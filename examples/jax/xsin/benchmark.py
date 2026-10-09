@@ -196,22 +196,58 @@ class StagePrintingEventSink:
 
 
 class XSinBackbone(nnx.Module):
-    """Two-layer tanh backbone used by all XSin models."""
+    """Two-layer SiLU backbone used by all XSin models.
 
-    def __init__(self, hidden_features: int, *, rngs: nnx.Rngs) -> None:
+    It maps the training domain onto ``[-1, 1]`` before the first layer, and
+    its unbounded activation lets outputs keep changing away from that
+    domain instead of saturating.
+
+    Args:
+        hidden_features: Width of the backbone's hidden layers.
+        train_domain: Lower and upper bounds of the training inputs, which the
+            backbone maps onto ``[-1, 1]``.
+        rngs: Random streams that initialize the layers.
+    """
+
+    def __init__(
+        self,
+        hidden_features: int,
+        *,
+        train_domain: tuple[float, float],
+        rngs: nnx.Rngs,
+    ) -> None:
+        train_min, train_max = train_domain
+        self.input_center: float = (train_min + train_max) / 2
+        self.input_half_width: float = (train_max - train_min) / 2
         self.input_layer = nnx.Linear(1, hidden_features, rngs=rngs)
         self.output_layer = nnx.Linear(hidden_features, hidden_features, rngs=rngs)
 
     def __call__(self, inputs: jax.Array) -> jax.Array:
-        hidden = jnp.tanh(self.input_layer(inputs))
-        return jnp.tanh(self.output_layer(hidden))
+        scaled = (inputs - self.input_center) / self.input_half_width
+        hidden = nnx.silu(self.input_layer(scaled))
+        return nnx.silu(self.output_layer(hidden))
 
 
 class XSinMeanModel(nnx.Module):
-    """Deterministic mean regressor for the XSin benchmark."""
+    """Deterministic mean regressor for the XSin benchmark.
 
-    def __init__(self, hidden_features: int, *, rngs: nnx.Rngs) -> None:
-        self.backbone = XSinBackbone(hidden_features, rngs=rngs)
+    Args:
+        hidden_features: Width of the backbone's hidden layers.
+        train_domain: Lower and upper bounds of the training inputs, which its
+            backbone maps onto ``[-1, 1]``.
+        rngs: Random streams that initialize the layers.
+    """
+
+    def __init__(
+        self,
+        hidden_features: int,
+        *,
+        train_domain: tuple[float, float],
+        rngs: nnx.Rngs,
+    ) -> None:
+        self.backbone = XSinBackbone(
+            hidden_features, train_domain=train_domain, rngs=rngs
+        )
         self.output = nnx.Linear(hidden_features, 1, rngs=rngs)
 
     def __call__(self, inputs: jax.Array) -> jax.Array:
@@ -219,10 +255,25 @@ class XSinMeanModel(nnx.Module):
 
 
 class XSinGaussianModel(nnx.Module):
-    """Joint Gaussian mean/scale regressor for the MVE comparison."""
+    """Joint Gaussian mean/scale regressor for the MVE comparison.
 
-    def __init__(self, hidden_features: int, *, rngs: nnx.Rngs) -> None:
-        self.backbone = XSinBackbone(hidden_features, rngs=rngs)
+    Args:
+        hidden_features: Width of the backbone's hidden layers.
+        train_domain: Lower and upper bounds of the training inputs, which its
+            backbone maps onto ``[-1, 1]``.
+        rngs: Random streams that initialize the layers.
+    """
+
+    def __init__(
+        self,
+        hidden_features: int,
+        *,
+        train_domain: tuple[float, float],
+        rngs: nnx.Rngs,
+    ) -> None:
+        self.backbone = XSinBackbone(
+            hidden_features, train_domain=train_domain, rngs=rngs
+        )
         self.head = GaussianHead(hidden_features, 1, rngs=rngs)
 
     def __call__(self, inputs: jax.Array) -> Gaussian:
@@ -230,10 +281,25 @@ class XSinGaussianModel(nnx.Module):
 
 
 class XSinGammaModel(nnx.Module):
-    """Gamma residual regressor for the two-step comparison."""
+    """Gamma residual regressor for the two-step comparison.
 
-    def __init__(self, hidden_features: int, *, rngs: nnx.Rngs) -> None:
-        self.backbone = XSinBackbone(hidden_features, rngs=rngs)
+    Args:
+        hidden_features: Width of the backbone's hidden layers.
+        train_domain: Lower and upper bounds of the training inputs, which its
+            backbone maps onto ``[-1, 1]``.
+        rngs: Random streams that initialize the layers.
+    """
+
+    def __init__(
+        self,
+        hidden_features: int,
+        *,
+        train_domain: tuple[float, float],
+        rngs: nnx.Rngs,
+    ) -> None:
+        self.backbone = XSinBackbone(
+            hidden_features, train_domain=train_domain, rngs=rngs
+        )
         self.head = GammaHead(hidden_features, 1, rngs=rngs)
 
     def __call__(self, inputs: jax.Array) -> Gamma:
@@ -335,6 +401,7 @@ def run_xsin_mve(data: XSinData, config: XSinConfig) -> XSinResult:
     model_key, train_key = jax.random.split(jax.random.key(config.seed + 1))
     model = XSinGaussianModel(
         config.hidden_features,
+        train_domain=(config.train_min, config.train_max),
         rngs=nnx.Rngs(model_key),
     )
     optimizer = create_optimizer(model, optax.adam(config.learning_rate))
@@ -409,6 +476,7 @@ def train_xsin_two_step(
 
     mean_model = XSinMeanModel(
         config.hidden_features,
+        train_domain=(config.train_min, config.train_max),
         rngs=nnx.Rngs(mean_key),
     )
     mean_stage = MeanStage(
@@ -428,6 +496,7 @@ def train_xsin_two_step(
 
     variance_model = XSinGammaModel(
         config.hidden_features,
+        train_domain=(config.train_min, config.train_max),
         rngs=nnx.Rngs(variance_key),
     )
     variance_stage = GammaVarianceStage(

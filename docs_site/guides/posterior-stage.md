@@ -175,8 +175,9 @@ checkpoint holds.
 Start with Bayes by Backprop when you want early stopping, small checkpoints
 and cheap predictions. Choose pSGLD when the shape of the epistemic variance
 matters, as it does for extrapolation, and you can afford tuning the step size
-and storing samples. In the XSin example below, pSGLD's epistemic variance
-grows away from the training data, while Bayes by Backprop's does not.
+and storing samples. In the XSin example below, both epistemic variances
+grow away from the training data, but pSGLD's grows much more relative to its
+variance inside the training domain, where Bayes by Backprop's is spread.
 
 pSGLD counts `burn_in` and `thinning` in update steps, that is training
 batches. It has no posterior before its first retained sample, so the stage
