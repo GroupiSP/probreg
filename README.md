@@ -1,21 +1,21 @@
-# probreg
+# stagereg
 
-`probreg` is a library for stage-oriented probabilistic regression: training
+`stagereg` is a library for stage-oriented probabilistic regression: training
 models that predict a distribution over the target, not just a point estimate.
 Training runs as a sequence of explicit, checkpointed stages, such as fitting a
 mean model and then a separate variance model on its residuals. A core of
 backend-neutral contracts is implemented by an optional JAX backend built on
 Flax NNX and Optax.
 
-**Documentation:** <https://groupisp.github.io/probreg/>
+**Documentation:** <https://groupisp.github.io/stagereg/>
 
 ## Install
 
 ```bash
-uv add "probreg[jax] @ git+https://github.com/GroupiSP/probreg"
+uv add "stagereg[jax] @ git+https://github.com/GroupiSP/stagereg"
 ```
 
-With pip, use `pip install "probreg[jax] @ git+https://github.com/GroupiSP/probreg"`.
+With pip, use `pip install "stagereg[jax] @ git+https://github.com/GroupiSP/stagereg"`.
 Drop the `[jax]` extra for the backend-neutral contracts alone.
 
 ## Minimal example
@@ -30,8 +30,8 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.types import Batch
-from probreg.jax import create_optimizer, initialize_training_state, run_supervised
+from stagereg.core.types import Batch
+from stagereg.jax import create_optimizer, initialize_training_state, run_supervised
 
 
 def squared_error(model, inputs, targets, sample_weight, key, training):

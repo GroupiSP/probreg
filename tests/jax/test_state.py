@@ -6,9 +6,9 @@ import optax
 import pytest
 from flax import nnx
 
-from probreg.core.checkpoints import Checkpoint
-from probreg.core.types import ParameterRole, StageState, TrainingState
-from probreg.jax.state import (
+from stagereg.core.checkpoints import Checkpoint
+from stagereg.core.types import ParameterRole, StageState, TrainingState
+from stagereg.jax.state import (
     create_optimizer,
     freeze_training_state,
     restore_checkpoint,

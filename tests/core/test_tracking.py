@@ -15,14 +15,14 @@ from typing import Any
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from probreg.core.naming import Split, parse_metric_tag
-from probreg.core.tracking import (
+from stagereg.core.naming import Split, parse_metric_tag
+from stagereg.core.tracking import (
     EventSink,
     ExperimentTracker,
     TrackerEventSink,
     TrainingEvent,
 )
-from probreg.core.types import StageResult, TrainingState
+from stagereg.core.types import StageResult, TrainingState
 
 Tracker = Callable[[], Any]
 Run = Callable[..., StageResult]

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from math import isfinite
 
-from probreg.core.naming import Split
+from stagereg.core.naming import Split
 
 
 class OptimizationMode(StrEnum):
@@ -52,7 +52,7 @@ class EarlyStoppingState:
 
         Raises:
             ValueError: If configuration or observation fields cannot represent
-                a state produced by [`EarlyStopper`][probreg.core.EarlyStopper].
+                a state produced by [`EarlyStopper`][stagereg.core.EarlyStopper].
         """
         if not self.metric:
             raise ValueError("metric must be a non-empty string.")
@@ -168,7 +168,7 @@ class EarlyStopper:
         Returns:
             ``True`` if the metric configured for this stopper is
             measured on the validation split (i.e. requires a
-            [`ValidationStrategy`][probreg.core.ValidationStrategy] to be
+            [`ValidationStrategy`][stagereg.core.ValidationStrategy] to be
             supplied to the training loop), ``False`` if it is measured
             on the training split.
         """
@@ -191,7 +191,7 @@ class EarlyStopper:
             epoch: The epoch at which ``value`` was observed.
 
         Returns:
-            An [`EarlyStoppingDecision`][probreg.core.EarlyStoppingDecision]
+            An [`EarlyStoppingDecision`][stagereg.core.EarlyStoppingDecision]
             with the updated state and whether ``value`` improved on the best
             score so far.
 

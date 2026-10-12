@@ -9,7 +9,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
-from probreg.jax.posterior import IsotropicGaussianPrior
+from stagereg.jax.posterior import IsotropicGaussianPrior
 
 _PRECISION = st.floats(min_value=0.0625, max_value=16.0)
 _PARAMETERS = arrays(

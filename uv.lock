@@ -1514,96 +1514,6 @@ wheels = [
 ]
 
 [[package]]
-name = "probreg"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "numpy" },
-]
-
-[package.optional-dependencies]
-jax = [
-    { name = "flax" },
-    { name = "jax" },
-    { name = "optax" },
-]
-plot = [
-    { name = "matplotlib" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "docformatter" },
-    { name = "hypothesis" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-markdown-docs" },
-    { name = "ruff" },
-]
-docs = [
-    { name = "mkdocs-material" },
-    { name = "mkdocstrings", extra = ["python"] },
-]
-example-cmapss = [
-    { name = "flax" },
-    { name = "jax" },
-    { name = "matplotlib" },
-    { name = "optax" },
-    { name = "pandas" },
-    { name = "scikit-learn" },
-    { name = "seaborn" },
-]
-example-tracking = [
-    { name = "flax" },
-    { name = "jax" },
-    { name = "matplotlib" },
-    { name = "optax" },
-    { name = "tensorboard" },
-    { name = "tensorboardx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "flax", marker = "extra == 'jax'", specifier = ">=0.11" },
-    { name = "jax", marker = "extra == 'jax'", specifier = ">=0.6" },
-    { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.9" },
-    { name = "numpy", specifier = ">=2.0" },
-    { name = "optax", marker = "extra == 'jax'", specifier = ">=0.2.4" },
-]
-provides-extras = ["jax", "plot"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "docformatter", specifier = ">=1.7.7" },
-    { name = "hypothesis", specifier = ">=6.140.4" },
-    { name = "pre-commit", specifier = ">=4.5.1" },
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "pytest-markdown-docs", specifier = ">=0.9.2" },
-    { name = "ruff", specifier = ">=0.14.9" },
-]
-docs = [
-    { name = "mkdocs-material", specifier = ">=9.7.7" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.6" },
-]
-example-cmapss = [
-    { name = "flax", specifier = ">=0.11" },
-    { name = "jax", specifier = ">=0.6" },
-    { name = "matplotlib", specifier = ">=3.11.0" },
-    { name = "optax", specifier = ">=0.2.4" },
-    { name = "pandas", specifier = ">=2.2" },
-    { name = "scikit-learn", specifier = ">=1.9.0" },
-    { name = "seaborn", specifier = "==0.13.2" },
-]
-example-tracking = [
-    { name = "flax", specifier = ">=0.11" },
-    { name = "jax", specifier = ">=0.6" },
-    { name = "matplotlib", specifier = ">=3.11.0" },
-    { name = "optax", specifier = ">=0.2.4" },
-    { name = "tensorboard", specifier = ">=2.20" },
-    { name = "tensorboardx", specifier = ">=2.6.4" },
-]
-
-[[package]]
 name = "prometheus-client"
 version = "0.26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2052,6 +1962,96 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/c4/ba2f8066cceb6f23394729afe52f3bf7adec04bf9ed2c820b39e19299111/sortedcontainers-2.4.0.tar.gz", hash = "sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88", size = 30594, upload-time = "2021-05-16T22:03:42.897Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/46/9cb0e58b2deb7f82b84065f37f3bffeb12413f947f9388e4cac22c4621ce/sortedcontainers-2.4.0-py2.py3-none-any.whl", hash = "sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0", size = 29575, upload-time = "2021-05-16T22:03:41.177Z" },
+]
+
+[[package]]
+name = "stagereg"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.optional-dependencies]
+jax = [
+    { name = "flax" },
+    { name = "jax" },
+    { name = "optax" },
+]
+plot = [
+    { name = "matplotlib" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "docformatter" },
+    { name = "hypothesis" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-markdown-docs" },
+    { name = "ruff" },
+]
+docs = [
+    { name = "mkdocs-material" },
+    { name = "mkdocstrings", extra = ["python"] },
+]
+example-cmapss = [
+    { name = "flax" },
+    { name = "jax" },
+    { name = "matplotlib" },
+    { name = "optax" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
+    { name = "seaborn" },
+]
+example-tracking = [
+    { name = "flax" },
+    { name = "jax" },
+    { name = "matplotlib" },
+    { name = "optax" },
+    { name = "tensorboard" },
+    { name = "tensorboardx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "flax", marker = "extra == 'jax'", specifier = ">=0.11" },
+    { name = "jax", marker = "extra == 'jax'", specifier = ">=0.6" },
+    { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.9" },
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "optax", marker = "extra == 'jax'", specifier = ">=0.2.4" },
+]
+provides-extras = ["jax", "plot"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "docformatter", specifier = ">=1.7.7" },
+    { name = "hypothesis", specifier = ">=6.140.4" },
+    { name = "pre-commit", specifier = ">=4.5.1" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-markdown-docs", specifier = ">=0.9.2" },
+    { name = "ruff", specifier = ">=0.14.9" },
+]
+docs = [
+    { name = "mkdocs-material", specifier = ">=9.7.7" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.6" },
+]
+example-cmapss = [
+    { name = "flax", specifier = ">=0.11" },
+    { name = "jax", specifier = ">=0.6" },
+    { name = "matplotlib", specifier = ">=3.11.0" },
+    { name = "optax", specifier = ">=0.2.4" },
+    { name = "pandas", specifier = ">=2.2" },
+    { name = "scikit-learn", specifier = ">=1.9.0" },
+    { name = "seaborn", specifier = "==0.13.2" },
+]
+example-tracking = [
+    { name = "flax", specifier = ">=0.11" },
+    { name = "jax", specifier = ">=0.6" },
+    { name = "matplotlib", specifier = ">=3.11.0" },
+    { name = "optax", specifier = ">=0.2.4" },
+    { name = "tensorboard", specifier = ">=2.20" },
+    { name = "tensorboardx", specifier = ">=2.6.4" },
 ]
 
 [[package]]

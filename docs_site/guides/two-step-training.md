@@ -11,14 +11,14 @@ the same idea for part of training. A first stage fits a deterministic mean mode
 second stage freezes it, takes its squared residuals as targets, and fits a
 Gamma model to them, whose mean is the aleatoric variance.
 
-The JAX backend ships both stages, [`MeanStage`][probreg.jax.MeanStage] and
-[`GammaVarianceStage`][probreg.jax.GammaVarianceStage]. They share one
-[`TrainingState`][probreg.core.TrainingState], and its lifecycle is what lets the
+The JAX backend ships both stages, [`MeanStage`][stagereg.jax.MeanStage] and
+[`GammaVarianceStage`][stagereg.jax.GammaVarianceStage]. They share one
+[`TrainingState`][stagereg.core.TrainingState], and its lifecycle is what lets the
 second stage check that the first one has finished.
 
 ## The lifecycle
 
-A staged workflow moves through the [`StageState`][probreg.core.StageState]
+A staged workflow moves through the [`StageState`][stagereg.core.StageState]
 values in order:
 
 ```text
@@ -36,13 +36,13 @@ Each stage method checks the state it is given and moves it on:
 
 A call made out of order raises `ValueError` before it touches the state, so a
 variance stage cannot train on the residuals of a mean model that was never
-trained. [`validate_transition`][probreg.core.validate_transition] states the
+trained. [`validate_transition`][stagereg.core.validate_transition] states the
 rule on its own: a state may only move to the one directly after it.
 
 ```python
 import pytest
 
-from probreg.core import StageState, validate_transition
+from stagereg.core import StageState, validate_transition
 
 validate_transition(StageState.NEW, StageState.INITIALIZED)
 validate_transition(StageState.MEAN_READY, StageState.VARIANCE_READY)
@@ -52,13 +52,13 @@ with pytest.raises(ValueError, match="expected 'initialized'"):
 ```
 
 `StageState` continues past `VARIANCE_READY` with `POSTERIOR_READY`, reached by
-the optional [`PosteriorStage`][probreg.jax.PosteriorStage], and `COMPLETED`, which
+the optional [`PosteriorStage`][stagereg.jax.PosteriorStage], and `COMPLETED`, which
 no shipped stage reaches yet. A run that stops at `VARIANCE_READY` is complete.
 
 ## A two-step run
 
 The run below is the whole workflow on eight points: a linear mean model, then a
-[`GammaHead`][probreg.jax.GammaHead] on its residuals, each validated after every
+[`GammaHead`][stagereg.jax.GammaHead] on its residuals, each validated after every
 epoch. The loader serves the same batch for both splits to keep it short; a real
 one returns a different partition of data for `"train"` and `"validation"`.
 
@@ -68,7 +68,7 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core import (
+from stagereg.core import (
     Batch,
     NegativeLogLikelihoodLoss,
     ParameterRole,
@@ -77,7 +77,7 @@ from probreg.core import (
     TrainingState,
     add_epsilon,
 )
-from probreg.jax import (
+from stagereg.jax import (
     GammaHead,
     GammaVarianceStage,
     HeldOutValidation,
@@ -168,11 +168,11 @@ The two stages register their components under fixed names: the mean model and
 its optimizer as `mean_model` and `mean_optimizer`, the variance model and its
 optimizer as `variance_model` and `variance_optimizer`. The variance stage finds
 the mean model by that name, so if you rename it on the
-[`MeanStage`][probreg.jax.MeanStage], pass the same name as `mean_model_name` to
-the [`GammaVarianceStage`][probreg.jax.GammaVarianceStage]. Both stages take their
+[`MeanStage`][stagereg.jax.MeanStage], pass the same name as `mean_model_name` to
+the [`GammaVarianceStage`][stagereg.jax.GammaVarianceStage]. Both stages take their
 epoch count, validation, early stopping, event sinks and checkpoint store from a
-[`SupervisedStageOptions`][probreg.jax.SupervisedStageOptions], and run the same
-epoch loop as [`run_supervised`][probreg.jax.run_supervised].
+[`SupervisedStageOptions`][stagereg.jax.SupervisedStageOptions], and run the same
+epoch loop as [`run_supervised`][stagereg.jax.run_supervised].
 
 A variance stage validates against residuals, not against the original targets.
 Give it a `validation_factory`, which receives the materialized residual loader
@@ -199,9 +199,9 @@ own epochs from zero, and a tag without the stage would let the variance stage's
 
 ## Residual materialization
 
-[`GammaVarianceStage.prepare`][probreg.jax.GammaVarianceStage.prepare] turns the
+[`GammaVarianceStage.prepare`][stagereg.jax.GammaVarianceStage.prepare] turns the
 frozen mean model's errors into the variance stage's training data, through
-[`materialize_residual_loader`][probreg.jax.materialize_residual_loader]. For
+[`materialize_residual_loader`][stagereg.jax.materialize_residual_loader]. For
 every split it is given, it reads the source loader once, at `source_epoch`,
 replaces each batch's targets with the squared residuals
 `(targets - mean_model(inputs)) ** 2`, and keeps the result. The residuals are
@@ -212,8 +212,8 @@ nothing the variance stage does can reach the mean model.
 import jax.numpy as jnp
 from flax import nnx
 
-from probreg.core import Batch
-from probreg.jax import materialize_residual_loader
+from stagereg.core import Batch
+from stagereg.jax import materialize_residual_loader
 
 inputs = jnp.array([[-1.0], [0.0], [1.0]])
 targets = jnp.array([[-2.0], [0.5], [2.0]])
@@ -264,7 +264,7 @@ print_xsin_metrics("mean plus Gamma variance", result)
 
 Run it with `uv run --extra jax --extra plot python examples/jax/xsin/two_steps.py`;
 the source is
-[`examples/jax/xsin/two_steps.py`](https://github.com/GroupiSP/probreg/blob/main/examples/jax/xsin/two_steps.py).
+[`examples/jax/xsin/two_steps.py`](https://github.com/GroupiSP/stagereg/blob/main/examples/jax/xsin/two_steps.py).
 The [CMAPSS example](examples.md#cmapss-remaining-useful-life) uses the same
 stages with CNN models on real sensor data. Given an early stopper and a
 checkpoint store, each stage leaves its best model live after `train` and saves

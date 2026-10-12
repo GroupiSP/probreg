@@ -1,6 +1,6 @@
-# Contributing to probreg
+# Contributing to stagereg
 
-Thanks for your interest in contributing to `probreg`.
+Thanks for your interest in contributing to `stagereg`.
 
 ## Opening issues
 
@@ -51,7 +51,7 @@ bare word after the language and renders the block as plain text, while pytest i
 `--markdown-docs-syntax=superfences` and skips brace-form fences carrying `notest`.
 
 The API reference in `docs_site/reference/` has one page per package and one `## module`
-section per source module. Exporting a symbol from `probreg.core` or `probreg.jax` means adding
-`::: probreg.core.Name` (its public path) under the section of the module that defines it;
+section per source module. Exporting a symbol from `stagereg.core` or `stagereg.jax` means adding
+`::: stagereg.core.Name` (its public path) under the section of the module that defines it;
 `tests/test_reference_completeness.py` fails until you do, and fails on an entry that names
 something not exported.

@@ -5,7 +5,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from probreg.core.metric_registry import (
+from stagereg.core.metric_registry import (
     ContinuousRankedProbabilityScore,
     EpochPredictionData,
     EvaluationGrid,
@@ -18,7 +18,7 @@ from probreg.core.metric_registry import (
     SampleContinuousRankedProbabilityScore,
     WeightedSpread,
 )
-from probreg.core.metrics import coverage, crps, point_crps, rmse, sample_crps, wsu
+from stagereg.core.metrics import coverage, crps, point_crps, rmse, sample_crps, wsu
 
 AdapterType = type[
     RootMeanSquaredError

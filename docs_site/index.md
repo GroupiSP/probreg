@@ -1,6 +1,6 @@
-# probreg
+# stagereg
 
-`probreg` is a library for stage-oriented probabilistic regression: training
+`stagereg` is a library for stage-oriented probabilistic regression: training
 models that predict a distribution over the target, not just a point estimate.
 Its core is a set of backend-neutral contracts for batches, predictive
 distributions, losses, metrics, checkpoints, early stopping and tracking. An
@@ -26,7 +26,7 @@ everything at once leaves open:
   remaining spread of mean functions to epistemic variance, so neither absorbs
   the other ([Yi & Bessa, 2025](https://doi.org/10.48550/arXiv.2505.02743)).
 
-## How probreg trains in stages
+## How stagereg trains in stages
 
 A run is a sequence of named stages: a mean stage, a variance stage, and an
 optional posterior stage. Each stage checks that the lifecycle of the shared
@@ -42,16 +42,16 @@ The base package has only NumPy as a dependency and holds the backend-neutral
 contracts:
 
 ```bash
-uv add "probreg @ git+https://github.com/GroupiSP/probreg"
+uv add "stagereg @ git+https://github.com/GroupiSP/stagereg"
 ```
 
 The `jax` extra adds the JAX backend (JAX, Flax and Optax):
 
 ```bash
-uv add "probreg[jax] @ git+https://github.com/GroupiSP/probreg"
+uv add "stagereg[jax] @ git+https://github.com/GroupiSP/stagereg"
 ```
 
-With pip, use `pip install "probreg[jax] @ git+https://github.com/GroupiSP/probreg"`.
+With pip, use `pip install "stagereg[jax] @ git+https://github.com/GroupiSP/stagereg"`.
 
 ## Minimal example
 
@@ -61,4 +61,4 @@ With pip, use `pip install "probreg[jax] @ git+https://github.com/GroupiSP/probr
 
 Development setup, the checks a change must pass and how to build this site
 are in
-[`CONTRIBUTING.md`](https://github.com/GroupiSP/probreg/blob/main/CONTRIBUTING.md).
+[`CONTRIBUTING.md`](https://github.com/GroupiSP/stagereg/blob/main/CONTRIBUTING.md).

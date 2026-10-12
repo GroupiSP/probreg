@@ -12,17 +12,17 @@ import jax.numpy as jnp
 import jax.scipy.stats as jstats
 from flax import nnx
 
-from probreg.core.checkpoints import Checkpoint, CheckpointStore
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.metric_registry import (
+from stagereg.core.checkpoints import Checkpoint, CheckpointStore
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.metric_registry import (
     EpochPredictionData,
     NegativeLogLikelihood,
     SampleContinuousRankedProbabilityScore,
 )
-from probreg.core.naming import Split, metric_tag
-from probreg.core.protocols import LoaderFactory, ValidationStrategy
-from probreg.core.tracking import EventSink
-from probreg.core.types import (
+from stagereg.core.naming import Split, metric_tag
+from stagereg.core.protocols import LoaderFactory, ValidationStrategy
+from stagereg.core.tracking import EventSink
+from stagereg.core.types import (
     Batch,
     CheckpointRef,
     ParameterRole,
@@ -32,29 +32,29 @@ from probreg.core.types import (
     TrainingState,
     ValidationResult,
 )
-from probreg.jax.distributions import PosteriorPredictive
-from probreg.jax.epoch_loop import (
+from stagereg.jax.distributions import PosteriorPredictive
+from stagereg.jax.epoch_loop import (
     StateSnapshot,
     check_epoch_loop_arguments,
     resolve_checkpoint_key,
     run_epoch_loop,
 )
-from probreg.jax.losses import align_sample_weight
-from probreg.jax.metrics import (
+from stagereg.jax.losses import align_sample_weight
+from stagereg.jax.metrics import (
     MetricSuite,
     PosteriorPredictivePredictor,
     metric_key,
     reduce_metric_suite,
 )
-from probreg.jax.posterior import (
+from stagereg.jax.posterior import (
     InferenceMethod,
     IsotropicGaussianPrior,
     Posterior,
     PosteriorProblem,
     Prior,
 )
-from probreg.jax.rng import split_key
-from probreg.jax.stage_checkpoints import (
+from stagereg.jax.rng import split_key
+from stagereg.jax.stage_checkpoints import (
     finalized_checkpoint,
     latest_training_result,
     load_best_checkpoint,
@@ -62,7 +62,7 @@ from probreg.jax.stage_checkpoints import (
     require_finalized,
     select_checkpoint,
 )
-from probreg.jax.state import restore_keeping_components
+from stagereg.jax.state import restore_keeping_components
 
 
 _DEFAULT_PREDICTIVE_SAMPLE_COUNT = 100
@@ -96,12 +96,12 @@ class PosteriorStageOptions:
         validation_metrics: The epoch metrics the posterior predictive is
             scored with, reported under their usual names (``nll``, ``crps``,
             ...). Its predictor receives a model mapping inputs to a
-            [`PosteriorPredictive`][probreg.jax.PosteriorPredictive], so it is
+            [`PosteriorPredictive`][stagereg.jax.PosteriorPredictive], so it is
             normally a
-            [`PosteriorPredictivePredictor`][probreg.jax.PosteriorPredictivePredictor].
+            [`PosteriorPredictivePredictor`][stagereg.jax.PosteriorPredictivePredictor].
             Defaults to the exact NLL (``nll``) and the CRPS (``crps``) of
             100 predictive samples per target, scored with
-            [`SampleContinuousRankedProbabilityScore`][probreg.core.SampleContinuousRankedProbabilityScore],
+            [`SampleContinuousRankedProbabilityScore`][stagereg.core.SampleContinuousRankedProbabilityScore],
             which needs no evaluation grid.
         early_stopper: Optional early-stopping policy. Refused for an inference
             method that does not support early stopping.
@@ -149,20 +149,20 @@ class PosteriorStage:
     mean weights; the mean and variance models stay frozen, and the aleatoric
     variance is computed on the fly as the mean of the variance model's
     prediction. The stage hands its inference method a
-    [`PosteriorProblem`][probreg.jax.PosteriorProblem], drives the epoch loop
+    [`PosteriorProblem`][stagereg.jax.PosteriorProblem], drives the epoch loop
     with the method's ``update``, and validates every epoch on the current
     posterior predictive, skipping epochs that end before the method
-    [`has_posterior`][probreg.jax.InferenceMethod.has_posterior].
+    [`has_posterior`][stagereg.jax.InferenceMethod.has_posterior].
 
     Attributes:
-        inference_method: The [`InferenceMethod`][probreg.jax.InferenceMethod]
+        inference_method: The [`InferenceMethod`][stagereg.jax.InferenceMethod]
             deciding how the posterior is inferred.
         train_loader: Factory producing the original regression batches.
         dataset_size: The number of training examples ``N``, which scales each
             batch's log-likelihood by ``N / B``.
         options: Epoch-loop and prediction options.
         prior: The prior over the posterior network's parameters. Defaults to
-            [`IsotropicGaussianPrior`][probreg.jax.IsotropicGaussianPrior] with
+            [`IsotropicGaussianPrior`][stagereg.jax.IsotropicGaussianPrior] with
             precision 1.
         model: The posterior network. A copy of it is warm-started, so its own
             parameters never change. Its parameter tree must equal the mean
@@ -271,10 +271,10 @@ class PosteriorStage:
 
         With an early stopper and a checkpoint store, every improvement saves a
         best checkpoint whose ``parameters`` hold the inference method's full
-        [`state`][probreg.jax.InferenceMethod.state]. After the last epoch the
+        [`state`][stagereg.jax.InferenceMethod.state]. After the last epoch the
         method resumes from the best checkpoint, if one was saved, and
         ``state`` returns to the best epoch. The method's
-        [`posterior_state`][probreg.jax.InferenceMethod.posterior_state] is
+        [`posterior_state`][stagereg.jax.InferenceMethod.posterior_state] is
         then stored as ``state.posterior_state``, and, with a checkpoint store,
         saved as the finalized checkpoint under the checkpoint key: lifecycle
         state ``POSTERIOR_READY``, metadata ``{"stage": "posterior",
@@ -356,15 +356,15 @@ class PosteriorStage:
         """Restore the posterior stage's finalized checkpoint into ``state``.
 
         Call it after the mean stage's
-        [`restore`][probreg.jax.MeanStage.restore] and the variance stage's
-        [`restore`][probreg.jax.GammaVarianceStage.restore]. The inference
+        [`restore`][stagereg.jax.MeanStage.restore] and the variance stage's
+        [`restore`][stagereg.jax.GammaVarianceStage.restore]. The inference
         method is initialized on the posterior problem of the registered mean
         and variance models, then rebuilds the saved posterior with
-        [`load_posterior`][probreg.jax.InferenceMethod.load_posterior]; the
+        [`load_posterior`][stagereg.jax.InferenceMethod.load_posterior]; the
         posterior is registered under ``model_name``. Every model component
         and optimizer registered before, such as the mean and variance models,
         stays registered. Afterwards the state passes
-        [`validate`][probreg.jax.PosteriorStage.validate].
+        [`validate`][stagereg.jax.PosteriorStage.validate].
 
         Args:
             state: Training state the mean and variance stages have been
@@ -409,8 +409,8 @@ class PosteriorStage:
             registered mean and variance models.
 
         Raises:
-            ValueError: As [`restore`][probreg.jax.PosteriorStage.restore].
-            TypeError: As [`restore`][probreg.jax.PosteriorStage.restore].
+            ValueError: As [`restore`][stagereg.jax.PosteriorStage.restore].
+            TypeError: As [`restore`][stagereg.jax.PosteriorStage.restore].
         """
         require_finalized(checkpoint, stage=self.name, ready=StageState.POSTERIOR_READY)
         for frozen in (self.mean_model_name, self.variance_model_name):

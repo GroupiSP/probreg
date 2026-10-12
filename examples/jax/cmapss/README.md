@@ -17,10 +17,10 @@ The archive is kept in a persistent on-disk cache, so it is downloaded from
 NASA at most once rather than once per run. Two environment variables
 override the defaults:
 
-- `PROBREG_CMAPSS_CACHE_DIR` — the directory holding the cached archive.
+- `STAGEREG_CMAPSS_CACHE_DIR` — the directory holding the cached archive.
   Defaults to a per-user cache location (`XDG_CACHE_HOME` if set, otherwise
-  `~/.cache/probreg-cmapss`).
-- `PROBREG_CMAPSS_ARCHIVE` — the path to a manually obtained copy of the
+  `~/.cache/stagereg-cmapss`).
+- `STAGEREG_CMAPSS_ARCHIVE` — the path to a manually obtained copy of the
   CMAPSS zip. When set, it seeds the cache and no download is attempted,
   which is useful when the network is unavailable or untrusted.
 

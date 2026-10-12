@@ -7,7 +7,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from probreg.core.metrics import (
+from stagereg.core.metrics import (
     cdf,
     coverage,
     crps,

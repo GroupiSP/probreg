@@ -1,9 +1,9 @@
 """The seam between the posterior stage and its inference methods.
 
-A [`PosteriorStage`][probreg.jax.PosteriorStage] hands every
-[`InferenceMethod`][probreg.jax.InferenceMethod] the same
-[`PosteriorProblem`][probreg.jax.PosteriorProblem], steps it once per batch,
-and reads back a [`Posterior`][probreg.jax.Posterior] it consumes only through
+A [`PosteriorStage`][stagereg.jax.PosteriorStage] hands every
+[`InferenceMethod`][stagereg.jax.InferenceMethod] the same
+[`PosteriorProblem`][stagereg.jax.PosteriorProblem], steps it once per batch,
+and reads back a [`Posterior`][stagereg.jax.Posterior] it consumes only through
 draws of the mean function at given inputs (ADR-0009).
 """
 
@@ -17,8 +17,8 @@ from typing import Any, Protocol
 import jax
 import jax.numpy as jnp
 
-from probreg.core.protocols import LoaderFactory
-from probreg.core.types import Batch, PyTree
+from stagereg.core.protocols import LoaderFactory
+from stagereg.core.types import Batch, PyTree
 
 
 class Prior(Protocol):
@@ -107,11 +107,11 @@ class InferenceMethod(Protocol):
     """How a posterior stage turns a posterior problem into a posterior.
 
     The stage owns the epoch loop: it calls
-    [`init`][probreg.jax.InferenceMethod.init] once, then
-    [`update`][probreg.jax.InferenceMethod.update] once per training batch,
-    and reads the current [`posterior`][probreg.jax.InferenceMethod.posterior]
+    [`init`][stagereg.jax.InferenceMethod.init] once, then
+    [`update`][stagereg.jax.InferenceMethod.update] once per training batch,
+    and reads the current [`posterior`][stagereg.jax.InferenceMethod.posterior]
     to validate each epoch that ends with
-    [`has_posterior`][probreg.jax.InferenceMethod.has_posterior] true. Every
+    [`has_posterior`][stagereg.jax.InferenceMethod.has_posterior] true. Every
     method honors the problem's prior.
     """
 
@@ -125,7 +125,7 @@ class InferenceMethod(Protocol):
 
     @property
     def has_posterior(self) -> bool:
-        """Whether [`posterior`][probreg.jax.InferenceMethod.posterior] can be read.
+        """Whether [`posterior`][stagereg.jax.InferenceMethod.posterior] can be read.
 
         ``False`` before ``init`` and, for SG-MCMC, until the first sample is
         retained. The posterior stage skips validation for an epoch that ends
@@ -178,7 +178,7 @@ class InferenceMethod(Protocol):
 
         Args:
             state: A state previously returned by
-                [`state`][probreg.jax.InferenceMethod.state].
+                [`state`][stagereg.jax.InferenceMethod.state].
         """
         ...
 
@@ -186,7 +186,7 @@ class InferenceMethod(Protocol):
         """Return the current posterior alone, independent of later updates.
 
         This is what a finalized checkpoint stores: only what
-        [`load_posterior`][probreg.jax.InferenceMethod.load_posterior] needs
+        [`load_posterior`][stagereg.jax.InferenceMethod.load_posterior] needs
         to rebuild the posterior, e.g. the variational parameters of a
         variational method or the retained samples of an SG-MCMC method, but
         no optimizer state.
@@ -198,15 +198,15 @@ class InferenceMethod(Protocol):
 
     def load_posterior(self, state: PyTree) -> None:
         """Rebuild a finalized posterior after
-        [`init`][probreg.jax.InferenceMethod.init].
+        [`init`][stagereg.jax.InferenceMethod.init].
 
-        Afterwards [`posterior`][probreg.jax.InferenceMethod.posterior]
+        Afterwards [`posterior`][stagereg.jax.InferenceMethod.posterior]
         returns the posterior that ``state`` describes. The method need not be
         able to resume inference from it.
 
         Args:
             state: A state previously returned by
-                [`posterior_state`][probreg.jax.InferenceMethod.posterior_state].
+                [`posterior_state`][stagereg.jax.InferenceMethod.posterior_state].
         """
         ...
 

@@ -22,8 +22,8 @@ mode (see `pyproject.toml`), so unannotated code passes the checker while still 
 - For dataclasses, document the attributes, except those declared `init=False`.
   `tests/test_dataclass_attributes.py` enforces this for exported dataclasses and NamedTuples.
 - Cross-references use mkdocstrings autorefs syntax to the public path,
-  `` [`EarlyStopper`][probreg.core.EarlyStopper] ``, never a Sphinx role (`:class:`,
+  `` [`EarlyStopper`][stagereg.core.EarlyStopper] ``, never a Sphinx role (`:class:`,
   `:func:`, …), which renders as literal text and escapes the strict docs build
   ([ADR 0007](../adr/0007-user-docs-are-mkdocs-and-docstrings-use-autorefs-cross-references.md)).
-  Link a module by its reference-page section anchor, `` [`probreg.jax.state`][probregjaxstate] ``.
+  Link a module by its reference-page section anchor, `` [`stagereg.jax.state`][stageregjaxstate] ``.
   Double-backtick literals stay for values and non-symbol code.

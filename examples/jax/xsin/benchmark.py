@@ -10,11 +10,11 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.losses import NegativeLogLikelihoodLoss
-from probreg.core.protocols import LoaderFactory
-from probreg.core.tracking import EventSink, TrainingEvent
-from probreg.core.types import Batch, TrainingState
-from probreg.jax import (
+from stagereg.core.losses import NegativeLogLikelihoodLoss
+from stagereg.core.protocols import LoaderFactory
+from stagereg.core.tracking import EventSink, TrainingEvent
+from stagereg.core.types import Batch, TrainingState
+from stagereg.jax import (
     Gamma,
     GammaHead,
     GammaVarianceStage,

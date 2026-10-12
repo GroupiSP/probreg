@@ -1,7 +1,7 @@
 """Tests that the API reference pages and the packages' exports cannot drift.
 
 Each reference page holds one `:::` directive per exported symbol, named by its public
-path (`probreg.core.GaussianNLLLoss`), under a `## probreg.core.losses`-style section for
+path (`stagereg.core.GaussianNLLLoss`), under a `## stagereg.core.losses`-style section for
 the module that defines it. A page missing a directive still builds, so the strict
 docs build cannot catch it; these tests do, in both directions.
 
@@ -22,7 +22,7 @@ from types import ModuleType
 
 REPOSITORY = Path(__file__).parent.parent
 REFERENCE_DIR = REPOSITORY / "docs_site" / "reference"
-PAGES = {"probreg.core": "core.md", "probreg.jax": "jax.md"}
+PAGES = {"stagereg.core": "core.md", "stagereg.jax": "jax.md"}
 
 SECTION = re.compile(r"^## `?(?P<module>[\w.]+)`?\s*$")
 DIRECTIVE = re.compile(r"^::: (?P<target>[\w.]+)\s*$")

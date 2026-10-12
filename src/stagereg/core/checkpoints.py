@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from probreg.core.types import TrainingState
+from stagereg.core.types import TrainingState
 
 
 @dataclass(frozen=True)
@@ -14,7 +14,7 @@ class Checkpoint:
     """The complete state necessary to resume staged training.
 
     Attributes:
-        state: Snapshot of the [`TrainingState`][probreg.core.TrainingState] at
+        state: Snapshot of the [`TrainingState`][stagereg.core.TrainingState] at
             the time the checkpoint was saved.
         epoch: Epoch of the active stage at which the checkpoint was saved.
         parameters: Snapshot of the model's parameters, in the backend's own
@@ -24,7 +24,7 @@ class Checkpoint:
         rng_state: Random key to resume training with. It mirrors the
             ``rng_state`` of the embedded ``state``. Defaults to ``None``.
         early_stopping_state: State of the early stopper, such as an
-            [`EarlyStoppingState`][probreg.core.EarlyStoppingState], so that
+            [`EarlyStoppingState`][stagereg.core.EarlyStoppingState], so that
             patience and the best value carry over on resume. Defaults to
             ``None``.
         metadata: Information about the checkpoint, such as the stage that saved
@@ -51,7 +51,7 @@ class CheckpointStore(Protocol):
 
 
 class InMemoryCheckpointStore:
-    """A [`CheckpointStore`][probreg.core.CheckpointStore] kept in process memory.
+    """A [`CheckpointStore`][stagereg.core.CheckpointStore] kept in process memory.
 
     Checkpoints live only for the lifetime of the store, which makes it the natural
     choice for examples, tests, and short runs that only need the best checkpoint of the

@@ -7,10 +7,10 @@ from dataclasses import dataclass, field
 import jax
 from flax import nnx
 
-from probreg.core.protocols import LoaderFactory
-from probreg.core.types import TrainingState, ValidationResult
-from probreg.jax.evaluation import SupervisedLoss, evaluate_loader
-from probreg.jax.metrics import MetricSuite
+from stagereg.core.protocols import LoaderFactory
+from stagereg.core.types import TrainingState, ValidationResult
+from stagereg.jax.evaluation import SupervisedLoss, evaluate_loader
+from stagereg.jax.metrics import MetricSuite
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class HeldOutValidation:
                 select the validation batches for this epoch.
 
         Returns:
-            A [`ValidationResult`][probreg.core.ValidationResult] with bare
+            A [`ValidationResult`][stagereg.core.ValidationResult] with bare
             metric names and ``passed=True``.
 
         Raises:

@@ -1,11 +1,11 @@
 # Tracking a run
 
 A runner reports what happens during training as
-[training events][probreg.core.TrainingEvent], and anything that wants to watch
-a run receives them as an [event sink][probreg.core.EventSink]. To record a run
+[training events][stagereg.core.TrainingEvent], and anything that wants to watch
+a run receives them as an [event sink][stagereg.core.EventSink]. To record a run
 in TensorBoard, MLflow or any other experiment tracker, you implement the three
-methods of [`ExperimentTracker`][probreg.core.ExperimentTracker] and pass
-[`TrackerEventSink`][probreg.core.TrackerEventSink], which wraps it, to the runner.
+methods of [`ExperimentTracker`][stagereg.core.ExperimentTracker] and pass
+[`TrackerEventSink`][stagereg.core.TrackerEventSink], which wraps it, to the runner.
 This page covers those three types, why the library stops there, and how the tag
 for each metric and hyperparameter is built. Terms in bold are defined on the
 [Glossary](../glossary.md) page.
@@ -13,15 +13,15 @@ for each metric and hyperparameter is built. Terms in bold are defined on the
 ## Events, sinks and trackers
 
 A **training event** is a structured observation from a named point in a
-stage's lifecycle. [`run_supervised`][probreg.jax.run_supervised] emits four of
+stage's lifecycle. [`run_supervised`][stagereg.jax.run_supervised] emits four of
 them:
 
 | Event name | Split | Carries |
 | --- | --- | --- |
 | `epoch_end` | `train` | the epoch's training metrics |
-| `validation_end` | `validation` | the epoch's validation metrics, when a [`ValidationStrategy`][probreg.core.ValidationStrategy] is given |
-| `best_model` | the early stopper's split | a [`Decision`][probreg.core.Decision], no metrics |
-| `early_stop` | the early stopper's split | a [`Decision`][probreg.core.Decision], no metrics |
+| `validation_end` | `validation` | the epoch's validation metrics, when a [`ValidationStrategy`][stagereg.core.ValidationStrategy] is given |
+| `best_model` | the early stopper's split | a [`Decision`][stagereg.core.Decision], no metrics |
+| `early_stop` | the early stopper's split | a [`Decision`][stagereg.core.Decision], no metrics |
 
 Every event carries its `stage`, its `split`, its `step` (the epoch) and the live
 training state. An **event sink** is anything with an `on_event` method. Sinks
@@ -33,10 +33,10 @@ An **experiment tracker** is a destination that records parameters, metrics and
 artifacts for one **run**. It knows nothing about events. It is told what to
 record, never when a run reaches a point of interest. `TrackerEventSink` is the
 adapter between the two: for each event it calls
-[`log_metrics`][probreg.core.ExperimentTracker.log_metrics] with the event's
+[`log_metrics`][stagereg.core.ExperimentTracker.log_metrics] with the event's
 metrics under their metric tags, at the event's step. It never calls
-[`log_params`][probreg.core.ExperimentTracker.log_params] or
-[`log_artifact`][probreg.core.ExperimentTracker.log_artifact], since no training
+[`log_params`][stagereg.core.ExperimentTracker.log_params] or
+[`log_artifact`][stagereg.core.ExperimentTracker.log_artifact], since no training
 event carries hyperparameters or figures. Your script calls those itself, before
 and after the run.
 
@@ -49,9 +49,9 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core import EarlyStopper, TrackerEventSink, flatten_parameters
-from probreg.core.types import Batch
-from probreg.jax import (
+from stagereg.core import EarlyStopper, TrackerEventSink, flatten_parameters
+from stagereg.core.types import Batch
+from stagereg.jax import (
     HeldOutValidation,
     create_optimizer,
     initialize_training_state,
@@ -126,7 +126,7 @@ own project.
 
 ## Why core ships the bridge but never a tracker
 
-`probreg.core` declares the event and tracker protocols and ships
+`stagereg.core` declares the event and tracker protocols and ships
 `TrackerEventSink`, and that is all of its tracking support. Every concrete
 tracker lives outside the library, in an example you copy.
 
@@ -135,10 +135,10 @@ the same for every destination, and a mistake there costs you without showing
 itself: a tag without the stage lets one stage's curve silently overwrite
 another's. So the library owns that translation. Writing a scalar to a given
 tracker, on the other hand, takes a handful of vendor-specific lines, and those
-are most useful where you can see and edit them. A `probreg.trackers` package or
-a `probreg[tensorboard]` extra would turn each of those few lines into a
+are most useful where you can see and edit them. A `stagereg.trackers` package or
+a `stagereg[tensorboard]` extra would turn each of those few lines into a
 dependency to pin and support. `TrackerEventSink` imports only core modules, so
-probreg depends on no tracker by construction.
+stagereg depends on no tracker by construction.
 
 The cost is that a tracker the repository has no example for starts from the
 TensorBoard one. That file is kept small and self-contained so it is easy to
@@ -148,7 +148,7 @@ rewrite. The decision is recorded in ADR 0005, and ADR 0006 amends it.
 
 Every value a tracker receives is recorded under a name that the rules below
 determine, so you can predict each tag before you open the tracker. The scheme
-lives in one module, [`probreg.core.naming`](../reference/core.md#probregcorenaming),
+lives in one module, [`stagereg.core.naming`](../reference/core.md#stageregcorenaming),
 and no other code joins or splits these strings.
 
 ### Metric names are bare
@@ -160,7 +160,7 @@ the metric along adds to it. The training loss and the validation loss are both
 way, and picks the **split** with its `source` argument:
 
 ```python
-from probreg.core import EarlyStopper, Split
+from stagereg.core import EarlyStopper, Split
 
 stopper = EarlyStopper(metric="loss", mode="min", patience=5, source=Split.TRAIN)
 print(stopper.monitored_metric_name())
@@ -171,13 +171,13 @@ print(stopper.monitored_metric_name())
 
 A **metric tag** is the namespaced identity of a recorded metric,
 `stage/split/metric`. It is built only where a run is observed, by
-[`metric_tag`][probreg.core.metric_tag], from the event's stage, the event's
+[`metric_tag`][stagereg.core.metric_tag], from the event's stage, the event's
 split and the bare name. `/` is the only separator, and no segment may be empty
-or contain it, so [`parse_metric_tag`][probreg.core.parse_metric_tag] always
+or contain it, so [`parse_metric_tag`][stagereg.core.parse_metric_tag] always
 recovers exactly the parts the tag was built from:
 
 ```python
-from probreg.core import Split, metric_tag, parse_metric_tag
+from stagereg.core import Split, metric_tag, parse_metric_tag
 
 tag = metric_tag("mean", Split.VALIDATION, "loss")
 print(tag)
@@ -193,7 +193,7 @@ except ValueError as error:
 ```
 
 The split is data, not guesswork. Each event carries the
-[`Split`][probreg.core.Split] its metrics were measured on, `train` or
+[`Split`][stagereg.core.Split] its metrics were measured on, `train` or
 `validation`, set by the runner, which is the only party that knows it. Neither
 the event's name nor the metric's name is used to infer it.
 
@@ -206,8 +206,8 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.types import Batch
-from probreg.jax import create_optimizer, initialize_training_state, run_supervised
+from stagereg.core.types import Batch
+from stagereg.jax import create_optimizer, initialize_training_state, run_supervised
 
 
 def squared_error(model, inputs, targets, sample_weight, key, training):
@@ -242,8 +242,8 @@ pass `stage=`, so the run above records `supervised/train/loss` and not
 `train/loss`.
 
 The reason is that each stage counts its own steps from zero. In a two-step run,
-[`MeanStage`][probreg.jax.MeanStage] and
-[`GammaVarianceStage`][probreg.jax.GammaVarianceStage] both report a training
+[`MeanStage`][stagereg.jax.MeanStage] and
+[`GammaVarianceStage`][stagereg.jax.GammaVarianceStage] both report a training
 loss from epoch 0 onwards. Under the tags `mean/train/loss` and
 `variance/train/loss` they are two curves. Without the stage segment both would
 write to `train/loss` at the same steps, and the variance stage's curve would
@@ -256,14 +256,14 @@ exactly three parts.
 A **parameter path** is the identity of a recorded hyperparameter: its key path
 through a nested parameter mapping, joined with the same `/`. A tracker receives
 the nested mapping in
-[`log_params`][probreg.core.ExperimentTracker.log_params] and, if it stores flat
+[`log_params`][stagereg.core.ExperimentTracker.log_params] and, if it stores flat
 names, flattens it with
-[`flatten_parameters`][probreg.core.flatten_parameters]. Each leaf key is a bare
+[`flatten_parameters`][stagereg.core.flatten_parameters]. Each leaf key is a bare
 `snake_case` name, and a split is a level of nesting of its own, never part of a
 leaf key: `data/train/samples`, not `data/train_samples`.
 
 ```python
-from probreg.core import flatten_parameters
+from stagereg.core import flatten_parameters
 
 parameters = {
     "optimizer": {"name": "adam", "learning_rate": 1e-3},
@@ -306,9 +306,9 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core import EarlyStopper, Split
-from probreg.core.types import Batch
-from probreg.jax import create_optimizer, initialize_training_state, run_supervised
+from stagereg.core import EarlyStopper, Split
+from stagereg.core.types import Batch
+from stagereg.jax import create_optimizer, initialize_training_state, run_supervised
 
 
 class DecisionPrinter:

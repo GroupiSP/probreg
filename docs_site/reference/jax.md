@@ -1,120 +1,120 @@
-# `probreg.jax`
+# `stagereg.jax`
 
-Every symbol exported from `probreg.jax`, the JAX/Flax NNX training backend, grouped by the
+Every symbol exported from `stagereg.jax`, the JAX/Flax NNX training backend, grouped by the
 module that defines it. Using it needs the `jax` extra.
 
-## `probreg.jax.bayes_by_backprop`
+## `stagereg.jax.bayes_by_backprop`
 
-::: probreg.jax.BayesByBackprop
+::: stagereg.jax.BayesByBackprop
 
-::: probreg.jax.MeanFieldGaussianPosterior
+::: stagereg.jax.MeanFieldGaussianPosterior
 
-## `probreg.jax.distributions`
+## `stagereg.jax.distributions`
 
-::: probreg.jax.Gaussian
+::: stagereg.jax.Gaussian
 
-::: probreg.jax.Gamma
+::: stagereg.jax.Gamma
 
-::: probreg.jax.PosteriorPredictive
+::: stagereg.jax.PosteriorPredictive
 
-::: probreg.jax.MomentMatchedPredictive
+::: stagereg.jax.MomentMatchedPredictive
 
-::: probreg.jax.GaussianHead
+::: stagereg.jax.GaussianHead
 
-::: probreg.jax.GammaHead
+::: stagereg.jax.GammaHead
 
-## `probreg.jax.evaluation`
+## `stagereg.jax.evaluation`
 
-::: probreg.jax.SupervisedLoss
+::: stagereg.jax.SupervisedLoss
 
-::: probreg.jax.make_evaluation_step
+::: stagereg.jax.make_evaluation_step
 
-::: probreg.jax.evaluate_loader
+::: stagereg.jax.evaluate_loader
 
-## `probreg.jax.losses`
+## `stagereg.jax.losses`
 
-::: probreg.jax.make_supervised_loss
+::: stagereg.jax.make_supervised_loss
 
-## `probreg.jax.metrics`
+## `stagereg.jax.metrics`
 
-::: probreg.jax.BatchMetric
+::: stagereg.jax.BatchMetric
 
-::: probreg.jax.BatchMetricSpec
+::: stagereg.jax.BatchMetricSpec
 
-::: probreg.jax.PredictionRequirements
+::: stagereg.jax.PredictionRequirements
 
-::: probreg.jax.CoordinateExtractor
+::: stagereg.jax.CoordinateExtractor
 
-::: probreg.jax.ReferenceSamplesExtractor
+::: stagereg.jax.ReferenceSamplesExtractor
 
-::: probreg.jax.Predictor
+::: stagereg.jax.Predictor
 
-::: probreg.jax.GaussianPredictor
+::: stagereg.jax.GaussianPredictor
 
-::: probreg.jax.PosteriorPredictivePredictor
+::: stagereg.jax.PosteriorPredictivePredictor
 
-::: probreg.jax.MetricSuite
+::: stagereg.jax.MetricSuite
 
-::: probreg.jax.merge_epoch_prediction_data
+::: stagereg.jax.merge_epoch_prediction_data
 
-## `probreg.jax.posterior`
+## `stagereg.jax.posterior`
 
-::: probreg.jax.PosteriorProblem
+::: stagereg.jax.PosteriorProblem
 
-::: probreg.jax.Prior
+::: stagereg.jax.Prior
 
-::: probreg.jax.IsotropicGaussianPrior
+::: stagereg.jax.IsotropicGaussianPrior
 
-::: probreg.jax.InferenceMethod
+::: stagereg.jax.InferenceMethod
 
-::: probreg.jax.Posterior
+::: stagereg.jax.Posterior
 
-## `probreg.jax.posterior_stage`
+## `stagereg.jax.posterior_stage`
 
-::: probreg.jax.PosteriorStageOptions
+::: stagereg.jax.PosteriorStageOptions
 
-::: probreg.jax.PosteriorStage
+::: stagereg.jax.PosteriorStage
 
-## `probreg.jax.psgld`
+## `stagereg.jax.psgld`
 
-::: probreg.jax.PreconditionedSGLD
+::: stagereg.jax.PreconditionedSGLD
 
-::: probreg.jax.RetainedSamplesPosterior
+::: stagereg.jax.RetainedSamplesPosterior
 
-## `probreg.jax.rng`
+## `stagereg.jax.rng`
 
-::: probreg.jax.split_key
+::: stagereg.jax.split_key
 
-## `probreg.jax.state`
+## `stagereg.jax.state`
 
-::: probreg.jax.NnxSnapshot
+::: stagereg.jax.NnxSnapshot
 
-::: probreg.jax.create_optimizer
+::: stagereg.jax.create_optimizer
 
-::: probreg.jax.initialize_training_state
+::: stagereg.jax.initialize_training_state
 
-::: probreg.jax.freeze_training_state
+::: stagereg.jax.freeze_training_state
 
-::: probreg.jax.snapshot
+::: stagereg.jax.snapshot
 
-::: probreg.jax.restore_checkpoint
+::: stagereg.jax.restore_checkpoint
 
-## `probreg.jax.supervised`
+## `stagereg.jax.supervised`
 
-::: probreg.jax.make_train_step
+::: stagereg.jax.make_train_step
 
-::: probreg.jax.run_supervised
+::: stagereg.jax.run_supervised
 
-## `probreg.jax.supervised_staged`
+## `stagereg.jax.supervised_staged`
 
-::: probreg.jax.materialize_residual_loader
+::: stagereg.jax.materialize_residual_loader
 
-::: probreg.jax.SupervisedStageOptions
+::: stagereg.jax.SupervisedStageOptions
 
-::: probreg.jax.MeanStage
+::: stagereg.jax.MeanStage
 
-::: probreg.jax.GammaVarianceStage
+::: stagereg.jax.GammaVarianceStage
 
-## `probreg.jax.validation`
+## `stagereg.jax.validation`
 
-::: probreg.jax.HeldOutValidation
+::: stagereg.jax.HeldOutValidation

@@ -7,24 +7,24 @@ from collections.abc import Callable, Mapping, Sequence
 import jax
 from flax import nnx
 
-from probreg.core.checkpoints import CheckpointStore
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.metric_registry import EpochPredictionData
-from probreg.core.protocols import LoaderFactory, ValidationStrategy
-from probreg.core.tracking import EventSink
-from probreg.core.types import Batch, PyTree, StageResult, TrainingState
-from probreg.jax.epoch_loop import (
+from stagereg.core.checkpoints import CheckpointStore
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.metric_registry import EpochPredictionData
+from stagereg.core.protocols import LoaderFactory, ValidationStrategy
+from stagereg.core.tracking import EventSink
+from stagereg.core.types import Batch, PyTree, StageResult, TrainingState
+from stagereg.jax.epoch_loop import (
     StateSnapshot,
     check_epoch_loop_arguments,
     run_epoch_loop,
 )
-from probreg.jax.evaluation import SupervisedLoss
-from probreg.jax.metrics import (
+from stagereg.jax.evaluation import SupervisedLoss
+from stagereg.jax.metrics import (
     BatchMetricSpec,
     MetricSuite,
     resolve_epoch_prediction_data,
 )
-from probreg.jax.state import snapshot
+from stagereg.jax.state import snapshot
 
 
 def make_train_step(
@@ -108,7 +108,7 @@ def run_supervised(
     The runner does not restore the best checkpoint: when training ends,
     ``model`` holds the parameters of the last epoch run. To continue from the
     best model, load the checkpoint from ``checkpoint_store`` and pass it to
-    [`restore_checkpoint`][probreg.jax.restore_checkpoint].
+    [`restore_checkpoint`][stagereg.jax.restore_checkpoint].
 
     Args:
         model: The NNX module to train, mutated in place.
@@ -134,8 +134,8 @@ def run_supervised(
             is saved. Defaults to ``None``, which resolves to the stage-scoped
             key ``f"{stage}/best"`` so that stages sharing one
             ``checkpoint_store`` never overwrite each other; the
-            [`MeanStage`][probreg.jax.MeanStage] and
-            [`GammaVarianceStage`][probreg.jax.GammaVarianceStage] defaults
+            [`MeanStage`][stagereg.jax.MeanStage] and
+            [`GammaVarianceStage`][stagereg.jax.GammaVarianceStage] defaults
             resolve the same way.
         stage: The stage name recorded on ``state`` and emitted events,
             and the stage segment of every metric tag recorded in
@@ -148,7 +148,7 @@ def run_supervised(
             omitted, only loss is collected.
 
     Returns:
-        A [`StageResult`][probreg.core.StageResult] with the final
+        A [`StageResult`][stagereg.core.StageResult] with the final
         ``state``, the last recorded training metrics under their bare
         names, and the final training loss. ``state.metric_history``
         records every metric under its metric tag ``stage/split/metric``.

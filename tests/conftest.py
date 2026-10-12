@@ -19,13 +19,13 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.protocols import LoaderFactory
-from probreg.core.tracking import EventSink, TrainingEvent
-from probreg.core.types import StageResult
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.protocols import LoaderFactory
+from stagereg.core.tracking import EventSink, TrainingEvent
+from stagereg.core.types import StageResult
 
 if TYPE_CHECKING:
-    from probreg.jax import SupervisedLoss
+    from stagereg.jax import SupervisedLoss
 
 
 class InMemoryTracker:
@@ -63,8 +63,8 @@ def _require_jax_backend() -> None:
 # The packages the API reference documents, each with the optional dependencies it
 # needs to import; a test of a package skips without them.
 DOCUMENTED_PACKAGES = {
-    "probreg.core": (),
-    "probreg.jax": ("jax", "flax.nnx", "optax"),
+    "stagereg.core": (),
+    "stagereg.jax": ("jax", "flax.nnx", "optax"),
 }
 
 
@@ -150,7 +150,7 @@ def constant_loader() -> LoaderFactory:
     _require_jax_backend()
     import jax.numpy as jnp
 
-    from probreg.core.types import Batch
+    from stagereg.core.types import Batch
 
     def constant_loader(*, split: str, epoch: int) -> list[Batch]:
         del epoch
@@ -172,7 +172,7 @@ def supervised_run(
     import optax
     from flax import nnx
 
-    from probreg.jax import (
+    from stagereg.jax import (
         HeldOutValidation,
         create_optimizer,
         initialize_training_state,

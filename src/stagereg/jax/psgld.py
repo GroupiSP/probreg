@@ -1,10 +1,10 @@
 """Preconditioned stochastic-gradient Langevin dynamics (pSGLD).
 
-An SG-MCMC [`InferenceMethod`][probreg.jax.InferenceMethod]: a Langevin chain
+An SG-MCMC [`InferenceMethod`][stagereg.jax.InferenceMethod]: a Langevin chain
 over the posterior network's parameters, preconditioned by an RMSprop estimate
 of the gradient's scale (Li et al., 2016). The chain's positions retained
 after burn-in, at the thinning interval, are the draws of a finite
-[`RetainedSamplesPosterior`][probreg.jax.RetainedSamplesPosterior].
+[`RetainedSamplesPosterior`][stagereg.jax.RetainedSamplesPosterior].
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 
-from probreg.core.types import Batch, PyTree
-from probreg.jax.posterior import PosteriorProblem
+from stagereg.core.types import Batch, PyTree
+from stagereg.jax.posterior import PosteriorProblem
 
 
 @dataclass(frozen=True)
@@ -76,7 +76,7 @@ class RetainedSamplesPosterior:
 class PreconditionedSGLD:
     """RMSprop-preconditioned stochastic-gradient Langevin dynamics.
 
-    Each [`update`][probreg.jax.PreconditionedSGLD.update] takes one step on
+    Each [`update`][stagereg.jax.PreconditionedSGLD.update] takes one step on
     the batch's estimate ``U`` of the negative log posterior, the problem's
     log-likelihood (already scaled to the full data set) plus its prior.
     With gradient ``g = ∇U``, the preconditioner tracks
@@ -85,7 +85,7 @@ class PreconditionedSGLD:
     noise of variance ``step_size · G``. The preconditioner's own drift
     correction is neglected, as is usual.
 
-    The step is compiled once per [`init`][probreg.jax.PreconditionedSGLD.init];
+    The step is compiled once per [`init`][stagereg.jax.PreconditionedSGLD.init];
     the log-likelihood sees each batch's inputs, targets and sample weights but
     not its metadata.
 
@@ -93,13 +93,13 @@ class PreconditionedSGLD:
     epochs. Steps are numbered from 1; the position after step ``t`` is
     retained when ``t = burn_in + k · thinning`` for some ``k ≥ 1``. Until
     the first position is retained,
-    [`has_posterior`][probreg.jax.PreconditionedSGLD.has_posterior] is
-    ``False`` and [`posterior`][probreg.jax.PreconditionedSGLD.posterior]
+    [`has_posterior`][stagereg.jax.PreconditionedSGLD.has_posterior] is
+    ``False`` and [`posterior`][stagereg.jax.PreconditionedSGLD.posterior]
     refuses, so a posterior stage skips validation for the epochs of a
     burn-in.
 
     SG-MCMC declares no early-stopping support, so a
-    [`PosteriorStage`][probreg.jax.PosteriorStage] refuses an early stopper
+    [`PosteriorStage`][stagereg.jax.PosteriorStage] refuses an early stopper
     for it and writes only a finalized checkpoint, holding the stacked
     retained samples.
 
@@ -235,7 +235,7 @@ class PreconditionedSGLD:
 
         Args:
             state: A state previously returned by
-                [`state`][probreg.jax.PreconditionedSGLD.state].
+                [`state`][stagereg.jax.PreconditionedSGLD.state].
         """
         self._parameters = state["parameters"]
         self._second_moment = state["second_moment"]
@@ -263,7 +263,7 @@ class PreconditionedSGLD:
 
         Args:
             state: Stacked samples previously returned by
-                [`posterior_state`][probreg.jax.PreconditionedSGLD.posterior_state].
+                [`posterior_state`][stagereg.jax.PreconditionedSGLD.posterior_state].
         """
         self._samples = _unstack(state)
 

@@ -14,7 +14,7 @@ import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
-from probreg.core import (
+from stagereg.core import (
     MetricTag,
     Split,
     flatten_parameters,

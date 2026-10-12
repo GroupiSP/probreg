@@ -1,5 +1,5 @@
 [project]
-name = "probreg"
+name = "stagereg"
 version = "0.1.0"
 description = "Stage-oriented probabilistic regression"
 readme = "README.md"

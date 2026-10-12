@@ -13,21 +13,21 @@ from flax import nnx
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from probreg.core.checkpoints import (
+from stagereg.core.checkpoints import (
     Checkpoint,
     CheckpointStore,
     InMemoryCheckpointStore,
 )
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.losses import (
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.losses import (
     NegativeLogLikelihoodLoss,
     SquaredErrorLoss,
     add_epsilon,
 )
-from probreg.core.naming import Split
-from probreg.core.protocols import LoaderFactory, ValidationStrategy
-from probreg.core.tracking import EventSink, TrackerEventSink
-from probreg.core.types import (
+from stagereg.core.naming import Split
+from stagereg.core.protocols import LoaderFactory, ValidationStrategy
+from stagereg.core.tracking import EventSink, TrackerEventSink
+from stagereg.core.types import (
     Batch,
     ParameterRole,
     StageResult,
@@ -35,11 +35,11 @@ from probreg.core.types import (
     TrainingState,
     ValidationResult,
 )
-from probreg.jax import HeldOutValidation, SupervisedLoss
-from probreg.jax.distributions import GammaHead
-from probreg.jax.losses import make_supervised_loss
-from probreg.jax.state import create_optimizer, restore_checkpoint
-from probreg.jax.supervised_staged import (
+from stagereg.jax import HeldOutValidation, SupervisedLoss
+from stagereg.jax.distributions import GammaHead
+from stagereg.jax.losses import make_supervised_loss
+from stagereg.jax.state import create_optimizer, restore_checkpoint
+from stagereg.jax.supervised_staged import (
     GammaVarianceStage,
     MeanStage,
     SupervisedStageOptions,

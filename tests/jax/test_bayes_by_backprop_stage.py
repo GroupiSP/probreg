@@ -18,9 +18,9 @@ from posterior_runs import (
     restore_mean_and_variance,
 )
 
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.types import StageState
-from probreg.jax import BayesByBackprop, PosteriorStage, PosteriorStageOptions
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.types import StageState
+from stagereg.jax import BayesByBackprop, PosteriorStage, PosteriorStageOptions
 
 
 def _stage(method: BayesByBackprop, store: RecordingStore | None) -> PosteriorStage:

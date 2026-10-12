@@ -27,14 +27,14 @@ from benchmark import (
 )
 from flax import nnx
 
-from probreg.core import (
+from stagereg.core import (
     EvaluationGrid,
     NegativeLogLikelihood,
     PointContinuousRankedProbabilityScore,
 )
-from probreg.core.tracking import EventSink
-from probreg.core.types import Batch
-from probreg.jax import (
+from stagereg.core.tracking import EventSink
+from stagereg.core.types import Batch
+from stagereg.jax import (
     BayesByBackprop,
     Gaussian,
     GaussianPredictor,

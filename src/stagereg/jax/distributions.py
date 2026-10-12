@@ -1,11 +1,11 @@
 """A concrete JAX-backed Gaussian predictive distribution and head.
 
 This module binds
-[`PredictiveDistribution`][probreg.core.PredictiveDistribution] and
-[`DistributionHead`][probreg.core.DistributionHead] to JAX arrays and an NNX
+[`PredictiveDistribution`][stagereg.core.PredictiveDistribution] and
+[`DistributionHead`][stagereg.core.DistributionHead] to JAX arrays and an NNX
 linear head, following the same Tier 2 (JAX backend) placement as
-[`probreg.jax.state`][probregjaxstate] and
-[`probreg.jax.evaluation`][probregjaxevaluation].
+[`stagereg.jax.state`][stageregjaxstate] and
+[`stagereg.jax.evaluation`][stageregjaxevaluation].
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class Gaussian:
         loc: The distribution mean, shaped like the model's output.
         scale: The distribution's positive standard deviation, broadcastable
             against ``loc``. Callers (e.g.
-            [`GaussianHead`][probreg.jax.GaussianHead]) are responsible for
+            [`GaussianHead`][stagereg.jax.GaussianHead]) are responsible for
             ensuring positivity, e.g. via a ``softplus`` transform of an
             unconstrained raw output.
     """
@@ -154,10 +154,10 @@ class Gamma:
 class MomentMatchedPredictive:
     """The Gaussian with a posterior predictive's mean and variance.
 
-    A named summary of a [`PosteriorPredictive`][probreg.jax.PosteriorPredictive],
+    A named summary of a [`PosteriorPredictive`][stagereg.jax.PosteriorPredictive],
     not a substitute for it: its variance is split into the aleatoric and the
     epistemic part. Obtain one from
-    [`PosteriorPredictive.moment_matched`][probreg.jax.PosteriorPredictive.moment_matched].
+    [`PosteriorPredictive.moment_matched`][stagereg.jax.PosteriorPredictive.moment_matched].
 
     Attributes:
         loc: The predictive mean, the average of the draws' means.
@@ -230,7 +230,7 @@ class PosteriorPredictive:
     Each component is a Gaussian centred on one draw's mean with the aleatoric
     variance, so the mixture is exact for the draws taken and may be skewed or
     multimodal. Its single-Gaussian summary is
-    [`moment_matched`][probreg.jax.PosteriorPredictive.moment_matched].
+    [`moment_matched`][stagereg.jax.PosteriorPredictive.moment_matched].
 
     Attributes:
         draws: The mean of each draw at the predicted inputs, shaped
@@ -296,7 +296,7 @@ class PosteriorPredictive:
         """Draw predictive samples, each from a uniformly chosen draw's Gaussian.
 
         The Gaussian noise uses ``key`` exactly as
-        [`Gaussian.sample`][probreg.jax.Gaussian.sample] does, so with one draw
+        [`Gaussian.sample`][stagereg.jax.Gaussian.sample] does, so with one draw
         the samples equal that Gaussian's.
 
         Args:
@@ -380,7 +380,7 @@ class PosteriorPredictive:
         variance plus the epistemic variance of the draws' means.
 
         Returns:
-            The [`MomentMatchedPredictive`][probreg.jax.MomentMatchedPredictive],
+            The [`MomentMatchedPredictive`][stagereg.jax.MomentMatchedPredictive],
             with both variance parts broadcast to ``batch_shape``.
         """
         return MomentMatchedPredictive(
@@ -395,7 +395,7 @@ class PosteriorPredictive:
 
 
 class GaussianHead(nnx.Module):
-    """An NNX head producing a [`Gaussian`][probreg.jax.Gaussian] from model features.
+    """An NNX head producing a [`Gaussian`][stagereg.jax.Gaussian] from model features.
 
     A single linear layer maps ``in_features`` to ``2 * out_features``
     outputs, split into an unconstrained location and an unconstrained scale
@@ -432,13 +432,13 @@ class GaussianHead(nnx.Module):
         self.linear = nnx.Linear(in_features, 2 * out_features, rngs=rngs)
 
     def __call__(self, features: jax.Array) -> Gaussian:
-        """Produce a [`Gaussian`][probreg.jax.Gaussian] prediction from ``features``.
+        """Produce a [`Gaussian`][stagereg.jax.Gaussian] prediction from ``features``.
 
         Args:
             features: Model features, shaped ``(..., in_features)``.
 
         Returns:
-            A [`Gaussian`][probreg.jax.Gaussian] with ``loc``/``scale`` shaped
+            A [`Gaussian`][stagereg.jax.Gaussian] with ``loc``/``scale`` shaped
             ``(..., out_features)``.
         """
         raw_loc, raw_scale = jnp.split(self.linear(features), 2, axis=-1)
@@ -447,7 +447,7 @@ class GaussianHead(nnx.Module):
 
 
 class GammaHead(nnx.Module):
-    """An NNX head producing a shape/rate [`Gamma`][probreg.jax.Gamma] distribution."""
+    """An NNX head producing a shape/rate [`Gamma`][stagereg.jax.Gamma] distribution."""
 
     def __init__(
         self,

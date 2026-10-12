@@ -3,14 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from probreg.core.protocols import (
+from stagereg.core.protocols import (
     Dataset,
     LoaderFactory,
     Optimizer,
     Step,
     ValidationStrategy,
 )
-from probreg.core.types import Batch, StageResult, TrainingState, ValidationResult
+from stagereg.core.types import Batch, StageResult, TrainingState, ValidationResult
 
 
 class ExampleDataset:

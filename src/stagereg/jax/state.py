@@ -11,8 +11,8 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.checkpoints import Checkpoint
-from probreg.core.types import TrainingState
+from stagereg.core.checkpoints import Checkpoint
+from stagereg.core.types import TrainingState
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,7 @@ def initialize_training_state(
             ``"optimizer"``.
 
     Returns:
-        A [`TrainingState`][probreg.core.TrainingState] with ``model`` and
+        A [`TrainingState`][stagereg.core.TrainingState] with ``model`` and
         ``optimizer`` registered and ``rng_state`` initialized to
         ``rng_key``.
     """
@@ -91,15 +91,15 @@ def freeze_training_state(state: TrainingState) -> TrainingState:
     from the returned snapshot rather than copied, since they hold
     mutable NNX modules/optimizers that keep changing across epochs;
     callers that need an immutable capture of model or optimizer state
-    should use [`snapshot`][probreg.jax.snapshot] instead and store it
+    should use [`snapshot`][stagereg.jax.snapshot] instead and store it
     alongside the frozen training state (see
-    [`Checkpoint`][probreg.core.Checkpoint]).
+    [`Checkpoint`][stagereg.core.Checkpoint]).
 
     Args:
         state: The live training state to snapshot.
 
     Returns:
-        A new [`TrainingState`][probreg.core.TrainingState] whose mutable
+        A new [`TrainingState`][stagereg.core.TrainingState] whose mutable
         container fields are independent copies, unaffected by later
         in-place mutation of ``state``, and whose
         ``model_components``/``optimizer_states`` are empty.
@@ -123,7 +123,7 @@ def snapshot(module: nnx.Module) -> NnxSnapshot:
         module: The NNX module to snapshot.
 
     Returns:
-        An [`NnxSnapshot`][probreg.jax.NnxSnapshot] containing ``module``'s
+        An [`NnxSnapshot`][stagereg.jax.NnxSnapshot] containing ``module``'s
         graph definition and variable state at the time of the call.
     """
     graphdef, state = nnx.split(module)

@@ -3,7 +3,7 @@
 The CMAPSS archive is fetched at most once: subsequent loader calls reuse a
 persistent on-disk cache instead of re-downloading it. If NASA's servers
 can't be reached at all, a manually obtained copy of the archive can be
-supplied via `PROBREG_CMAPSS_ARCHIVE` (or the `archive_override` parameter)
+supplied via `STAGEREG_CMAPSS_ARCHIVE` (or the `archive_override` parameter)
 to bypass the network entirely.
 
 Run this module directly to pre-fetch the archive into the cache without
@@ -43,8 +43,8 @@ _COLUMN_NAMES = [
 _SENSOR_NAMES = [f"sensor_{i}" for i in (11, 12, 4, 7, 15, 20, 21, 2, 17)]
 _SELECTED_COLUMNS = ["unit_id", "time_cycles", *_SENSOR_NAMES]
 
-_CACHE_DIR_ENV_VAR = "PROBREG_CMAPSS_CACHE_DIR"
-_ARCHIVE_OVERRIDE_ENV_VAR = "PROBREG_CMAPSS_ARCHIVE"
+_CACHE_DIR_ENV_VAR = "STAGEREG_CMAPSS_CACHE_DIR"
+_ARCHIVE_OVERRIDE_ENV_VAR = "STAGEREG_CMAPSS_ARCHIVE"
 _CACHED_ARCHIVE_NAME = "CMAPSSData.zip"
 _DOWNLOAD_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = 1.0
@@ -54,16 +54,16 @@ def _default_cache_dir() -> Path:
     """Resolve the per-user cache directory used when no override is set.
 
     Returns:
-        `$XDG_CACHE_HOME/probreg-cmapss` if `XDG_CACHE_HOME` is set,
-        otherwise `~/.cache/probreg-cmapss`.
+        `$XDG_CACHE_HOME/stagereg-cmapss` if `XDG_CACHE_HOME` is set,
+        otherwise `~/.cache/stagereg-cmapss`.
     """
     xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
     base = Path(xdg_cache_home) if xdg_cache_home else Path.home() / ".cache"
-    return base / "probreg-cmapss"
+    return base / "stagereg-cmapss"
 
 
 def _cache_dir() -> Path:
-    """Resolve the archive cache directory, honoring `PROBREG_CMAPSS_CACHE_DIR`."""
+    """Resolve the archive cache directory, honoring `STAGEREG_CMAPSS_CACHE_DIR`."""
     override = os.environ.get(_CACHE_DIR_ENV_VAR)
     return Path(override) if override else _default_cache_dir()
 
@@ -73,7 +73,7 @@ def _archive_override(archive_override: Path | None) -> Path | None:
 
     Args:
         archive_override: An explicit override path, or `None` to fall back
-            to the `PROBREG_CMAPSS_ARCHIVE` environment variable.
+            to the `STAGEREG_CMAPSS_ARCHIVE` environment variable.
 
     Returns:
         The resolved override path, or `None` if neither was supplied.
@@ -141,7 +141,7 @@ def _download_archive(url: str, destination: Path) -> None:
 def _ensure_cached_archive(archive_override: Path | None = None) -> Path:
     """Ensure a valid CMAPSS archive is available in the cache, and return its path.
 
-    A manual override (explicit argument or `PROBREG_CMAPSS_ARCHIVE`) is
+    A manual override (explicit argument or `STAGEREG_CMAPSS_ARCHIVE`) is
     used to seed the cache if present. Otherwise, a cached archive is
     reused if it's still a valid zip; a missing or corrupt cache entry is
     (re-)downloaded.
@@ -149,7 +149,7 @@ def _ensure_cached_archive(archive_override: Path | None = None) -> Path:
     Args:
         archive_override: An explicit path to a pre-downloaded archive,
             bypassing the network. Falls back to the
-            `PROBREG_CMAPSS_ARCHIVE` environment variable when omitted.
+            `STAGEREG_CMAPSS_ARCHIVE` environment variable when omitted.
 
     Returns:
         Path to a valid, cached CMAPSS archive.
@@ -204,7 +204,7 @@ def load_fd001_data(archive_override: Path | None = None) -> pd.DataFrame:
     Args:
         archive_override: An explicit path to a pre-downloaded archive,
             bypassing the network. Falls back to the
-            `PROBREG_CMAPSS_ARCHIVE` environment variable when omitted.
+            `STAGEREG_CMAPSS_ARCHIVE` environment variable when omitted.
 
     Returns:
         The FD001 training trajectories with unit ID, time cycle, and the
@@ -225,7 +225,7 @@ def load_fd001_test_data(archive_override: Path | None = None) -> pd.DataFrame:
     Args:
         archive_override: An explicit path to a pre-downloaded archive,
             bypassing the network. Falls back to the
-            `PROBREG_CMAPSS_ARCHIVE` environment variable when omitted.
+            `STAGEREG_CMAPSS_ARCHIVE` environment variable when omitted.
 
     Returns:
         The FD001 truncated test trajectories with unit ID, time cycle, and
@@ -248,7 +248,7 @@ def load_fd001_test_rul(archive_override: Path | None = None) -> np.ndarray:
     Args:
         archive_override: An explicit path to a pre-downloaded archive,
             bypassing the network. Falls back to the
-            `PROBREG_CMAPSS_ARCHIVE` environment variable when omitted.
+            `STAGEREG_CMAPSS_ARCHIVE` environment variable when omitted.
 
     Returns:
         A 1D array of ground-truth remaining useful life values, one per

@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Review a pull request against Probreg's architecture and coding guidelines (staged training, type hints, Protocols, docstrings, testing).
+description: Review a pull request against Stagereg's architecture and coding guidelines (staged training, type hints, Protocols, docstrings, testing).
 ---
 
 # Code Review Skill

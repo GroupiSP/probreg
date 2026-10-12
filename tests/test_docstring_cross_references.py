@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
-SOURCE_DIRS = (REPO_ROOT / "src" / "probreg", REPO_ROOT / "examples")
+SOURCE_DIRS = (REPO_ROOT / "src" / "stagereg", REPO_ROOT / "examples")
 
 SPHINX_ROLE = re.compile(r":(?:py:)?[a-z]+:`")
 

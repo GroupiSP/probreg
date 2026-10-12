@@ -3,12 +3,12 @@ from __future__ import annotations
 from hypothesis import given
 from hypothesis import strategies as st
 
-from probreg.core.checkpoints import (
+from stagereg.core.checkpoints import (
     Checkpoint,
     CheckpointStore,
     InMemoryCheckpointStore,
 )
-from probreg.core.types import TrainingState
+from stagereg.core.types import TrainingState
 
 
 def test_checkpoint_store_protocol_preserves_resume_state() -> None:

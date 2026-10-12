@@ -258,7 +258,7 @@ def test_default_cache_dir_honors_xdg_cache_home(
 ) -> None:
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
-    assert _DATA._default_cache_dir() == tmp_path / "probreg-cmapss"
+    assert _DATA._default_cache_dir() == tmp_path / "stagereg-cmapss"
 
 
 def test_default_cache_dir_falls_back_to_home_cache(
@@ -267,7 +267,7 @@ def test_default_cache_dir_falls_back_to_home_cache(
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     monkeypatch.setattr(_DATA.Path, "home", classmethod(lambda cls: tmp_path))
 
-    assert _DATA._default_cache_dir() == tmp_path / ".cache" / "probreg-cmapss"
+    assert _DATA._default_cache_dir() == tmp_path / ".cache" / "stagereg-cmapss"
 
 
 def test_main_fetch_only_populates_cache_without_plotting(

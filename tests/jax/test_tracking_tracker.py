@@ -15,8 +15,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from probreg.core.naming import flatten_parameters
-from probreg.core.tracking import ExperimentTracker
+from stagereg.core.naming import flatten_parameters
+from stagereg.core.tracking import ExperimentTracker
 
 
 class FakeWriter:

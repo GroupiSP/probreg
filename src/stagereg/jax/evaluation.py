@@ -1,8 +1,8 @@
 """Shared NNX evaluation primitives used by training runners and validation strategies.
 
 This module has no dependency on any specific training runner, so both
-[`probreg.jax.supervised`][probregjaxsupervised] and
-[`probreg.jax.validation`][probregjaxvalidation] may depend on it without
+[`stagereg.jax.supervised`][stageregjaxsupervised] and
+[`stagereg.jax.validation`][stageregjaxvalidation] may depend on it without
 either depending on the other.
 """
 
@@ -14,8 +14,8 @@ from typing import Protocol
 import jax
 from flax import nnx
 
-from probreg.core.types import Batch, PyTree
-from probreg.jax.metrics import (
+from stagereg.core.types import Batch, PyTree
+from stagereg.jax.metrics import (
     BatchMetricSpec,
     MetricSuite,
     collect_step_metrics,
@@ -23,7 +23,7 @@ from probreg.jax.metrics import (
     maybe_collect_epoch_prediction_data,
     reduce_metric_suite,
 )
-from probreg.jax.rng import split_key
+from stagereg.jax.rng import split_key
 
 
 class SupervisedLoss(Protocol):

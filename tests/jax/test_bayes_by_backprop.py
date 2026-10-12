@@ -11,8 +11,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from probreg.core.types import Batch, PyTree
-from probreg.jax import (
+from stagereg.core.types import Batch, PyTree
+from stagereg.jax import (
     BayesByBackprop,
     IsotropicGaussianPrior,
     MeanFieldGaussianPosterior,

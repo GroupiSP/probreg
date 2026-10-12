@@ -16,7 +16,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from probreg.core.naming import Split, flatten_parameters
+from stagereg.core.naming import Split, flatten_parameters
 
 
 def test_main_writes_one_timestamped_run_of_event_files(

@@ -1,11 +1,11 @@
 """Backend-neutral contracts and utilities for probabilistic regression."""
 
-from probreg.core.checkpoints import (
+from stagereg.core.checkpoints import (
     Checkpoint,
     CheckpointStore,
     InMemoryCheckpointStore,
 )
-from probreg.core.distributions import (
+from stagereg.core.distributions import (
     DistributionHead,
     DistributionLoss,
     Likelihood,
@@ -13,20 +13,20 @@ from probreg.core.distributions import (
     PredictionLoss,
     PredictiveDistribution,
 )
-from probreg.core.early_stopping import (
+from stagereg.core.early_stopping import (
     EarlyStopper,
     EarlyStoppingDecision,
     EarlyStoppingState,
     OptimizationMode,
 )
-from probreg.core.losses import (
+from stagereg.core.losses import (
     BetaNLLLoss,
     GaussianNLLLoss,
     NegativeLogLikelihoodLoss,
     SquaredErrorLoss,
     add_epsilon,
 )
-from probreg.core.metric_registry import (
+from stagereg.core.metric_registry import (
     ContinuousRankedProbabilityScore,
     EpochMetric,
     EpochPredictionData,
@@ -40,7 +40,7 @@ from probreg.core.metric_registry import (
     SampleContinuousRankedProbabilityScore,
     WeightedSpread,
 )
-from probreg.core.metrics import (
+from stagereg.core.metrics import (
     cdf,
     coverage,
     crps,
@@ -49,29 +49,29 @@ from probreg.core.metrics import (
     sample_crps,
     wsu,
 )
-from probreg.core.naming import (
+from stagereg.core.naming import (
     MetricTag,
     Split,
     flatten_parameters,
     metric_tag,
     parse_metric_tag,
 )
-from probreg.core.protocols import (
+from stagereg.core.protocols import (
     Dataset,
     LoaderFactory,
     Optimizer,
     Step,
     ValidationStrategy,
 )
-from probreg.core.stages import StageState, TrainingStage, validate_transition
-from probreg.core.tracking import (
+from stagereg.core.stages import StageState, TrainingStage, validate_transition
+from stagereg.core.tracking import (
     Decision,
     EventSink,
     ExperimentTracker,
     TrackerEventSink,
     TrainingEvent,
 )
-from probreg.core.types import (
+from stagereg.core.types import (
     Array,
     Batch,
     CheckpointRef,

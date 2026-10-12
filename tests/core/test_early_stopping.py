@@ -6,12 +6,12 @@ import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from probreg.core.early_stopping import (
+from stagereg.core.early_stopping import (
     EarlyStopper,
     EarlyStoppingState,
     OptimizationMode,
 )
-from probreg.core.naming import Split
+from stagereg.core.naming import Split
 
 
 def test_minimizing_metric_tracks_best_value_and_stops_after_patience() -> None:

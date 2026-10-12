@@ -4,13 +4,13 @@ from typing import Any
 
 import numpy as np
 
-from probreg.core.distributions import (
+from stagereg.core.distributions import (
     DistributionHead,
     Likelihood,
     Loss,
     PredictiveDistribution,
 )
-from probreg.core.types import Batch
+from stagereg.core.types import Batch
 
 
 def example_likelihood(prediction: PredictiveDistribution, targets: Any) -> np.ndarray:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Protocol
 
-from probreg.core.types import (
+from stagereg.core.types import (
     Batch,
     PyTree,
     StageResult,
