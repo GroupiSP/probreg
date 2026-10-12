@@ -18,12 +18,12 @@ from email.parser import HeaderParser
 from pathlib import Path, PurePosixPath
 
 import pytest
+import yaml
 
 
 REPOSITORY = Path(__file__).parent.parent
-DECLARED_VERSION = tomllib.loads((REPOSITORY / "pyproject.toml").read_text())[
-    "project"
-]["version"]
+PROJECT = tomllib.loads((REPOSITORY / "pyproject.toml").read_text())["project"]
+DECLARED_VERSION = PROJECT["version"]
 GROUP = "Intelligent System Prognostics for Operations & Maintenance Research Group"
 EXPECTED_CLASSIFIERS = {
     "Development Status :: 3 - Alpha",
@@ -192,3 +192,14 @@ def test_clean_install_of_the_wheel_imports(
         capture_output=True,
         cwd=tmp_path,
     )
+
+
+def test_citation_matches_the_declared_version_and_authors() -> None:
+    citation = yaml.safe_load((REPOSITORY / "CITATION.cff").read_text())
+    assert citation["version"] == DECLARED_VERSION
+    cited = [
+        author.get("name") or f"{author['given-names']} {author['family-names']}"
+        for author in citation["authors"]
+    ]
+    declared = [author["name"] for author in PROJECT["authors"]]
+    assert cited == declared == ["Giorgio Tosti Balducci", GROUP]
