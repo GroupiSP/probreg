@@ -24,14 +24,18 @@ jobs:
         run: uv run pre-commit run --all-files
 
   test:
-    name: Test
+    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Install dev dependencies
-        run: uv sync --extra jax --group dev --group example_cmapss
+        run: uv sync --extra jax --group dev --group example-cmapss
       - name: Run tests
         run: uv run pytest
