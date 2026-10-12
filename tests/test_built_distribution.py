@@ -174,7 +174,7 @@ def test_clean_install_of_the_wheel_imports(
         check=True,
         capture_output=True,
     )
-    python = venv / "bin" / "python"
+    python = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     subprocess.run(
         [
             uv,
