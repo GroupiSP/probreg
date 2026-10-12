@@ -1,7 +1,7 @@
 # stagereg
 
-[![PyPI version](https://img.shields.io/pypi/v/stagereg)](https://pypi.org/project/stagereg/)
-[![Python versions](https://img.shields.io/pypi/pyversions/stagereg)](https://pypi.org/project/stagereg/)
+[![PyPI version](https://img.shields.io/pypi/v/stagereg?cacheSeconds=3600)](https://pypi.org/project/stagereg/)
+[![Python versions](https://img.shields.io/pypi/pyversions/stagereg?cacheSeconds=3600)](https://pypi.org/project/stagereg/)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue)](https://github.com/GroupiSP/stagereg/blob/main/LICENSE)
 
 `stagereg` is a library for stage-oriented probabilistic regression: training
