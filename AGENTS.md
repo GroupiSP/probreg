@@ -1,6 +1,6 @@
 # AGENTS.md
 
-`probreg` is a Python library for stage-oriented probabilistic regression, with a JAX/Flax
+`stagereg` is a Python library for stage-oriented probabilistic regression, with a JAX/Flax
 backend and runnable examples under `examples/jax/`.
 
 ## Environment
@@ -25,7 +25,7 @@ Before presenting changes for review, all four must pass:
 
 | Topic | Document |
 | --- | --- |
-| Issues and specs live as GitHub issues in `GroupiSP/probreg`, driven by the `gh` CLI | [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) |
+| Issues and specs live as GitHub issues in `GroupiSP/stagereg`, driven by the `gh` CLI | [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) |
 | Glossary and architecture decisions: read before exploring an unfamiliar area | [`CONTEXT.md`](CONTEXT.md), [`docs/adr/`](docs/adr/), [`docs/agents/domain.md`](docs/agents/domain.md) |
 | Planning flow, branches, draft PRs, commit messages | [`docs/agents/workflow.md`](docs/agents/workflow.md) |
 | Code structure, typing, interfaces, docstrings | [`docs/agents/coding-style.md`](docs/agents/coding-style.md) |

@@ -5,11 +5,11 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.losses import SquaredErrorLoss
-from probreg.jax.evaluation import make_evaluation_step
-from probreg.jax.losses import make_supervised_loss
-from probreg.jax.state import create_optimizer
-from probreg.jax.supervised import make_train_step
+from stagereg.core.losses import SquaredErrorLoss
+from stagereg.jax.evaluation import make_evaluation_step
+from stagereg.jax.losses import make_supervised_loss
+from stagereg.jax.state import create_optimizer
+from stagereg.jax.supervised import make_train_step
 
 
 class ModeAwareModel(nnx.Module):

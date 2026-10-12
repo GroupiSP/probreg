@@ -1,7 +1,7 @@
 # Examples
 
 The runnable examples live under
-[`examples/jax/`](https://github.com/GroupiSP/probreg/tree/main/examples/jax) in
+[`examples/jax/`](https://github.com/GroupiSP/stagereg/tree/main/examples/jax) in
 the repository, so run the commands below from a clone of it. They are ordered
 from the gentlest upward: start with the first and move down as you need more
 of the library. Each one brings its own dependencies, either through a project
@@ -23,7 +23,7 @@ uv run --extra jax python examples/jax/simple_regression.py
 ```
 
 Source:
-[`examples/jax/simple_regression.py`](https://github.com/GroupiSP/probreg/blob/main/examples/jax/simple_regression.py)
+[`examples/jax/simple_regression.py`](https://github.com/GroupiSP/stagereg/blob/main/examples/jax/simple_regression.py)
 
 ## Mean-variance regression
 
@@ -36,7 +36,7 @@ uv run --extra jax --extra plot python examples/jax/mve_regression.py
 ```
 
 Source:
-[`examples/jax/mve_regression.py`](https://github.com/GroupiSP/probreg/blob/main/examples/jax/mve_regression.py)
+[`examples/jax/mve_regression.py`](https://github.com/GroupiSP/stagereg/blob/main/examples/jax/mve_regression.py)
 
 ## XSin benchmark
 
@@ -84,7 +84,7 @@ training domain and worsens both scores there. Both bands remain too narrow
 in extrapolation, where the trained mean continues the oscillation poorly.
 
 Source:
-[`examples/jax/xsin/`](https://github.com/GroupiSP/probreg/tree/main/examples/jax/xsin)
+[`examples/jax/xsin/`](https://github.com/GroupiSP/stagereg/tree/main/examples/jax/xsin)
 
 ## CMAPSS remaining useful life
 
@@ -109,7 +109,7 @@ it needs network access once. The README explains how to point the example at
 a copy you already have.
 
 README:
-[`examples/jax/cmapss/README.md`](https://github.com/GroupiSP/probreg/blob/main/examples/jax/cmapss/README.md)
+[`examples/jax/cmapss/README.md`](https://github.com/GroupiSP/stagereg/blob/main/examples/jax/cmapss/README.md)
 
 ## Tracking a run
 
@@ -123,4 +123,4 @@ uv run --group example-tracking tensorboard --logdir runs/
 ```
 
 README:
-[`examples/jax/tracking/README.md`](https://github.com/GroupiSP/probreg/blob/main/examples/jax/tracking/README.md)
+[`examples/jax/tracking/README.md`](https://github.com/GroupiSP/stagereg/blob/main/examples/jax/tracking/README.md)

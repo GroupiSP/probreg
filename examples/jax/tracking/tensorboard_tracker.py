@@ -1,8 +1,8 @@
-"""A TensorBoard [`ExperimentTracker`][probreg.core.ExperimentTracker].
+"""A TensorBoard [`ExperimentTracker`][stagereg.core.ExperimentTracker].
 
 This is the module to copy into your own project. It is backend-neutral:
 its surface accepts Python floats, strings and Matplotlib figures, never
-anything JAX-shaped, so the same tracker serves any `probreg` backend and
+anything JAX-shaped, so the same tracker serves any `stagereg` backend and
 its mapping logic is testable with neither `tensorboardX` nor JAX
 installed. Converting backend arrays to floats belongs to the run script,
 which is already the backend-specific layer.
@@ -13,7 +13,7 @@ without the optional dependency.
 
 Swapping TensorBoard for MLflow, Weights & Biases or Aim means rewriting
 this file and nothing else: the run script is typed against
-[`ExperimentTracker`][probreg.core.ExperimentTracker].
+[`ExperimentTracker`][stagereg.core.ExperimentTracker].
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-from probreg.core.naming import flatten_parameters
+from stagereg.core.naming import flatten_parameters
 
 
 class SummaryWriter(Protocol):

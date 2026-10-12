@@ -8,9 +8,9 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from probreg.core.distributions import DistributionLoss, PredictionLoss
-from probreg.core.types import Batch, PyTree
-from probreg.jax.evaluation import SupervisedLoss
+from stagereg.core.distributions import DistributionLoss, PredictionLoss
+from stagereg.core.types import Batch, PyTree
+from stagereg.jax.evaluation import SupervisedLoss
 
 
 def make_supervised_loss(

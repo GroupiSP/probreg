@@ -10,34 +10,34 @@ stage's checkpoint later, in a fresh training state.
 
 ## Checkpoints and stores
 
-A [`Checkpoint`][probreg.core.Checkpoint] is a frozen value with these fields:
+A [`Checkpoint`][stagereg.core.Checkpoint] is a frozen value with these fields:
 
 | Field | Holds |
 | --- | --- |
-| `state` | The [`TrainingState`][probreg.core.TrainingState] at that epoch: lifecycle, stage, parameter roles, frozen components and metric history |
+| `state` | The [`TrainingState`][stagereg.core.TrainingState] at that epoch: lifecycle, stage, parameter roles, frozen components and metric history |
 | `epoch` | The epoch the checkpoint was taken at |
-| `parameters` | The model's state; in the JAX backend an [`NnxSnapshot`][probreg.jax.NnxSnapshot] |
+| `parameters` | The model's state; in the JAX backend an [`NnxSnapshot`][stagereg.jax.NnxSnapshot] |
 | `optimizer_state` | The optimizer's state, also an `NnxSnapshot` |
 | `rng_state` | The random key |
-| `early_stopping_state` | The [`EarlyStoppingState`][probreg.core.EarlyStoppingState] when it was taken |
+| `early_stopping_state` | The [`EarlyStoppingState`][stagereg.core.EarlyStoppingState] when it was taken |
 | `metadata` | Free-form annotations, such as the stage that finalized it |
 
 The JAX runners build the `state` field with
-[`freeze_training_state`][probreg.jax.freeze_training_state], which copies the
+[`freeze_training_state`][stagereg.jax.freeze_training_state], which copies the
 mutable containers and leaves out the live model and optimizer objects. Those
 are captured separately, as snapshots, so that a saved checkpoint does not keep
 changing as training goes on.
 
-Checkpoints are kept in a [`CheckpointStore`][probreg.core.CheckpointStore],
+Checkpoints are kept in a [`CheckpointStore`][stagereg.core.CheckpointStore],
 which saves, loads and checks for them under keys the caller chooses. The store
-gives a key no meaning of its own. `probreg` ships one implementation,
-[`InMemoryCheckpointStore`][probreg.core.InMemoryCheckpointStore], which keeps
+gives a key no meaning of its own. `stagereg` ships one implementation,
+[`InMemoryCheckpointStore`][stagereg.core.InMemoryCheckpointStore], which keeps
 checkpoints in process memory for as long as the store exists:
 
 ```python
 import pytest
 
-from probreg.core import Checkpoint, InMemoryCheckpointStore, TrainingState
+from stagereg.core import Checkpoint, InMemoryCheckpointStore, TrainingState
 
 store = InMemoryCheckpointStore()
 assert not store.exists("best")
@@ -52,7 +52,7 @@ with pytest.raises(KeyError):
 
 ## Keeping the best model
 
-[`run_supervised`][probreg.jax.run_supervised] saves a checkpoint only when it
+[`run_supervised`][stagereg.jax.run_supervised] saves a checkpoint only when it
 has both an `early_stopper` and a `checkpoint_store`, and only on an epoch where
 the early stopper reports an improvement. It saves under `checkpoint_key`, which
 defaults to the [checkpoint key](../glossary.md) `stage/best` (here
@@ -61,7 +61,7 @@ best epoch so far. Without
 an early stopper there is no notion of best, and nothing is saved.
 
 The runner leaves the live model at its last epoch, not its best one.
-[`restore_checkpoint`][probreg.jax.restore_checkpoint] puts the best one back,
+[`restore_checkpoint`][stagereg.jax.restore_checkpoint] puts the best one back,
 updating the model and optimizer in place and restoring the training state that
 was saved with them:
 
@@ -71,8 +71,8 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core import Batch, EarlyStopper, InMemoryCheckpointStore, SquaredErrorLoss
-from probreg.jax import (
+from stagereg.core import Batch, EarlyStopper, InMemoryCheckpointStore, SquaredErrorLoss
+from stagereg.jax import (
     create_optimizer,
     initialize_training_state,
     make_supervised_loss,
@@ -117,8 +117,8 @@ that monitors a validation metric needs a validation strategy as well.
 
 ## A stage's finalized checkpoint
 
-[`MeanStage`][probreg.jax.MeanStage] and
-[`GammaVarianceStage`][probreg.jax.GammaVarianceStage] go one step further when
+[`MeanStage`][stagereg.jax.MeanStage] and
+[`GammaVarianceStage`][stagereg.jax.GammaVarianceStage] go one step further when
 their options carry an early stopper and a checkpoint store, and both follow the
 same rule. At the end of `train` the stage restores its best checkpoint into its
 live model, so the model it leaves behind is the best one rather than the last.
@@ -134,17 +134,17 @@ The variance checkpoint snapshots only the variance model and optimizer, since
 the mean model is frozen and already lives in the mean stage's checkpoint. When
 the variance stage restores it, it keeps the mean model and its optimizer
 registered under `mean_model_name` and `mean_optimizer_name`, so the state still
-passes [`validate`][probreg.jax.GammaVarianceStage.validate].
+passes [`validate`][stagereg.jax.GammaVarianceStage.validate].
 `restore_checkpoint` on its own restores clean-slate: it registers only the
 model and optimizer you pass it.
 
 Both stages read the key from their own
-[`SupervisedStageOptions`][probreg.jax.SupervisedStageOptions]. Left unset, it
+[`SupervisedStageOptions`][stagereg.jax.SupervisedStageOptions]. Left unset, it
 defaults to the stage's own key, `mean/best` or `variance/best`, so the two
 stages can share one store without overwriting each other's checkpoints. An
 explicit `checkpoint_key` still wins.
-[`select_checkpoint`][probreg.jax.MeanStage.select_checkpoint] returns a
-[`CheckpointRef`][probreg.core.CheckpointRef] to the key a stage saves under.
+[`select_checkpoint`][stagereg.jax.MeanStage.select_checkpoint] returns a
+[`CheckpointRef`][stagereg.core.CheckpointRef] to the key a stage saves under.
 
 ## Resuming across stages
 
@@ -152,8 +152,8 @@ The finalized checkpoints are enough to pick a staged run up again in a new
 training state, with freshly built objects: models and optimizers of the same
 architecture to restore into, and nothing else from the first run. Each stage
 restores its own checkpoint with `restore`
-([`MeanStage.restore`][probreg.jax.MeanStage.restore] and
-[`GammaVarianceStage.restore`][probreg.jax.GammaVarianceStage.restore]), mean
+([`MeanStage.restore`][stagereg.jax.MeanStage.restore] and
+[`GammaVarianceStage.restore`][stagereg.jax.GammaVarianceStage.restore]), mean
 first, then variance. The snippet below trains both stages, then starts over
 from the store alone, as a later process would:
 
@@ -163,14 +163,14 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core import (
+from stagereg.core import (
     Batch,
     EarlyStopper,
     InMemoryCheckpointStore,
     StageState,
     TrainingState,
 )
-from probreg.jax import (
+from stagereg.jax import (
     GammaHead,
     GammaVarianceStage,
     MeanStage,
@@ -257,20 +257,20 @@ and the random key. After the mean stage's `restore` alone, the state is
 `MEAN_READY`, so the variance stage can also be prepared and trained from there
 rather than restored, continuing the run rather than starting a new one.
 
-Calling [`restore_checkpoint`][probreg.jax.restore_checkpoint] directly on a
+Calling [`restore_checkpoint`][stagereg.jax.restore_checkpoint] directly on a
 staged checkpoint still works, but restores clean-slate and leaves the
 registry names to you; the stage methods are the way to resume a staged run.
 
 ### The posterior stage
 
-The optional [`PosteriorStage`][probreg.jax.PosteriorStage] saves under
+The optional [`PosteriorStage`][stagereg.jax.PosteriorStage] saves under
 `posterior/best` by default, so it can share the store with the other two
 stages. With an early stopper, every improvement saves a best checkpoint holding
-the inference method's full [`state`][probreg.jax.InferenceMethod.state], e.g.
+the inference method's full [`state`][stagereg.jax.InferenceMethod.state], e.g.
 variational parameters plus optimizer state. At the end of training the method
 resumes from the best one, and the stage overwrites it with its finalized
 checkpoint, which holds the posterior alone: the method's
-[`posterior_state`][probreg.jax.InferenceMethod.posterior_state], kept as the
+[`posterior_state`][stagereg.jax.InferenceMethod.posterior_state], kept as the
 saved state's `posterior_state`, with lifecycle state `POSTERIOR_READY`.
 Neither the mean and variance weights nor the optimizer state are saved again.
 A method that does not support early stopping, such as SG-MCMC, writes only the
@@ -284,10 +284,10 @@ variance_stage.restore(state, store.load("variance/best"))
 posterior_stage.restore(state, store.load("posterior/best"))
 ```
 
-[`PosteriorStage.restore`][probreg.jax.PosteriorStage.restore] initializes its
+[`PosteriorStage.restore`][stagereg.jax.PosteriorStage.restore] initializes its
 inference method on the restored mean and variance models and hands it the
 saved posterior state through
-[`load_posterior`][probreg.jax.InferenceMethod.load_posterior]. It keeps the
+[`load_posterior`][stagereg.jax.InferenceMethod.load_posterior]. It keeps the
 mean and variance registrations, and refuses, before changing anything, while
 either is missing, when the checkpoint is not its finalized checkpoint, or when
 it was saved under other component names.
@@ -302,4 +302,4 @@ works only within one process. Keeping checkpoints across processes takes a
 store of your own. `CheckpointStore` is a protocol, so any object with matching
 `save`, `load` and `exists` methods will do, with no base class to inherit.
 Such a store has to serialize the whole checkpoint, including the backend's
-snapshots and the random key, and `probreg` does not ship one.
+snapshots and the random key, and `stagereg` does not ship one.

@@ -27,24 +27,24 @@ from posterior_runs import (
     restore_mean_and_variance,
 )
 
-from probreg.core.checkpoints import Checkpoint
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.metric_registry import (
+from stagereg.core.checkpoints import Checkpoint
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.metric_registry import (
     EvaluationGrid,
     NegativeLogLikelihood,
     PointContinuousRankedProbabilityScore,
 )
-from probreg.core.tracking import TrackerEventSink
-from probreg.core.types import (
+from stagereg.core.tracking import TrackerEventSink
+from stagereg.core.types import (
     Batch,
     ParameterRole,
     PyTree,
     StageState,
     TrainingState,
 )
-from probreg.jax import MetricSuite, PosteriorPredictivePredictor
-from probreg.jax.posterior import PosteriorProblem
-from probreg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
+from stagereg.jax import MetricSuite, PosteriorPredictivePredictor
+from stagereg.jax.posterior import PosteriorProblem
+from stagereg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
 
 Tracker = Callable[[], Any]
 

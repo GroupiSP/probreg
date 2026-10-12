@@ -12,20 +12,20 @@ from flax import nnx
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from probreg.core.checkpoints import InMemoryCheckpointStore
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.losses import NegativeLogLikelihoodLoss
-from probreg.core.metric_registry import (
+from stagereg.core.checkpoints import InMemoryCheckpointStore
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.losses import NegativeLogLikelihoodLoss
+from stagereg.core.metric_registry import (
     EpochPredictionData,
     EvaluationGrid,
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
-from probreg.core.naming import Split
-from probreg.core.protocols import LoaderFactory
-from probreg.core.tracking import Decision, TrackerEventSink
-from probreg.core.types import Batch, StageResult, TrainingState, ValidationResult
-from probreg.jax import (
+from stagereg.core.naming import Split
+from stagereg.core.protocols import LoaderFactory
+from stagereg.core.tracking import Decision, TrackerEventSink
+from stagereg.core.types import Batch, StageResult, TrainingState, ValidationResult
+from stagereg.jax import (
     BatchMetricSpec,
     GaussianHead,
     GaussianPredictor,

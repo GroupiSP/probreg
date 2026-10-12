@@ -1,7 +1,7 @@
 """Optional JAX/Flax NNX training backend."""
 
-from probreg.jax.bayes_by_backprop import BayesByBackprop, MeanFieldGaussianPosterior
-from probreg.jax.distributions import (
+from stagereg.jax.bayes_by_backprop import BayesByBackprop, MeanFieldGaussianPosterior
+from stagereg.jax.distributions import (
     Gamma,
     GammaHead,
     Gaussian,
@@ -9,13 +9,13 @@ from probreg.jax.distributions import (
     MomentMatchedPredictive,
     PosteriorPredictive,
 )
-from probreg.jax.evaluation import (
+from stagereg.jax.evaluation import (
     SupervisedLoss,
     evaluate_loader,
     make_evaluation_step,
 )
-from probreg.jax.losses import make_supervised_loss
-from probreg.jax.metrics import (
+from stagereg.jax.losses import make_supervised_loss
+from stagereg.jax.metrics import (
     BatchMetric,
     BatchMetricSpec,
     CoordinateExtractor,
@@ -27,17 +27,17 @@ from probreg.jax.metrics import (
     ReferenceSamplesExtractor,
     merge_epoch_prediction_data,
 )
-from probreg.jax.posterior import (
+from stagereg.jax.posterior import (
     InferenceMethod,
     IsotropicGaussianPrior,
     Posterior,
     PosteriorProblem,
     Prior,
 )
-from probreg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
-from probreg.jax.psgld import PreconditionedSGLD, RetainedSamplesPosterior
-from probreg.jax.rng import split_key
-from probreg.jax.state import (
+from stagereg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
+from stagereg.jax.psgld import PreconditionedSGLD, RetainedSamplesPosterior
+from stagereg.jax.rng import split_key
+from stagereg.jax.state import (
     NnxSnapshot,
     create_optimizer,
     freeze_training_state,
@@ -45,14 +45,14 @@ from probreg.jax.state import (
     restore_checkpoint,
     snapshot,
 )
-from probreg.jax.supervised import make_train_step, run_supervised
-from probreg.jax.supervised_staged import (
+from stagereg.jax.supervised import make_train_step, run_supervised
+from stagereg.jax.supervised_staged import (
     GammaVarianceStage,
     MeanStage,
     SupervisedStageOptions,
     materialize_residual_loader,
 )
-from probreg.jax.validation import HeldOutValidation
+from stagereg.jax.validation import HeldOutValidation
 
 __all__ = [
     "BatchMetric",

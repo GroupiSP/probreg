@@ -41,14 +41,14 @@ number of epochs (200 by default) before early stopping intervenes.
 ### `tensorboard_tracker.py`
 
 `TensorBoardTracker`, an implementation of
-`probreg.core.tracking.ExperimentTracker` — the file to copy into your own
+`stagereg.core.tracking.ExperimentTracker` — the file to copy into your own
 project. It is the only TensorBoard-specific code here, so swapping TensorBoard
 for MLflow, Weights & Biases or Aim means rewriting this module and changing
 one constructor line in `run.py`.
 
 It is backend-neutral: its surface accepts Python floats, strings and
 Matplotlib figures, never anything JAX-shaped, so the same tracker serves any
-`probreg` backend. Converting backend arrays to floats belongs to the run
+`stagereg` backend. Converting backend arrays to floats belongs to the run
 script, which is already the backend-specific layer.
 
 - The writer is a **constructor argument**, defaulting to a `tensorboardX`
@@ -58,7 +58,7 @@ script, which is already the backend-specific layer.
 - `log_metrics` writes one scalar summary per entry, at the given step.
 - `log_params` writes through TensorBoard's HParams plugin, so runs are
   comparable in a sortable table. The nested parameters are flattened by
-  `probreg.core.naming.flatten_parameters` into one entry per leaf, keyed by
+  `stagereg.core.naming.flatten_parameters` into one entry per leaf, keyed by
   its parameter path (`data/train/samples`); a key that is empty or contains
   `/` is rejected rather than allowed to collide with a nested key path. The
   tracker's only HParams-specific work is stringifying values the plugin
@@ -81,7 +81,7 @@ The runner. `main(argv)` parses the arguments above, builds the tracker for this
 run's directory, and calls `run_tracked_training`, which is typed against
 `ExperimentTracker` rather than against the concrete tracker.
 
-Tracking reaches the run through `probreg.core.tracking.TrackerEventSink`, the
+Tracking reaches the run through `stagereg.core.tracking.TrackerEventSink`, the
 library's bridge from training events to a tracker, passed **alongside** the
 example's own printing event sink: `event_sinks` is a sequence, and adding a
 tracker displaces nothing a reader already sees in the terminal.

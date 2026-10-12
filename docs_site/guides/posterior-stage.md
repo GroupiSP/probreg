@@ -1,6 +1,6 @@
 # Posterior stage
 
-The [`PosteriorStage`][probreg.jax.PosteriorStage] is an optional third stage
+The [`PosteriorStage`][stagereg.jax.PosteriorStage] is an optional third stage
 after [two-step mean/variance training](two-step-training.md). It replaces the
 single trained mean function with a posterior over mean functions, starting
 from the trained mean and holding the aleatoric variance fixed, so predictions
@@ -23,11 +23,11 @@ The stage and its inference methods share a small vocabulary, defined in the
 
 | Term | Meaning |
 | --- | --- |
-| Inference method | The interchangeable strategy that turns the stage's posterior problem into a posterior, such as [`BayesByBackprop`][probreg.jax.BayesByBackprop] or [`PreconditionedSGLD`][probreg.jax.PreconditionedSGLD]. The stage decides what is inferred; the method decides how. |
+| Inference method | The interchangeable strategy that turns the stage's posterior problem into a posterior, such as [`BayesByBackprop`][stagereg.jax.BayesByBackprop] or [`PreconditionedSGLD`][stagereg.jax.PreconditionedSGLD]. The stage decides what is inferred; the method decides how. |
 | Posterior | What the inference method produces: an approximate posterior over mean functions, from which draws can be taken. |
 | Draw | One mean function taken from the posterior, the same function at every input. A finite posterior, such as pSGLD's retained samples, always uses all its draws. |
-| Posterior predictive | The [`PosteriorPredictive`][probreg.jax.PosteriorPredictive]: the equally weighted mixture, over the draws, of Gaussians centred on each draw's mean with the aleatoric variance. |
-| Moment-matched predictive | The [`MomentMatchedPredictive`][probreg.jax.MomentMatchedPredictive]: the single Gaussian with the posterior predictive's mean and variance, the aleatoric plus the epistemic variance. A summary, not a substitute. |
+| Posterior predictive | The [`PosteriorPredictive`][stagereg.jax.PosteriorPredictive]: the equally weighted mixture, over the draws, of Gaussians centred on each draw's mean with the aleatoric variance. |
+| Moment-matched predictive | The [`MomentMatchedPredictive`][stagereg.jax.MomentMatchedPredictive]: the single Gaussian with the posterior predictive's mean and variance, the aleatoric plus the epistemic variance. A summary, not a substitute. |
 
 A draw is a mean function, not a target value; a value drawn from a predictive
 distribution, as the CRPS uses, is a predictive sample.
@@ -35,7 +35,7 @@ distribution, as the CRPS uses, is a predictive sample.
 ## A three-stage run
 
 The run below trains a linear mean model and a
-[`GammaHead`][probreg.jax.GammaHead] variance model as in
+[`GammaHead`][stagereg.jax.GammaHead] variance model as in
 [the two-step guide](two-step-training.md), then a posterior stage with Bayes by
 Backprop. The stage needs the number of training examples, `dataset_size`, to
 scale each batch's log-likelihood to the whole data set. It validates every
@@ -48,8 +48,8 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core import Batch, ParameterRole, StageState, TrainingState
-from probreg.jax import (
+from stagereg.core import Batch, ParameterRole, StageState, TrainingState
+from stagereg.jax import (
     BayesByBackprop,
     GammaHead,
     GammaVarianceStage,
@@ -111,16 +111,16 @@ assert len(state.metric_history["posterior/validation/crps"]) == 3
 The mean network is copied for the posterior network, so `mean_model` itself is
 untouched. To use a different module with the same parameter tree, pass it as
 `model`; a copy of it is warm-started, so it is untouched as well. The prior defaults to an
-[`IsotropicGaussianPrior`][probreg.jax.IsotropicGaussianPrior] with precision 1;
+[`IsotropicGaussianPrior`][stagereg.jax.IsotropicGaussianPrior] with precision 1;
 pass `prior` to change it.
 
 Validation reports two metrics by default: `nll`, the exact negative
 log-likelihood of the posterior predictive, and `crps`, the CRPS of 100
 predictive samples per target, scored by
-[`SampleContinuousRankedProbabilityScore`][probreg.core.SampleContinuousRankedProbabilityScore]
+[`SampleContinuousRankedProbabilityScore`][stagereg.core.SampleContinuousRankedProbabilityScore]
 without an evaluation grid. To score other metrics, give the options a
 `validation_metrics` suite with a
-[`PosteriorPredictivePredictor`][probreg.jax.PosteriorPredictivePredictor];
+[`PosteriorPredictivePredictor`][stagereg.jax.PosteriorPredictivePredictor];
 [Epoch metrics](epoch-metrics.md) explains how.
 
 ## Predicting with the posterior
@@ -162,7 +162,7 @@ checkpoint holds.
 
 ## Bayes by Backprop or pSGLD
 
-| | [`BayesByBackprop`][probreg.jax.BayesByBackprop] | [`PreconditionedSGLD`][probreg.jax.PreconditionedSGLD] |
+| | [`BayesByBackprop`][stagereg.jax.BayesByBackprop] | [`PreconditionedSGLD`][stagereg.jax.PreconditionedSGLD] |
 | --- | --- | --- |
 | Kind | Mean-field Gaussian variational inference | SG-MCMC: a preconditioned Langevin chain |
 | Posterior | Unlimited: takes `num_draws` draws per prediction | Finite: the retained samples, all used |
@@ -186,7 +186,7 @@ validation metrics. The chain starts from the trained mean, which already fits
 the data, so a short burn-in is usually enough:
 
 ```python
-from probreg.jax import PreconditionedSGLD
+from stagereg.jax import PreconditionedSGLD
 
 # Eight batches per epoch: retain the position at the end of every epoch.
 method = PreconditionedSGLD(step_size=3e-3, burn_in=0, thinning=8)

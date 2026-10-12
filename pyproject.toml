@@ -1,12 +1,24 @@
 [project]
-name = "probreg"
+name = "stagereg"
 version = "0.1.0"
 description = "Stage-oriented probabilistic regression"
 readme = "README.md"
 authors = [
-    { name = "debrevitatevitae", email = "giotb92@gmail.com" }
+    { name = "Giorgio Tosti Balducci", email = "g.b.l.tostibalducci@tudelft.nl" },
+    { name = "Intelligent System Prognostics for Operations & Maintenance Research Group" },
 ]
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "numpy>=2.0",
 ]
@@ -21,9 +33,20 @@ plot = [
     "matplotlib>=3.9",
 ]
 
+[project.urls]
+Repository = "https://github.com/GroupiSP/stagereg"
+Documentation = "https://groupisp.github.io/stagereg/"
+Issues = "https://github.com/GroupiSP/stagereg/issues"
+
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# The sdist also carries the tests, so downstream packagers can check the build. The examples
+# stay in the repository, so the tests that exercise them need a repository checkout.
+source-include = ["tests/**"]
+source-exclude = ["**/__pycache__", "**/*.pyc"]
 
 [dependency-groups]
 dev = [
@@ -32,6 +55,7 @@ dev = [
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
     "pytest-markdown-docs>=0.9.2",
+    "pyyaml>=6.0",
     "ruff>=0.14.9",
 ]
 docs = [

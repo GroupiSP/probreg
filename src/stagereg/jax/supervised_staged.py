@@ -11,16 +11,16 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from probreg.core.checkpoints import Checkpoint, CheckpointStore
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.losses import (
+from stagereg.core.checkpoints import Checkpoint, CheckpointStore
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.losses import (
     NegativeLogLikelihoodLoss,
     SquaredErrorLoss,
     add_epsilon,
 )
-from probreg.core.protocols import LoaderFactory, ValidationStrategy
-from probreg.core.tracking import EventSink
-from probreg.core.types import (
+from stagereg.core.protocols import LoaderFactory, ValidationStrategy
+from stagereg.core.tracking import EventSink
+from stagereg.core.types import (
     Batch,
     CheckpointRef,
     ParameterRole,
@@ -29,11 +29,11 @@ from probreg.core.types import (
     TrainingState,
     ValidationResult,
 )
-from probreg.jax.evaluation import SupervisedLoss
-from probreg.jax.losses import make_supervised_loss
-from probreg.jax.metrics import MetricSuite
-from probreg.jax.epoch_loop import resolve_checkpoint_key
-from probreg.jax.stage_checkpoints import (
+from stagereg.jax.evaluation import SupervisedLoss
+from stagereg.jax.losses import make_supervised_loss
+from stagereg.jax.metrics import MetricSuite
+from stagereg.jax.epoch_loop import resolve_checkpoint_key
+from stagereg.jax.stage_checkpoints import (
     finalized_checkpoint,
     latest_training_result,
     load_best_checkpoint,
@@ -41,8 +41,8 @@ from probreg.jax.stage_checkpoints import (
     require_finalized,
     select_checkpoint,
 )
-from probreg.jax.state import restore_checkpoint, snapshot
-from probreg.jax.supervised import run_supervised
+from stagereg.jax.state import restore_checkpoint, snapshot
+from stagereg.jax.supervised import run_supervised
 
 
 def materialize_residual_loader(
@@ -133,7 +133,7 @@ class SupervisedStageOptions:
         checkpoint_key: The checkpoint key the stage saves its best checkpoint
             under. Defaults to ``None``, which resolves to the stage-scoped
             key ``f"{stage}/best"`` (``mean/best``, ``variance/best``), the
-            same default as [`run_supervised`][probreg.jax.run_supervised],
+            same default as [`run_supervised`][stagereg.jax.run_supervised],
             so stages sharing one ``checkpoint_store`` never overwrite each
             other's checkpoints.
         metrics: Batch and epoch metric registrations.
@@ -243,9 +243,9 @@ class MeanStage:
         The live model and optimizer take the checkpoint's weights in place and
         are registered under ``model_name`` and ``optimizer_name``. The restore
         is clean-slate, like
-        [`restore_checkpoint`][probreg.jax.restore_checkpoint]: other registered
+        [`restore_checkpoint`][stagereg.jax.restore_checkpoint]: other registered
         components and optimizers are dropped. Afterwards the state passes
-        [`validate`][probreg.jax.MeanStage.validate], so the variance stage can
+        [`validate`][stagereg.jax.MeanStage.validate], so the variance stage can
         be prepared or restored next.
 
         Args:
@@ -259,11 +259,11 @@ class MeanStage:
                 if it was saved with another ``model_name``; this is checked
                 before ``state`` or the live objects change. Also
                 raised, as by
-                [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
+                [`restore_checkpoint`][stagereg.jax.restore_checkpoint], if the
                 live model or optimizer is incompatible with the checkpoint,
                 which may leave them and ``state`` partially restored.
             TypeError: As by
-                [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
+                [`restore_checkpoint`][stagereg.jax.restore_checkpoint], if the
                 checkpoint does not hold NNX snapshots or a JAX random key.
         """
         require_finalized(checkpoint, stage=self.name, ready=StageState.MEAN_READY)
@@ -463,12 +463,12 @@ class GammaVarianceStage:
         """Restore the variance stage's finalized checkpoint into ``state``.
 
         Call it after the mean stage's
-        [`restore`][probreg.jax.MeanStage.restore]. The live variance model and
+        [`restore`][stagereg.jax.MeanStage.restore]. The live variance model and
         optimizer take the checkpoint's weights in place and are registered
         under ``model_name`` and ``optimizer_name``. The mean model stays
         registered under ``mean_model_name``, and the mean optimizer under
         ``mean_optimizer_name`` if it was registered before. Afterwards the
-        state passes [`validate`][probreg.jax.GammaVarianceStage.validate].
+        state passes [`validate`][stagereg.jax.GammaVarianceStage.validate].
 
         Args:
             state: Training state the mean stage has been restored into.
@@ -482,11 +482,11 @@ class GammaVarianceStage:
                 ``mean_model_name``, or if no mean model is registered under
                 ``mean_model_name``; all are checked before ``state`` or the
                 live objects change. Also raised, as by
-                [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
+                [`restore_checkpoint`][stagereg.jax.restore_checkpoint], if the
                 live model or optimizer is incompatible with the checkpoint,
                 which may leave them and ``state`` partially restored.
             TypeError: As by
-                [`restore_checkpoint`][probreg.jax.restore_checkpoint], if the
+                [`restore_checkpoint`][stagereg.jax.restore_checkpoint], if the
                 checkpoint does not hold NNX snapshots or a JAX random key.
         """
         require_finalized(checkpoint, stage=self.name, ready=StageState.VARIANCE_READY)

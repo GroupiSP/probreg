@@ -10,7 +10,7 @@ from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
-from probreg.jax.distributions import (
+from stagereg.jax.distributions import (
     Gamma,
     GammaHead,
     Gaussian,

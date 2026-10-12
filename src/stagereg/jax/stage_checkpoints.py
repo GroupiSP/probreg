@@ -1,7 +1,7 @@
 """Best and finalized checkpoints, as every stage saves and restores them.
 
 Internal to the JAX backend: the mean, variance and posterior stages share
-these helpers, and none of them is exported from `probreg.jax`.
+these helpers, and none of them is exported from `stagereg.jax`.
 
 A stage saves its best checkpoint under its checkpoint key during training,
 then, once trained, saves its finalized checkpoint under the same key with
@@ -14,17 +14,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from probreg.core.checkpoints import Checkpoint, CheckpointStore
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.naming import Split, parse_metric_tag
-from probreg.core.types import (
+from stagereg.core.checkpoints import Checkpoint, CheckpointStore
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.naming import Split, parse_metric_tag
+from stagereg.core.types import (
     CheckpointRef,
     ParameterRole,
     StageResult,
     StageState,
     TrainingState,
 )
-from probreg.jax.state import freeze_training_state
+from stagereg.jax.state import freeze_training_state
 
 STAGE_METADATA_KEY = "stage"
 """Checkpoint metadata key naming the stage that wrote the checkpoint."""

@@ -1,152 +1,152 @@
-# `probreg.core`
+# `stagereg.core`
 
-Every symbol exported from `probreg.core`, the backend-neutral contracts and utilities,
+Every symbol exported from `stagereg.core`, the backend-neutral contracts and utilities,
 grouped by the module that defines it.
 
-## `probreg.core.checkpoints`
+## `stagereg.core.checkpoints`
 
-::: probreg.core.Checkpoint
+::: stagereg.core.Checkpoint
 
-::: probreg.core.CheckpointStore
+::: stagereg.core.CheckpointStore
 
-::: probreg.core.InMemoryCheckpointStore
+::: stagereg.core.InMemoryCheckpointStore
 
-## `probreg.core.distributions`
+## `stagereg.core.distributions`
 
-::: probreg.core.PredictiveDistribution
+::: stagereg.core.PredictiveDistribution
 
-::: probreg.core.DistributionHead
+::: stagereg.core.DistributionHead
 
-::: probreg.core.Likelihood
+::: stagereg.core.Likelihood
 
-::: probreg.core.DistributionLoss
+::: stagereg.core.DistributionLoss
 
-::: probreg.core.PredictionLoss
+::: stagereg.core.PredictionLoss
 
-::: probreg.core.Loss
+::: stagereg.core.Loss
 
-## `probreg.core.early_stopping`
+## `stagereg.core.early_stopping`
 
-::: probreg.core.OptimizationMode
+::: stagereg.core.OptimizationMode
 
-::: probreg.core.EarlyStoppingState
+::: stagereg.core.EarlyStoppingState
 
-::: probreg.core.EarlyStoppingDecision
+::: stagereg.core.EarlyStoppingDecision
 
-::: probreg.core.EarlyStopper
+::: stagereg.core.EarlyStopper
 
-## `probreg.core.losses`
+## `stagereg.core.losses`
 
-::: probreg.core.NegativeLogLikelihoodLoss
+::: stagereg.core.NegativeLogLikelihoodLoss
 
-::: probreg.core.SquaredErrorLoss
+::: stagereg.core.SquaredErrorLoss
 
-::: probreg.core.add_epsilon
+::: stagereg.core.add_epsilon
 
-::: probreg.core.GaussianNLLLoss
+::: stagereg.core.GaussianNLLLoss
 
-::: probreg.core.BetaNLLLoss
+::: stagereg.core.BetaNLLLoss
 
-## `probreg.core.metric_registry`
+## `stagereg.core.metric_registry`
 
-::: probreg.core.EvaluationGrid
+::: stagereg.core.EvaluationGrid
 
-::: probreg.core.PredictionInterval
+::: stagereg.core.PredictionInterval
 
-::: probreg.core.EpochPredictionData
+::: stagereg.core.EpochPredictionData
 
-::: probreg.core.MetricRequirements
+::: stagereg.core.MetricRequirements
 
-::: probreg.core.EpochMetric
+::: stagereg.core.EpochMetric
 
-::: probreg.core.RootMeanSquaredError
+::: stagereg.core.RootMeanSquaredError
 
-::: probreg.core.NegativeLogLikelihood
+::: stagereg.core.NegativeLogLikelihood
 
-::: probreg.core.IntervalCoverage
+::: stagereg.core.IntervalCoverage
 
-::: probreg.core.WeightedSpread
+::: stagereg.core.WeightedSpread
 
-::: probreg.core.PointContinuousRankedProbabilityScore
+::: stagereg.core.PointContinuousRankedProbabilityScore
 
-::: probreg.core.SampleContinuousRankedProbabilityScore
+::: stagereg.core.SampleContinuousRankedProbabilityScore
 
-::: probreg.core.ContinuousRankedProbabilityScore
+::: stagereg.core.ContinuousRankedProbabilityScore
 
-## `probreg.core.metrics`
+## `stagereg.core.metrics`
 
-::: probreg.core.cdf
+::: stagereg.core.cdf
 
-::: probreg.core.crps
+::: stagereg.core.crps
 
-::: probreg.core.point_crps
+::: stagereg.core.point_crps
 
-::: probreg.core.sample_crps
+::: stagereg.core.sample_crps
 
-::: probreg.core.rmse
+::: stagereg.core.rmse
 
-::: probreg.core.coverage
+::: stagereg.core.coverage
 
-::: probreg.core.wsu
+::: stagereg.core.wsu
 
-## `probreg.core.naming`
+## `stagereg.core.naming`
 
-::: probreg.core.Split
+::: stagereg.core.Split
 
-::: probreg.core.MetricTag
+::: stagereg.core.MetricTag
 
-::: probreg.core.metric_tag
+::: stagereg.core.metric_tag
 
-::: probreg.core.parse_metric_tag
+::: stagereg.core.parse_metric_tag
 
-::: probreg.core.flatten_parameters
+::: stagereg.core.flatten_parameters
 
-## `probreg.core.protocols`
+## `stagereg.core.protocols`
 
-::: probreg.core.Dataset
+::: stagereg.core.Dataset
 
-::: probreg.core.LoaderFactory
+::: stagereg.core.LoaderFactory
 
-::: probreg.core.Optimizer
+::: stagereg.core.Optimizer
 
-::: probreg.core.Step
+::: stagereg.core.Step
 
-::: probreg.core.ValidationStrategy
+::: stagereg.core.ValidationStrategy
 
-## `probreg.core.stages`
+## `stagereg.core.stages`
 
-::: probreg.core.validate_transition
+::: stagereg.core.validate_transition
 
-::: probreg.core.TrainingStage
+::: stagereg.core.TrainingStage
 
-## `probreg.core.tracking`
+## `stagereg.core.tracking`
 
-::: probreg.core.Decision
+::: stagereg.core.Decision
 
-::: probreg.core.TrainingEvent
+::: stagereg.core.TrainingEvent
 
-::: probreg.core.EventSink
+::: stagereg.core.EventSink
 
-::: probreg.core.ExperimentTracker
+::: stagereg.core.ExperimentTracker
 
-::: probreg.core.TrackerEventSink
+::: stagereg.core.TrackerEventSink
 
-## `probreg.core.types`
+## `stagereg.core.types`
 
-::: probreg.core.Array
+::: stagereg.core.Array
 
-::: probreg.core.PyTree
+::: stagereg.core.PyTree
 
-::: probreg.core.ParameterRole
+::: stagereg.core.ParameterRole
 
-::: probreg.core.StageState
+::: stagereg.core.StageState
 
-::: probreg.core.Batch
+::: stagereg.core.Batch
 
-::: probreg.core.CheckpointRef
+::: stagereg.core.CheckpointRef
 
-::: probreg.core.TrainingState
+::: stagereg.core.TrainingState
 
-::: probreg.core.StageResult
+::: stagereg.core.StageResult
 
-::: probreg.core.ValidationResult
+::: stagereg.core.ValidationResult

@@ -1,8 +1,8 @@
-# Copilot instructions for Probreg
+# Copilot instructions for Stagereg
 
 ## Project overview
 
-Probreg is a Python library for stage-oriented probabilistic regression. Its
+Stagereg is a Python library for stage-oriented probabilistic regression. Its
 architecture represents training as explicit, composable stages so that model
 components can be fitted in a controlled sequence. A typical workflow first
 trains a mean predictor, then estimates input-dependent variance while reusing
@@ -23,11 +23,11 @@ negative log-likelihood (Nix and Weigend, 1994) and beta-NLL (Seitzer et al.,
 
 ## Project structure
 
-- `src/probreg/core/` contains the backend-neutral public contracts and NumPy
+- `src/stagereg/core/` contains the backend-neutral public contracts and NumPy
   utilities: shared value objects, stage lifecycle protocols, predictive
   distribution and loss interfaces, checkpointing, tracking, early stopping,
   numerical metrics, and typed epoch-metric registration.
-- `src/probreg/jax/` contains the optional JAX backend, built with JAX, Flax NNX,
+- `src/stagereg/jax/` contains the optional JAX backend, built with JAX, Flax NNX,
   and Optax. It provides model and optimizer state adapters, RNG management,
   Gaussian and Gamma distributions and heads, supervised training and
   evaluation, explicit mean and variance stages, validation strategies,
@@ -46,7 +46,7 @@ negative log-likelihood (Nix and Weigend, 1994) and beta-NLL (Seitzer et al.,
 
 ## Current status
 
-`src/probreg/core/` provides the backend-neutral foundation: `types.py`
+`src/stagereg/core/` provides the backend-neutral foundation: `types.py`
 (`Batch`, `TrainingState`, `StageResult`, etc.), `protocols.py`
 (`Dataset`, `LoaderFactory`, `Optimizer`, `Step`), `distributions.py`,
 `losses.py`, `stages.py`, `checkpoints.py`, `tracking.py`, `metrics.py`,
@@ -56,7 +56,7 @@ transforms, deterministic squared error, persistence and event interfaces,
 early-stopping state machines, NumPy metric functions, and typed host-side
 epoch metrics without importing JAX, Flax, or another training backend.
 
-`src/probreg/jax/` is an optional JAX/Flax NNX training backend (installed
+`src/stagereg/jax/` is an optional JAX/Flax NNX training backend (installed
 via the `jax` extra) implementing a single-model supervised training runner,
 `run_supervised`, on top of the core contracts: NNX/Optax state adapters
 and checkpoint restoration (`state.py`), RNG splitting (`rng.py`), shared
@@ -107,4 +107,4 @@ Concrete VeBNN posterior training, ensemble/BNN backends, cooperative
 outer-loop scheduling, and optional Orbax/MLflow/Grain/quantum adapters remain
 unimplemented. Any qmodem integration adapter remains intentionally out of
 scope for this repository; it belongs downstream in `qmodem`, which depends
-on `probreg`.
+on `stagereg`.

@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from probreg.core.naming import Split, metric_tag
-from probreg.core.types import TrainingState
+from stagereg.core.naming import Split, metric_tag
+from stagereg.core.types import TrainingState
 
 
 @dataclass(frozen=True)
@@ -71,7 +71,7 @@ class ExperimentTracker(Protocol):
                 own (``{"data": {"train": {"samples": ...}}}``), never part
                 of a leaf key (``train_samples``). A tracker that stores
                 flat names flattens the mapping with
-                [`flatten_parameters`][probreg.core.flatten_parameters] into
+                [`flatten_parameters`][stagereg.core.flatten_parameters] into
                 parameter paths such as ``data/train/samples``.
 
         Returns:
@@ -106,14 +106,14 @@ class ExperimentTracker(Protocol):
 
 @dataclass(frozen=True)
 class TrackerEventSink:
-    """An [`EventSink`][probreg.core.EventSink] forwarding event metrics to a tracker.
+    """An [`EventSink`][stagereg.core.EventSink] forwarding event metrics to a tracker.
 
     Each metric is logged under its metric tag, built from the event's
     stage, the event's split and the metric name, with the event's own
     step. A decision event carries no metrics, so it adds no series.
 
     The sink calls only
-    [`ExperimentTracker.log_metrics`][probreg.core.ExperimentTracker.log_metrics].
+    [`ExperimentTracker.log_metrics`][stagereg.core.ExperimentTracker.log_metrics].
     Hyperparameters and artifacts stay caller-driven, since neither arrives on
     a training event.
 

@@ -1,4 +1,4 @@
-# probreg
+# stagereg
 
 The shared vocabulary of this repository: the language of a training run and of recording one with an experiment tracker, which the library itself declares, and the language of the NASA CMAPSS FD001 remaining-useful-life example — obtaining the dataset, and describing the targets the models predict and the curves that visualize them.
 
@@ -23,7 +23,7 @@ A consumer notified of every training event. Passive: it observes a run and cann
 _Avoid_: Callback (implies the runner awaits a decision), logger, hook
 
 **Experiment tracker**:
-A destination that records parameters, metrics and artifacts for one run. Ignorant of probreg's event model: it is told what to record, never when a run reaches a point of interest.
+A destination that records parameters, metrics and artifacts for one run. Ignorant of stagereg's event model: it is told what to record, never when a run reaches a point of interest.
 _Avoid_: Logger, writer, backend
 
 **Run**:
@@ -124,10 +124,10 @@ The persistent, on-disk copy of the downloaded CMAPSS zip, kept across process r
 _Avoid_: Temp directory, download folder
 
 **Cache directory**:
-The directory holding the archive cache, resolved from `PROBREG_CMAPSS_CACHE_DIR` if set, otherwise a stdlib-computed per-user cache location (honoring `XDG_CACHE_HOME`, else `~/.cache/probreg-cmapss`).
+The directory holding the archive cache, resolved from `STAGEREG_CMAPSS_CACHE_DIR` if set, otherwise a stdlib-computed per-user cache location (honoring `XDG_CACHE_HOME`, else `~/.cache/stagereg-cmapss`).
 
 **Archive override**:
-A user-supplied path to a manually obtained copy of the CMAPSS zip, provided via the `PROBREG_CMAPSS_ARCHIVE` environment variable or an optional loader parameter. When present, it seeds the archive cache and no download is attempted.
+A user-supplied path to a manually obtained copy of the CMAPSS zip, provided via the `STAGEREG_CMAPSS_ARCHIVE` environment variable or an optional loader parameter. When present, it seeds the archive cache and no download is attempted.
 _Avoid_: Manual download, local copy
 
 **Fetching**:

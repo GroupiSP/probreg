@@ -18,11 +18,11 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.checkpoints import Checkpoint, InMemoryCheckpointStore
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.tracking import EventSink
-from probreg.core.types import Batch, PyTree, TrainingState
-from probreg.jax import (
+from stagereg.core.checkpoints import Checkpoint, InMemoryCheckpointStore
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.tracking import EventSink
+from stagereg.core.types import Batch, PyTree, TrainingState
+from stagereg.jax import (
     GammaHead,
     GammaVarianceStage,
     HeldOutValidation,

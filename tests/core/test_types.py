@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from probreg.core.types import (
+from stagereg.core.types import (
     Batch,
     CheckpointRef,
     ParameterRole,

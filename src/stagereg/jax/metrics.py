@@ -14,16 +14,16 @@ import numpy as np
 from flax import nnx
 from numpy.typing import NDArray
 
-from probreg.core.metric_registry import (
+from stagereg.core.metric_registry import (
     EpochMetric,
     EpochPredictionData,
     EvaluationGrid,
     MetricRequirements,
     PredictionInterval,
 )
-from probreg.core.distributions import PredictiveDistribution
-from probreg.core.types import Batch, PyTree
-from probreg.jax.distributions import Gaussian, PosteriorPredictive
+from stagereg.core.distributions import PredictiveDistribution
+from stagereg.core.types import Batch, PyTree
+from stagereg.jax.distributions import Gaussian, PosteriorPredictive
 
 _METRIC_RNG_NAMESPACE = 0x4D455452  # "METR" in ASCII
 
@@ -88,7 +88,7 @@ class BatchMetricSpec:
     Attributes:
         name: Bare metric name the reduced value is reported under. Must not be
             empty.
-        metric: The [`BatchMetric`][probreg.jax.BatchMetric] evaluated on every
+        metric: The [`BatchMetric`][stagereg.jax.BatchMetric] evaluated on every
             batch.
         reduce: Host-side reduction of the per-batch values to one epoch value.
             Defaults to the arithmetic mean.
@@ -256,7 +256,7 @@ class PosteriorPredictivePredictor:
 
         Args:
             model: Model mapping batch inputs to a
-                [`PosteriorPredictive`][probreg.jax.PosteriorPredictive].
+                [`PosteriorPredictive`][stagereg.jax.PosteriorPredictive].
             batch: Domain batch containing targets.
             requirements: Combined fields and explicit sample/grid configuration.
             key: Dedicated metric PRNG key.
@@ -507,9 +507,9 @@ class MetricSuite:
 
     Attributes:
         batch: Batch metrics evaluated on every batch.
-        epoch: [`EpochMetric`][probreg.core.EpochMetric]s evaluated once per epoch
+        epoch: [`EpochMetric`][stagereg.core.EpochMetric]s evaluated once per epoch
             over the merged predictions.
-        predictor: The [`Predictor`][probreg.jax.Predictor] that turns model
+        predictor: The [`Predictor`][stagereg.jax.Predictor] that turns model
             outputs into host arrays. Required when ``epoch`` is non-empty.
         predictive_sample_count: Number of predictive samples per scoring unit.
             Required by sample-based epoch metrics.

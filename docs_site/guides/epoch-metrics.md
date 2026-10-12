@@ -9,15 +9,15 @@ explicitly.
 ## One suite, two kinds of metric
 
 Every metric a run computes beyond the loss is registered on a
-[`MetricSuite`][probreg.jax.MetricSuite], which you pass to the runner for the
+[`MetricSuite`][stagereg.jax.MetricSuite], which you pass to the runner for the
 train split and to the validation strategy for the validation split,
 usually the same suite for both. It holds two kinds of metric:
 
-- **Batch metrics**, each a [`BatchMetricSpec`][probreg.jax.BatchMetricSpec]:
+- **Batch metrics**, each a [`BatchMetricSpec`][stagereg.jax.BatchMetricSpec]:
   a JAX function evaluated on every batch, whose per-batch values are reduced
   on the host (by default with the mean). Cheap, and right for any quantity
   that is an average of per-batch averages.
-- **Epoch metrics**, each an [`EpochMetric`][probreg.core.EpochMetric]: a
+- **Epoch metrics**, each an [`EpochMetric`][stagereg.core.EpochMetric]: a
   host-side function evaluated once per epoch, over the predictions for every
   batch at once. This is what a quantity that does not decompose into batch
   averages needs: an RMSE is the root of a mean over the whole epoch, and an
@@ -27,35 +27,35 @@ Each metric has one bare [metric name](../glossary.md) such as `rmse` or
 `point_crps`, the same on every split and in every stage. The name `loss` is
 reserved for the loss, and two metrics with the same name are rejected.
 
-The epoch metrics in `probreg.core` are
-[`RootMeanSquaredError`][probreg.core.RootMeanSquaredError],
-[`NegativeLogLikelihood`][probreg.core.NegativeLogLikelihood],
-[`IntervalCoverage`][probreg.core.IntervalCoverage],
-[`WeightedSpread`][probreg.core.WeightedSpread],
-[`PointContinuousRankedProbabilityScore`][probreg.core.PointContinuousRankedProbabilityScore]
+The epoch metrics in `stagereg.core` are
+[`RootMeanSquaredError`][stagereg.core.RootMeanSquaredError],
+[`NegativeLogLikelihood`][stagereg.core.NegativeLogLikelihood],
+[`IntervalCoverage`][stagereg.core.IntervalCoverage],
+[`WeightedSpread`][stagereg.core.WeightedSpread],
+[`PointContinuousRankedProbabilityScore`][stagereg.core.PointContinuousRankedProbabilityScore]
 and
-[`ContinuousRankedProbabilityScore`][probreg.core.ContinuousRankedProbabilityScore].
+[`ContinuousRankedProbabilityScore`][stagereg.core.ContinuousRankedProbabilityScore].
 
 ## The predictor boundary
 
-An epoch metric is backend-neutral: it lives in `probreg.core` and works on
+An epoch metric is backend-neutral: it lives in `stagereg.core` and works on
 NumPy arrays. The model, however, returns a
-[`PredictiveDistribution`][probreg.core.PredictiveDistribution] made of JAX
+[`PredictiveDistribution`][stagereg.core.PredictiveDistribution] made of JAX
 arrays, and that protocol deliberately has no way to concatenate or index
 distributions, so a run cannot simply collect an epoch's worth of them.
 
-A [`Predictor`][probreg.jax.Predictor] bridges the two. For each batch it calls
+A [`Predictor`][stagereg.jax.Predictor] bridges the two. For each batch it calls
 the model, turns the distribution into host arrays, and returns them as
-[`EpochPredictionData`][probreg.core.EpochPredictionData]. The run then joins
+[`EpochPredictionData`][stagereg.core.EpochPredictionData]. The run then joins
 the batches with
-[`merge_epoch_prediction_data`][probreg.jax.merge_epoch_prediction_data] and
+[`merge_epoch_prediction_data`][stagereg.jax.merge_epoch_prediction_data] and
 hands the result to each epoch metric. The predictor is the only place that
 knows about the distribution family; for a model returning a
-[`Gaussian`][probreg.jax.Gaussian], use
-[`GaussianPredictor`][probreg.jax.GaussianPredictor]; for a model returning a
-[`PosteriorPredictive`][probreg.jax.PosteriorPredictive], the mixture over
+[`Gaussian`][stagereg.jax.Gaussian], use
+[`GaussianPredictor`][stagereg.jax.GaussianPredictor]; for a model returning a
+[`PosteriorPredictive`][stagereg.jax.PosteriorPredictive], the mixture over
 draws of a posterior, use
-[`PosteriorPredictivePredictor`][probreg.jax.PosteriorPredictivePredictor],
+[`PosteriorPredictivePredictor`][stagereg.jax.PosteriorPredictivePredictor],
 which scores the exact mixture: its log-density, samples from it and its
 quantiles.
 
@@ -73,7 +73,7 @@ at all:
 ```python
 import numpy as np
 
-from probreg.core import (
+from stagereg.core import (
     EpochPredictionData,
     IntervalCoverage,
     PredictionInterval,
@@ -101,7 +101,7 @@ assert IntervalCoverage(level=0.9)(data) == 0.75
 Sampling a distribution and integrating its CDF are not free, so the predictor
 materializes only the fields some registered metric asks for. Each epoch
 metric declares its needs as
-[`MetricRequirements`][probreg.core.MetricRequirements], and the suite takes
+[`MetricRequirements`][stagereg.core.MetricRequirements], and the suite takes
 their union:
 
 | Metric | Requires |
@@ -123,7 +123,7 @@ with choices the library will not make for you.
 `PointContinuousRankedProbabilityScore` and `ContinuousRankedProbabilityScore`
 compare empirical CDFs numerically. They need a number of
 predictive samples per scoring unit and an
-[`EvaluationGrid`][probreg.core.EvaluationGrid], the strictly increasing
+[`EvaluationGrid`][stagereg.core.EvaluationGrid], the strictly increasing
 points the CDFs are integrated over. Both are set once on the suite, so every
 batch, split and epoch is scored on the same grid with the same number of
 samples, and both have no default. A grid that does not span the targets
@@ -137,8 +137,8 @@ a CRPS metric without them fails when it is built:
 import numpy as np
 import pytest
 
-from probreg.core import EvaluationGrid, PointContinuousRankedProbabilityScore
-from probreg.jax import GaussianPredictor, MetricSuite
+from stagereg.core import EvaluationGrid, PointContinuousRankedProbabilityScore
+from stagereg.jax import GaussianPredictor, MetricSuite
 
 with pytest.raises(ValueError, match="predictive_sample_count"):
     MetricSuite(
@@ -160,7 +160,7 @@ offers. `ContinuousRankedProbabilityScore` (`crps`) scores it against a whole
 reference distribution of the target, which only exists when you know how the
 data were generated, as in a simulated benchmark. Those reference samples come
 from a `reference_samples_extractor` you give the predictor, a
-[`ReferenceSamplesExtractor`][probreg.jax.ReferenceSamplesExtractor] that maps a
+[`ReferenceSamplesExtractor`][stagereg.jax.ReferenceSamplesExtractor] that maps a
 batch and a key to a `(n_scoring_units, n_samples)` array.
 
 `SampleContinuousRankedProbabilityScore` (`sample_crps`) scores the same
@@ -170,8 +170,8 @@ CRPS of their empirical distribution. It still needs a
 `predictive_sample_count`:
 
 ```python
-from probreg.core import SampleContinuousRankedProbabilityScore
-from probreg.jax import GaussianPredictor, MetricSuite
+from stagereg.core import SampleContinuousRankedProbabilityScore
+from stagereg.jax import GaussianPredictor, MetricSuite
 
 suite = MetricSuite(
     epoch=(SampleContinuousRankedProbabilityScore(),),
@@ -187,7 +187,7 @@ ordered coordinate, such as time or cycle number, weighting later points more.
 Scoring units carry no notion of order, and the right coordinate is a fact
 about your domain, not about the model's inputs, so it is never inferred. You
 supply it through the predictor's `coordinate_extractor`, a
-[`CoordinateExtractor`][probreg.jax.CoordinateExtractor] that reads it from a
+[`CoordinateExtractor`][stagereg.jax.CoordinateExtractor] that reads it from a
 batch, typically from its `metadata`. The metric sorts the scoring units by
 coordinate, so they may arrive in any order, but every scoring unit needs a
 coordinate of its own: a tie between two units is rejected, as is an epoch with
@@ -197,8 +197,8 @@ the first batch it predicts.
 ## Evaluating a suite
 
 With a model, a loader and a suite, a full evaluation is one call to
-[`evaluate_loader`][probreg.jax.evaluate_loader]. It is also what
-[`HeldOutValidation`][probreg.jax.HeldOutValidation] runs on the validation
+[`evaluate_loader`][stagereg.jax.evaluate_loader]. It is also what
+[`HeldOutValidation`][stagereg.jax.HeldOutValidation] runs on the validation
 split after every epoch. Here every metric of this guide is computed on an
 untrained Gaussian head, with the coordinate read from batch metadata:
 
@@ -208,15 +208,15 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from probreg.core import (
+from stagereg.core import (
     EvaluationGrid,
     IntervalCoverage,
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
     WeightedSpread,
 )
-from probreg.core.types import Batch
-from probreg.jax import GaussianHead, GaussianPredictor, MetricSuite, evaluate_loader
+from stagereg.core.types import Batch
+from stagereg.jax import GaussianHead, GaussianPredictor, MetricSuite, evaluate_loader
 
 inputs = jnp.linspace(-1.0, 1.0, 16).reshape(-1, 1)
 batches = [
@@ -255,7 +255,7 @@ keys the loss and batch metrics see.
 
 No `loss` was given, so none is reported. In a training run, pass the same
 suite as `metrics=` to
-[`run_supervised`][probreg.jax.run_supervised] and to `HeldOutValidation`; each
+[`run_supervised`][stagereg.jax.run_supervised] and to `HeldOutValidation`; each
 value is then recorded under its [metric tag](../glossary.md),
 `stage/split/metric`, such as `supervised/validation/point_crps`.
 
@@ -271,7 +271,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from probreg.core import EpochPredictionData, MetricRequirements
+from stagereg.core import EpochPredictionData, MetricRequirements
 
 
 @dataclass(frozen=True)
@@ -300,6 +300,6 @@ assert metric(data) == 2.0
   the head and the distribution these metrics score.
 - The mean-variance regression and CMAPSS examples on the
   [Examples](examples.md) page register epoch metrics in full training runs.
-- The [`probreg.core.metric_registry`](../reference/core.md#probregcoremetric_registry)
-  and [`probreg.jax.metrics`](../reference/jax.md#probregjaxmetrics) reference
+- The [`stagereg.core.metric_registry`](../reference/core.md#stageregcoremetric_registry)
+  and [`stagereg.jax.metrics`](../reference/jax.md#stageregjaxmetrics) reference
   sections list every signature.

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from probreg.core.stages import StageState, validate_transition
-from probreg.core.types import (
+from stagereg.core.stages import StageState, validate_transition
+from stagereg.core.types import (
     CheckpointRef,
     StageResult,
     TrainingState,

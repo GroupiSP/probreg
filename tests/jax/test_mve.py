@@ -5,15 +5,15 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.losses import NegativeLogLikelihoodLoss
-from probreg.core.types import Batch
-from probreg.jax import (
+from stagereg.core.losses import NegativeLogLikelihoodLoss
+from stagereg.core.types import Batch
+from stagereg.jax import (
     create_optimizer,
     initialize_training_state,
     make_supervised_loss,
     run_supervised,
 )
-from probreg.jax.distributions import GaussianHead
+from stagereg.jax.distributions import GaussianHead
 
 
 def make_heteroscedastic_dataset(

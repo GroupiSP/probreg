@@ -1,8 +1,8 @@
 # Testing
 
-Tests use `pytest` and live in `tests/`, in modules mirroring the structure of `src/probreg/`
+Tests use `pytest` and live in `tests/`, in modules mirroring the structure of `src/stagereg/`
 (so `tests/jax/` mirrors the JAX backend, `tests/core/` the core). A test not tied to one
-`src/probreg` module, such as a check of the docs site or the API reference against the source,
+`src/stagereg` module, such as a check of the docs site or the API reference against the source,
 lives at the top of `tests/` (for example `tests/test_reference_completeness.py`).
 
 ## Fixtures

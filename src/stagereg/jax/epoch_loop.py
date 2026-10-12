@@ -1,10 +1,10 @@
 """The epoch loop shared by every stage, independent of what a batch step trains.
 
-Internal: not exported from ``probreg.jax``. The loop owns epochs, training
+Internal: not exported from ``stagereg.jax``. The loop owns epochs, training
 events, validation, early stopping and the best checkpoint; a stage supplies
-only a per-batch [`BatchStep`][probreg.jax.epoch_loop.BatchStep] and a
-[`StateSnapshotter`][probreg.jax.epoch_loop.StateSnapshotter] for the best
-checkpoint. [`run_supervised`][probreg.jax.run_supervised] drives it with an
+only a per-batch [`BatchStep`][stagereg.jax.epoch_loop.BatchStep] and a
+[`StateSnapshotter`][stagereg.jax.epoch_loop.StateSnapshotter] for the best
+checkpoint. [`run_supervised`][stagereg.jax.run_supervised] drives it with an
 NNX model, optimizer and loss; the posterior stage drives it with an
 inference method's ``update(batch, key)``.
 """
@@ -17,22 +17,22 @@ from typing import Any, Protocol
 
 import jax
 
-from probreg.core.checkpoints import Checkpoint, CheckpointStore
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.metric_registry import EpochPredictionData
-from probreg.core.naming import Split, metric_tag
-from probreg.core.protocols import LoaderFactory, ValidationStrategy
-from probreg.core.tracking import Decision, EventSink, TrainingEvent
-from probreg.core.types import Batch, StageResult, TrainingState
-from probreg.jax.metrics import (
+from stagereg.core.checkpoints import Checkpoint, CheckpointStore
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.metric_registry import EpochPredictionData
+from stagereg.core.naming import Split, metric_tag
+from stagereg.core.protocols import LoaderFactory, ValidationStrategy
+from stagereg.core.tracking import Decision, EventSink, TrainingEvent
+from stagereg.core.types import Batch, StageResult, TrainingState
+from stagereg.jax.metrics import (
     MetricSuite,
     collect_step_metrics,
     initialize_batch_metric_values,
     metric_key,
     reduce_metric_suite,
 )
-from probreg.jax.rng import split_key
-from probreg.jax.state import freeze_training_state
+from stagereg.jax.rng import split_key
+from stagereg.jax.state import freeze_training_state
 
 
 class BatchStep(Protocol):
@@ -99,11 +99,11 @@ class EpochPredictionCollector(Protocol):
 def resolve_checkpoint_key(checkpoint_key: str | None, stage: str) -> str:
     """Return the checkpoint key a stage saves its best checkpoint under.
 
-    Internal: not exported from ``probreg.jax``. It is the single definition
+    Internal: not exported from ``stagereg.jax``. It is the single definition
     of the default key shared by the epoch loop,
-    [`run_supervised`][probreg.jax.run_supervised],
-    [`MeanStage`][probreg.jax.MeanStage] and
-    [`GammaVarianceStage`][probreg.jax.GammaVarianceStage].
+    [`run_supervised`][stagereg.jax.run_supervised],
+    [`MeanStage`][stagereg.jax.MeanStage] and
+    [`GammaVarianceStage`][stagereg.jax.GammaVarianceStage].
 
     Args:
         checkpoint_key: An explicitly configured checkpoint key, or ``None``.
@@ -193,12 +193,12 @@ def run_epoch_loop(
             when ``metrics`` registers epoch metrics.
 
     Returns:
-        A [`StageResult`][probreg.core.StageResult] with ``state``, the last
+        A [`StageResult`][stagereg.core.StageResult] with ``state``, the last
         epoch's training metrics and its training loss.
 
     Raises:
         ValueError: If the arguments are refused by
-            [`check_epoch_loop_arguments`][probreg.jax.epoch_loop.check_epoch_loop_arguments],
+            [`check_epoch_loop_arguments`][stagereg.jax.epoch_loop.check_epoch_loop_arguments],
             if epoch metrics are registered without ``epoch_predictions``, or
             if the monitored metric is not produced.
         TypeError: If ``state.rng_state`` is not a JAX random key.

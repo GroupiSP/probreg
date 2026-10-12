@@ -8,7 +8,7 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import NDArray
 
-from probreg.core.metrics import coverage, crps, point_crps, rmse, sample_crps, wsu
+from stagereg.core.metrics import coverage, crps, point_crps, rmse, sample_crps, wsu
 
 FloatArray = NDArray[np.float64]
 
@@ -121,12 +121,12 @@ class EpochPredictionData:
             one row per scoring unit and one column per sample. Defaults to ``None``
             when no metric requires them.
         intervals: Prediction intervals, each a
-            [`PredictionInterval`][probreg.core.PredictionInterval] at a distinct
+            [`PredictionInterval`][stagereg.core.PredictionInterval] at a distinct
             confidence level. Defaults to no intervals.
         coordinate: Numeric coordinate of each scoring unit, such as time or
             remaining useful life, that a metric orders or weights scoring units
             by. Defaults to ``None`` when no metric requires it.
-        evaluation_grid: Shared [`EvaluationGrid`][probreg.core.EvaluationGrid]
+        evaluation_grid: Shared [`EvaluationGrid`][stagereg.core.EvaluationGrid]
             that distributional scores are integrated over. Defaults to ``None``
             when no metric requires it.
         log_likelihood: Log-density of each scoring unit's target under the
@@ -229,7 +229,7 @@ class MetricRequirements:
     """Materialized fields required by one or more epoch metrics.
 
     Targets and predictive means are always materialized; each attribute asks for one
-    more field of [`EpochPredictionData`][probreg.core.EpochPredictionData].
+    more field of [`EpochPredictionData`][stagereg.core.EpochPredictionData].
 
     Attributes:
         variance: Whether the predictive variance is required. Defaults to
@@ -472,8 +472,8 @@ class SampleContinuousRankedProbabilityScore:
     """Mean exact CRPS of predictive samples across scalar scoring units.
 
     Each unit's predictive samples are scored against its target with
-    [`sample_crps`][probreg.core.sample_crps], the energy form of the CRPS,
-    so unlike [`PointContinuousRankedProbabilityScore`][probreg.core.PointContinuousRankedProbabilityScore]
+    [`sample_crps`][stagereg.core.sample_crps], the energy form of the CRPS,
+    so unlike [`PointContinuousRankedProbabilityScore`][stagereg.core.PointContinuousRankedProbabilityScore]
     it needs no evaluation grid.
 
     Attributes:

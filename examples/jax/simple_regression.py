@@ -1,17 +1,17 @@
 """Train a linear model on a toy regression dataset with the JAX backend.
 
-This example wires together the pieces exposed by [`probreg.jax`][probregjax] and
-[`probreg.core`][probregcore] to run [`run_supervised`][probreg.jax.run_supervised] end to end:
+This example wires together the pieces exposed by [`stagereg.jax`][stageregjax] and
+[`stagereg.core`][stageregcore] to run [`run_supervised`][stagereg.jax.run_supervised] end to end:
 
 * a synthetic ``y = 3x + 2 + noise`` regression dataset, split into a
   training and a held-out validation set;
 * a single-layer NNX model trained with an Optax SGD optimizer;
-* a [`HeldOutValidation`][probreg.jax.HeldOutValidation] strategy evaluated after
+* a [`HeldOutValidation`][stagereg.jax.HeldOutValidation] strategy evaluated after
   every epoch;
-* an [`EarlyStopper`][probreg.core.EarlyStopper] monitoring the
+* an [`EarlyStopper`][stagereg.core.EarlyStopper] monitoring the
   validation loss, backed by an in-memory checkpoint store that
   persists the best model seen so far;
-* a minimal [`EventSink`][probreg.core.EventSink] that prints epoch
+* a minimal [`EventSink`][stagereg.core.EventSink] that prints epoch
   and early-stopping events to stdout.
 
 Run it with:
@@ -26,13 +26,13 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core.checkpoints import InMemoryCheckpointStore
-from probreg.core.early_stopping import EarlyStopper, OptimizationMode
-from probreg.core.naming import Split
-from probreg.core.protocols import LoaderFactory
-from probreg.core.tracking import TrainingEvent
-from probreg.core.types import Batch
-from probreg.jax import (
+from stagereg.core.checkpoints import InMemoryCheckpointStore
+from stagereg.core.early_stopping import EarlyStopper, OptimizationMode
+from stagereg.core.naming import Split
+from stagereg.core.protocols import LoaderFactory
+from stagereg.core.tracking import TrainingEvent
+from stagereg.core.types import Batch
+from stagereg.jax import (
     HeldOutValidation,
     create_optimizer,
     initialize_training_state,
@@ -66,8 +66,8 @@ def mean_squared_error(
         targets: Batch targets, shaped ``(batch, 1)``.
         sample_weight: Optional per-sample weights, or ``None`` to weight
             every example equally.
-        key: Unused PRNG key, kept for [`SupervisedLoss`][probreg.jax.SupervisedLoss] compatibility.
-        training: Unused training flag, kept for [`SupervisedLoss`][probreg.jax.SupervisedLoss]
+        key: Unused PRNG key, kept for [`SupervisedLoss`][stagereg.jax.SupervisedLoss] compatibility.
+        training: Unused training flag, kept for [`SupervisedLoss`][stagereg.jax.SupervisedLoss]
             compatibility.
 
     Returns:
@@ -104,7 +104,7 @@ def make_dataset(
 def make_loader(
     inputs: jax.Array, targets: jax.Array, *, batch_size: int
 ) -> LoaderFactory:
-    """Build a [`LoaderFactory`][probreg.core.LoaderFactory] that yields shuffled mini-
+    """Build a [`LoaderFactory`][stagereg.core.LoaderFactory] that yields shuffled mini-
     batches.
 
     Args:
@@ -114,7 +114,7 @@ def make_loader(
 
     Returns:
         A callable ``loader(split, epoch)`` producing an iterable of
-        [`Batch`][probreg.core.Batch] objects for that epoch, with a
+        [`Batch`][stagereg.core.Batch] objects for that epoch, with a
         fresh shuffle derived from ``epoch``.
     """
 
@@ -135,7 +135,7 @@ def make_loader(
 
 
 class PrintingEventSink:
-    """An [`EventSink`][probreg.core.EventSink] that prints a one-line summary per
+    """An [`EventSink`][stagereg.core.EventSink] that prints a one-line summary per
     event."""
 
     def on_event(self, event: TrainingEvent) -> None:

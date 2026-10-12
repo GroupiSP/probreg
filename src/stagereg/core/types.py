@@ -11,13 +11,13 @@ from typing import Any
 Array = Any
 """An array of the active backend, such as a `jax.Array`.
 
-Typed as `Any` because `probreg.core` imports no backend.
+Typed as `Any` because `stagereg.core` imports no backend.
 """
 
 PyTree = Any
 """A nested container of arrays of the active backend, such as model parameters.
 
-Typed as `Any` because `probreg.core` imports no backend.
+Typed as `Any` because `stagereg.core` imports no backend.
 """
 
 
@@ -69,7 +69,7 @@ class CheckpointRef:
 
     Attributes:
         key: Key the checkpoint is stored under in a
-            [`CheckpointStore`][probreg.core.CheckpointStore]. It identifies the
+            [`CheckpointStore`][stagereg.core.CheckpointStore]. It identifies the
             checkpoint and carries no meaning of its own.
         metadata: Information about the checkpoint, such as the stage that saved
             it. Defaults to an empty mapping.
@@ -85,9 +85,9 @@ class TrainingState:
 
     Attributes:
         model_components: Model objects keyed by component name, as registered
-            with [`register_component`][probreg.core.TrainingState.register_component].
+            with [`register_component`][stagereg.core.TrainingState.register_component].
             Defaults to an empty mapping.
-        parameter_roles: The [`ParameterRole`][probreg.core.ParameterRole] of each
+        parameter_roles: The [`ParameterRole`][stagereg.core.ParameterRole] of each
             registered component, keyed by component name, so a stage can check
             the prerequisites an earlier stage left behind. Defaults to an empty
             mapping.
@@ -95,19 +95,19 @@ class TrainingState:
             as a fitted mean model while a later stage trains the variance.
             Defaults to an empty set.
         optimizer_states: Optimizer states keyed by name, as registered with
-            [`register_optimizer`][probreg.core.TrainingState.register_optimizer].
+            [`register_optimizer`][stagereg.core.TrainingState.register_optimizer].
             Defaults to an empty mapping.
         posterior_state: State of the posterior-approximation stage, set once
             ``lifecycle_state`` reaches
-            [`StageState.POSTERIOR_READY`][probreg.core.StageState]. Defaults
+            [`StageState.POSTERIOR_READY`][stagereg.core.StageState]. Defaults
             to ``None``.
         rng_state: Random key threaded through training; seed it to make a run
             reproducible. Defaults to ``None``.
         lifecycle_state: Position of the workflow in the ordered
-            [`StageState`][probreg.core.StageState] lifecycle. Defaults to
-            [`StageState.NEW`][probreg.core.StageState].
+            [`StageState`][stagereg.core.StageState] lifecycle. Defaults to
+            [`StageState.NEW`][stagereg.core.StageState].
         stage: Label of the active stage, the value behind the
-            [`active_stage`][probreg.core.TrainingState.active_stage] property.
+            [`active_stage`][stagereg.core.TrainingState.active_stage] property.
             Defaults to ``None`` outside a runner.
         outer_iteration: Zero-based outer iteration: the count of passes through
             the run's sequence of stages. Defaults to ``0``.

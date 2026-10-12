@@ -9,8 +9,8 @@ patience is raised from 5 to 20, so the tracked curves are long enough to
 be worth opening TensorBoard for. What this example adds is the tracking:
 
 * a `TensorBoardTracker` (in `tensorboard_tracker.py`, the file to copy)
-  implementing `probreg.core.tracking.ExperimentTracker`;
-* `probreg.core.tracking.TrackerEventSink`, the library's bridge from
+  implementing `stagereg.core.tracking.ExperimentTracker`;
+* `stagereg.core.tracking.TrackerEventSink`, the library's bridge from
   training events to that tracker, which namespaces every metric by its
   stage and split;
 * the example's own printing event sink, passed *alongside* the tracker
@@ -61,19 +61,19 @@ if str(_MODULE_DIR) not in sys.path:
 
 from tensorboard_tracker import TensorBoardTracker
 
-from probreg.core.checkpoints import InMemoryCheckpointStore
-from probreg.core.early_stopping import EarlyStopper, OptimizationMode
-from probreg.core.losses import NegativeLogLikelihoodLoss
-from probreg.core.metric_registry import (
+from stagereg.core.checkpoints import InMemoryCheckpointStore
+from stagereg.core.early_stopping import EarlyStopper, OptimizationMode
+from stagereg.core.losses import NegativeLogLikelihoodLoss
+from stagereg.core.metric_registry import (
     EvaluationGrid,
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
-from probreg.core.naming import Split, metric_tag
-from probreg.core.protocols import LoaderFactory
-from probreg.core.tracking import ExperimentTracker, TrackerEventSink, TrainingEvent
-from probreg.core.types import Batch
-from probreg.jax import (
+from stagereg.core.naming import Split, metric_tag
+from stagereg.core.protocols import LoaderFactory
+from stagereg.core.tracking import ExperimentTracker, TrackerEventSink, TrainingEvent
+from stagereg.core.types import Batch
+from stagereg.jax import (
     GaussianHead,
     GaussianPredictor,
     HeldOutValidation,
@@ -123,7 +123,7 @@ def make_dataset(*, num_samples: int, key: jax.Array) -> tuple[jax.Array, jax.Ar
 def make_loader(
     inputs: jax.Array, targets: jax.Array, *, batch_size: int
 ) -> LoaderFactory:
-    """Build a [`LoaderFactory`][probreg.core.LoaderFactory] that yields shuffled mini-
+    """Build a [`LoaderFactory`][stagereg.core.LoaderFactory] that yields shuffled mini-
     batches.
 
     Args:
@@ -133,7 +133,7 @@ def make_loader(
 
     Returns:
         A callable ``loader(split, epoch)`` producing an iterable of
-        [`Batch`][probreg.core.Batch] objects for that epoch, with a
+        [`Batch`][stagereg.core.Batch] objects for that epoch, with a
         fresh shuffle derived from ``epoch``.
     """
 
@@ -210,8 +210,8 @@ def plot_predictions(
 
     Args:
         model: An NNX module mapping inputs directly to a
-            [`PredictiveDistribution`][probreg.core.PredictiveDistribution]
-            (e.g. a [`GaussianHead`][probreg.jax.GaussianHead]).
+            [`PredictiveDistribution`][stagereg.core.PredictiveDistribution]
+            (e.g. a [`GaussianHead`][stagereg.jax.GaussianHead]).
         inputs: Validation inputs, shaped ``(n, 1)``.
         targets: Validation targets, shaped ``(n, 1)``.
 
@@ -250,7 +250,7 @@ def plot_predictions(
 def run_tracked_training(tracker: ExperimentTracker, *, epochs: int = EPOCHS) -> None:
     """Train the MVE model, recording the whole run to a tracker.
 
-    Typed against [`ExperimentTracker`][probreg.core.ExperimentTracker], so
+    Typed against [`ExperimentTracker`][stagereg.core.ExperimentTracker], so
     swapping TensorBoard for another tracker changes one constructor line
     in ``main`` and nothing here.
 

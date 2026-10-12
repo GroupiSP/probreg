@@ -1,7 +1,7 @@
 """End-to-end CMAPSS FD001 two-stage probabilistic RUL training and evaluation.
 
 Loads the FD001 training and test splits, builds standardized sliding
-windows, and trains a two-stage probabilistic pipeline through `probreg`'s
+windows, and trains a two-stage probabilistic pipeline through `stagereg`'s
 explicit supervised stages:
 
 * Stage 1 trains a deterministic 1D-CNN mean model via `MeanStage`.
@@ -10,7 +10,7 @@ explicit supervised stages:
 
 The frozen Stage-1 point prediction and the Stage-2 Gamma mean are then
 combined into a composite `Gaussian` predictive distribution, evaluated
-end to end against the official FD001 test split with `probreg`'s
+end to end against the official FD001 test split with `stagereg`'s
 `MetricSuite`/`GaussianPredictor`/`evaluate_loader` machinery, reporting
 RMSE, 95% interval coverage, and point-CRPS. The test split follows a
 single-window-per-trajectory protocol: one window per test unit, ending at
@@ -60,17 +60,17 @@ from preprocessing import (
     split_by_unit,
 )
 
-from probreg.core.losses import SquaredErrorLoss
-from probreg.core.metric_registry import (
+from stagereg.core.losses import SquaredErrorLoss
+from stagereg.core.metric_registry import (
     EvaluationGrid,
     IntervalCoverage,
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
-from probreg.core.protocols import LoaderFactory
-from probreg.core.tracking import TrainingEvent
-from probreg.core.types import Batch, TrainingState
-from probreg.jax import (
+from stagereg.core.protocols import LoaderFactory
+from stagereg.core.tracking import TrainingEvent
+from stagereg.core.types import Batch, TrainingState
+from stagereg.jax import (
     GammaVarianceStage,
     GaussianPredictor,
     HeldOutValidation,
@@ -329,7 +329,7 @@ def evaluate_composite_metrics(
     """Evaluate the composite Gaussian predictive model against the test split.
 
     Obtains the composite model from `build_composite_model` and scores
-    it with `probreg`'s `MetricSuite`, `GaussianPredictor`, and
+    it with `stagereg`'s `MetricSuite`, `GaussianPredictor`, and
     `evaluate_loader`.
 
     Args:

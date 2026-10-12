@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using these metadata."
+title: "stagereg: stage-oriented probabilistic regression"
+type: software
+authors:
+  - given-names: Giorgio
+    family-names: Tosti Balducci
+    email: g.b.l.tostibalducci@tudelft.nl
+  - name: "Intelligent System Prognostics for Operations & Maintenance Research Group"
+version: 0.1.0
+license: BSD-3-Clause
+repository-code: "https://github.com/GroupiSP/stagereg"
+url: "https://groupisp.github.io/stagereg/"

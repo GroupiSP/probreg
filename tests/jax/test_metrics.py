@@ -10,7 +10,7 @@ from statistics import NormalDist
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from probreg.core.metric_registry import (
+from stagereg.core.metric_registry import (
     ContinuousRankedProbabilityScore,
     EpochPredictionData,
     EvaluationGrid,
@@ -22,9 +22,9 @@ from probreg.core.metric_registry import (
     RootMeanSquaredError,
     WeightedSpread,
 )
-from probreg.core.types import Batch
-from probreg.jax.distributions import Gaussian, PosteriorPredictive
-from probreg.jax.metrics import (
+from stagereg.core.types import Batch
+from stagereg.jax.distributions import Gaussian, PosteriorPredictive
+from stagereg.jax.metrics import (
     GaussianPredictor,
     MetricSuite,
     PosteriorPredictivePredictor,

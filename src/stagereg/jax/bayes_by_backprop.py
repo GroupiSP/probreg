@@ -1,11 +1,11 @@
 """Bayes by Backprop: mean-field Gaussian variational inference.
 
-[`BayesByBackprop`][probreg.jax.BayesByBackprop] is an
-[`InferenceMethod`][probreg.jax.InferenceMethod] that fits an independent
+[`BayesByBackprop`][stagereg.jax.BayesByBackprop] is an
+[`InferenceMethod`][stagereg.jax.InferenceMethod] that fits an independent
 Gaussian to every parameter of the posterior network by maximizing the
 minibatch evidence lower bound with the reparameterization trick (Blundell et
 al., 2015). Its posterior,
-[`MeanFieldGaussianPosterior`][probreg.jax.MeanFieldGaussianPosterior], is
+[`MeanFieldGaussianPosterior`][stagereg.jax.MeanFieldGaussianPosterior], is
 unlimited: it yields as many draws as its caller asks for.
 """
 
@@ -21,8 +21,8 @@ import jax.numpy as jnp
 import jax.scipy.stats as jstats
 import optax
 
-from probreg.core.types import Batch, PyTree
-from probreg.jax.posterior import IsotropicGaussianPrior, PosteriorProblem, Prior
+from stagereg.core.types import Batch, PyTree
+from stagereg.jax.posterior import IsotropicGaussianPrior, PosteriorProblem, Prior
 
 
 def _default_optimizer() -> optax.GradientTransformation:
@@ -95,7 +95,7 @@ class BayesByBackprop:
     variational parameters along the gradient of the negative minibatch
     ELBO: the KL divergence from the prior minus the problem's
     log-likelihood, which is already scaled by ``N / B``. The KL is in closed
-    form for an [`IsotropicGaussianPrior`][probreg.jax.IsotropicGaussianPrior]
+    form for an [`IsotropicGaussianPrior`][stagereg.jax.IsotropicGaussianPrior]
     and a one-sample Monte Carlo estimate, ``log q(w) - log p(w)``, for any
     other prior. Standard deviations are parameterized as the softplus of an
     unconstrained ``rho``.
@@ -229,8 +229,8 @@ class BayesByBackprop:
 
         Args:
             state: A state previously returned by
-                [`state`][probreg.jax.BayesByBackprop.state], after
-                [`init`][probreg.jax.BayesByBackprop.init] on the same
+                [`state`][stagereg.jax.BayesByBackprop.state], after
+                [`init`][stagereg.jax.BayesByBackprop.init] on the same
                 problem.
 
         Raises:
@@ -258,7 +258,7 @@ class BayesByBackprop:
 
         Args:
             state: A state previously returned by
-                [`posterior_state`][probreg.jax.BayesByBackprop.posterior_state].
+                [`posterior_state`][stagereg.jax.BayesByBackprop.posterior_state].
 
         Raises:
             ValueError: If the method has not been initialized.

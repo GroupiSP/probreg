@@ -5,15 +5,15 @@ from typing import Any
 import numpy as np
 import pytest
 
-from probreg.core.distributions import PredictiveDistribution
-from probreg.core.losses import (
+from stagereg.core.distributions import PredictiveDistribution
+from stagereg.core.losses import (
     BetaNLLLoss,
     GaussianNLLLoss,
     NegativeLogLikelihoodLoss,
     SquaredErrorLoss,
     add_epsilon,
 )
-from probreg.core.types import Batch
+from stagereg.core.types import Batch
 
 
 def test_negative_log_likelihood_matches_negative_log_prob(

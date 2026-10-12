@@ -1,31 +1,31 @@
 # Predictive distributions and losses
 
-A probabilistic regression model in `probreg` does not return a number per
+A probabilistic regression model in `stagereg` does not return a number per
 input; it returns a distribution over the target. This guide explains how that
 distribution is produced, how a loss scores it, and how to choose between plain
 negative log-likelihood and its beta-weighted variant.
 
 ## The model returns a distribution
 
-Two protocols in `probreg.core` meet at the model's output:
+Two protocols in `stagereg.core` meet at the model's output:
 
-- a [`DistributionHead`][probreg.core.DistributionHead] maps features to a
+- a [`DistributionHead`][stagereg.core.DistributionHead] maps features to a
   prediction;
 - that prediction is a
-  [`PredictiveDistribution`][probreg.core.PredictiveDistribution]: something
+  [`PredictiveDistribution`][stagereg.core.PredictiveDistribution]: something
   with a `log_prob`, a `mean`, a `variance` and a keyed `sample`.
 
 The head is the last layer of the model, and the distribution is what the model
 hands to everything downstream: the loss, the epoch metrics and your own
 plotting code. Nothing downstream knows which distribution family it is
 looking at, only that it satisfies the protocol. That is the seam that keeps
-losses and metrics in `probreg.core` free of any backend.
+losses and metrics in `stagereg.core` free of any backend.
 
 The JAX backend supplies two heads, each with its distribution:
-[`GaussianHead`][probreg.jax.GaussianHead] produces a
-[`Gaussian`][probreg.jax.Gaussian] (location and scale), and
-[`GammaHead`][probreg.jax.GammaHead] produces a
-[`Gamma`][probreg.jax.Gamma] (concentration and rate) for strictly positive
+[`GaussianHead`][stagereg.jax.GaussianHead] produces a
+[`Gaussian`][stagereg.jax.Gaussian] (location and scale), and
+[`GammaHead`][stagereg.jax.GammaHead] produces a
+[`Gamma`][stagereg.jax.Gamma] (concentration and rate) for strictly positive
 targets. Both keep their parameters positive with a `softplus` and a small
 offset, so the network's raw outputs are unconstrained.
 
@@ -36,7 +36,7 @@ ordinary Flax NNX module. The model's call then returns the distribution:
 import jax.numpy as jnp
 from flax import nnx
 
-from probreg.jax import GaussianHead
+from stagereg.jax import GaussianHead
 
 
 class MeanVarianceModel(nnx.Module):
@@ -57,24 +57,24 @@ assert bool(jnp.all(prediction.variance() > 0.0))
 
 ## Scoring the distribution: negative log-likelihood
 
-[`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss] is the
+[`NegativeLogLikelihoodLoss`][stagereg.core.NegativeLogLikelihoodLoss] is the
 loss for a predictive distribution. Its `per_example` asks the prediction for
 `log_prob(targets)` and negates it, returning one unreduced value per element,
 so reduction and sample weighting stay with the caller. It never reads the
 distribution's parameters, so the same loss trains a Gaussian head, a Gamma
 head or any distribution of your own.
 
-[`GaussianNLLLoss`][probreg.core.GaussianNLLLoss] and
-[`BetaNLLLoss`][probreg.core.BetaNLLLoss] are not separate classes. Both are names
+[`GaussianNLLLoss`][stagereg.core.GaussianNLLLoss] and
+[`BetaNLLLoss`][stagereg.core.BetaNLLLoss] are not separate classes. Both are names
 for `NegativeLogLikelihoodLoss`, kept from before the two were consolidated, so
 the choice between them is really the choice of its `beta` argument.
 
 ```python
 import jax.numpy as jnp
 
-from probreg.core import BetaNLLLoss, GaussianNLLLoss, NegativeLogLikelihoodLoss
-from probreg.core.types import Batch
-from probreg.jax import Gaussian
+from stagereg.core import BetaNLLLoss, GaussianNLLLoss, NegativeLogLikelihoodLoss
+from stagereg.core.types import Batch
+from stagereg.jax import Gaussian
 
 assert GaussianNLLLoss is NegativeLogLikelihoodLoss
 assert BetaNLLLoss is NegativeLogLikelihoodLoss
@@ -117,9 +117,9 @@ a different objective.
 import jax
 import jax.numpy as jnp
 
-from probreg.core import BetaNLLLoss, GaussianNLLLoss
-from probreg.core.types import Batch
-from probreg.jax import Gaussian
+from stagereg.core import BetaNLLLoss, GaussianNLLLoss
+from stagereg.core.types import Batch
+from stagereg.jax import Gaussian
 
 nll = GaussianNLLLoss()
 beta_nll = BetaNLLLoss(beta=0.5, stop_gradient=jax.lax.stop_gradient)
@@ -145,17 +145,17 @@ for argnum in (1, 2):
 
 ### Positive targets
 
-A [`Gamma`][probreg.jax.Gamma] has support only on positive values, and its
+A [`Gamma`][stagereg.jax.Gamma] has support only on positive values, and its
 `log_prob` at an exact zero is not finite. When targets can be zero, pass a
 `target_transform` that shifts them away from it before scoring;
-[`add_epsilon`][probreg.core.add_epsilon] builds one:
+[`add_epsilon`][stagereg.core.add_epsilon] builds one:
 
 ```python
 import jax.numpy as jnp
 
-from probreg.core import NegativeLogLikelihoodLoss, add_epsilon
-from probreg.core.types import Batch
-from probreg.jax import Gamma
+from stagereg.core import NegativeLogLikelihoodLoss, add_epsilon
+from stagereg.core.types import Batch
+from stagereg.jax import Gamma
 
 loss = NegativeLogLikelihoodLoss(target_transform=add_epsilon(1e-6))
 prediction = Gamma(concentration=jnp.full((2,), 2.0), rate=jnp.ones((2,)))
@@ -169,10 +169,10 @@ squared residuals.
 
 ## Training with a distribution loss
 
-A runner such as [`run_supervised`][probreg.jax.run_supervised] expects a
-[`SupervisedLoss`][probreg.jax.SupervisedLoss]: one scalar from a model, a
+A runner such as [`run_supervised`][stagereg.jax.run_supervised] expects a
+[`SupervisedLoss`][stagereg.jax.SupervisedLoss]: one scalar from a model, a
 batch's arrays, a key and a training flag. A per-example objective is not
-that, so [`make_supervised_loss`][probreg.jax.make_supervised_loss] adapts
+that, so [`make_supervised_loss`][stagereg.jax.make_supervised_loss] adapts
 it. The adapted loss calls the model, hands the returned distribution to
 `per_example`, applies any sample weights and reduces with the mean. For
 evaluation it predicts with an inference-mode clone, so validation never
@@ -184,9 +184,9 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core import BetaNLLLoss
-from probreg.core.types import Batch
-from probreg.jax import (
+from stagereg.core import BetaNLLLoss
+from stagereg.core.types import Batch
+from stagereg.jax import (
     GaussianHead,
     create_optimizer,
     initialize_training_state,
@@ -221,7 +221,7 @@ print(f"final training loss: {result.loss:.4f}")
 ```
 
 The same adapter accepts a deterministic objective such as
-[`SquaredErrorLoss`][probreg.core.SquaredErrorLoss], for a model that returns
+[`SquaredErrorLoss`][stagereg.core.SquaredErrorLoss], for a model that returns
 plain arrays.
 
 ## Where to go next
@@ -230,6 +230,6 @@ plain arrays.
   RMSE, interval coverage and CRPS during training.
 - The mean-variance regression example on the [Examples](examples.md) page
   trains a Gaussian head end to end with early stopping.
-- The [`probreg.core.distributions`](../reference/core.md#probregcoredistributions)
-  and [`probreg.core.losses`](../reference/core.md#probregcorelosses) reference
+- The [`stagereg.core.distributions`](../reference/core.md#stageregcoredistributions)
+  and [`stagereg.core.losses`](../reference/core.md#stageregcorelosses) reference
   sections list every signature.

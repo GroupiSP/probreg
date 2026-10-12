@@ -1,6 +1,6 @@
-# Contributing to probreg
+# Contributing to stagereg
 
-Thanks for your interest in contributing to `probreg`.
+Thanks for your interest in contributing to `stagereg`.
 
 ## Opening issues
 
@@ -51,7 +51,20 @@ bare word after the language and renders the block as plain text, while pytest i
 `--markdown-docs-syntax=superfences` and skips brace-form fences carrying `notest`.
 
 The API reference in `docs_site/reference/` has one page per package and one `## module`
-section per source module. Exporting a symbol from `probreg.core` or `probreg.jax` means adding
-`::: probreg.core.Name` (its public path) under the section of the module that defines it;
+section per source module. Exporting a symbol from `stagereg.core` or `stagereg.jax` means adding
+`::: stagereg.core.Name` (its public path) under the section of the module that defines it;
 `tests/test_reference_completeness.py` fails until you do, and fails on an entry that names
 something not exported.
+
+## Cutting a release (maintainers)
+
+Releases are tag-driven by `.github/workflows/release.yml`; no local credentials are needed.
+
+1. Bump `version` in `pyproject.toml` (and in `CITATION.cff`) in a PR, and merge it into `main`.
+2. Tag the merge commit with the same version prefixed by `v`, and push the tag:
+   `git tag v0.1.0 && git push origin v0.1.0`.
+3. The workflow fails unless the tag matches the declared version, then runs CI (`ci.yml`) as the
+   verification gate, builds the wheel and sdist, and publishes them to TestPyPI.
+4. Check the TestPyPI upload, then approve the waiting **Publish to PyPI** job (the `pypi`
+   environment requires a maintainer's approval). The GitHub Release, with notes generated from
+   the merged PRs and the built files attached, is created after the PyPI publish succeeds.

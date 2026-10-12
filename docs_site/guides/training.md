@@ -1,11 +1,11 @@
 # Training a supervised model
 
-[`run_supervised`][probreg.jax.run_supervised] trains one Flax NNX model with
+[`run_supervised`][stagereg.jax.run_supervised] trains one Flax NNX model with
 one Optax optimizer. It is the single-stage runner of the JAX backend: you hand
 it your data as a loader, your objective as a loss, and the training state it
 mutates, and it runs epochs. This guide covers what each of those pieces is and
 why the runner asks for it in that form. For the full signature, see the
-[`probreg.jax` reference](../reference/jax.md).
+[`stagereg.jax` reference](../reference/jax.md).
 
 ## A complete run
 
@@ -18,8 +18,8 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from probreg.core import Batch, SquaredErrorLoss
-from probreg.jax import (
+from stagereg.core import Batch, SquaredErrorLoss
+from stagereg.jax import (
     create_optimizer,
     initialize_training_state,
     make_supervised_loss,
@@ -57,10 +57,10 @@ assert len(state.metric_history["supervised/train/loss"]) == 3
 
 ## The model, the optimizer and the training state
 
-[`create_optimizer`][probreg.jax.create_optimizer] wraps an Optax gradient
+[`create_optimizer`][stagereg.jax.create_optimizer] wraps an Optax gradient
 transformation in an `nnx.Optimizer` bound to the model's parameters.
-[`initialize_training_state`][probreg.jax.initialize_training_state] registers
-both in a [`TrainingState`][probreg.core.TrainingState], together with the root
+[`initialize_training_state`][stagereg.jax.initialize_training_state] registers
+both in a [`TrainingState`][stagereg.core.TrainingState], together with the root
 PRNG key of the run.
 
 The runner mutates all three in place: the model's parameters, the optimizer's
@@ -70,9 +70,9 @@ or an [event sink](../glossary.md) see the same live state the runner trained.
 
 ## Loaders
 
-`train_loader` is a [`LoaderFactory`][probreg.core.LoaderFactory]: a callable
+`train_loader` is a [`LoaderFactory`][stagereg.core.LoaderFactory]: a callable
 taking keyword-only `split` and `epoch` and returning an iterable of
-[`Batch`][probreg.core.Batch] objects. The runner calls it once at the start of
+[`Batch`][stagereg.core.Batch] objects. The runner calls it once at the start of
 every epoch, with `split="train"`, and iterates what it returns.
 
 A factory rather than a fixed iterable is what makes per-epoch behaviour
@@ -89,16 +89,16 @@ model accepts.
 
 ## Losses
 
-The `loss` is a [`SupervisedLoss`][probreg.jax.SupervisedLoss]: a callable
+The `loss` is a [`SupervisedLoss`][stagereg.jax.SupervisedLoss]: a callable
 `loss(model, inputs, targets, sample_weight, key, training)` that returns a
 scalar. The runner differentiates it with respect to the model's parameters to
 take one optimizer step per batch.
 
 The usual way to obtain one is
-[`make_supervised_loss`][probreg.jax.make_supervised_loss], which adapts a
+[`make_supervised_loss`][stagereg.jax.make_supervised_loss], which adapts a
 backend-neutral per-example objective such as
-[`SquaredErrorLoss`][probreg.core.SquaredErrorLoss] or
-[`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss]. It calls
+[`SquaredErrorLoss`][stagereg.core.SquaredErrorLoss] or
+[`NegativeLogLikelihoodLoss`][stagereg.core.NegativeLogLikelihoodLoss]. It calls
 the model, applies `sample_weight` when the batch has one, and reduces to a
 mean. It also puts the model in training mode for training calls and evaluates
 an inference-mode clone otherwise, so that validation cannot disturb the live
@@ -139,7 +139,7 @@ but never later; see [Validation and early stopping](validation.md).
 
 ## What comes back
 
-The runner returns a [`StageResult`][probreg.core.StageResult]:
+The runner returns a [`StageResult`][stagereg.core.StageResult]:
 
 - `result.metrics` holds the last epoch's training metrics under their bare
   metric names, such as `loss`;
@@ -155,5 +155,5 @@ history name the same quantity; only the history says which stage and split it
 came from.
 
 To compute more than the loss on each epoch, pass a
-[`MetricSuite`][probreg.jax.MetricSuite] as `metrics`. To watch a run while it
-trains, pass [event sinks][probreg.core.EventSink] as `event_sinks`.
+[`MetricSuite`][stagereg.jax.MetricSuite] as `metrics`. To watch a run while it
+trains, pass [event sinks][stagereg.core.EventSink] as `event_sinks`.

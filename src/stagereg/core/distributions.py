@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from probreg.core.types import Array, Batch
+from stagereg.core.types import Array, Batch
 
 
 class PredictiveDistribution(Protocol):

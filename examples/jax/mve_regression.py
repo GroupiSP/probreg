@@ -1,23 +1,23 @@
 """Train an MVE model on a heteroscedastic toy regression dataset.
 
-This example wires together [`probreg.jax`][probregjax] and [`probreg.core`][probregcore] to
-run [`run_supervised`][probreg.jax.run_supervised] with a mean-variance estimation (MVE)
+This example wires together [`stagereg.jax`][stageregjax] and [`stagereg.core`][stageregcore] to
+run [`run_supervised`][stagereg.jax.run_supervised] with a mean-variance estimation (MVE)
 loss:
 
 * a synthetic ``y = 2x + noise`` regression dataset where the noise scale
   grows with ``x``, split into a training and a held-out validation set;
-* a [`GaussianHead`][probreg.jax.GaussianHead] predicting both a mean
+* a [`GaussianHead`][stagereg.jax.GaussianHead] predicting both a mean
   and a positive aleatoric scale for each input, trained with an Optax Adam
   optimizer;
 * a Gaussian negative log-likelihood objective
-  ([`NegativeLogLikelihoodLoss`][probreg.core.NegativeLogLikelihoodLoss]), adapted into a
-  [`SupervisedLoss`][probreg.jax.SupervisedLoss] by
-  [`make_supervised_loss`][probreg.jax.make_supervised_loss];
+  ([`NegativeLogLikelihoodLoss`][stagereg.core.NegativeLogLikelihoodLoss]), adapted into a
+  [`SupervisedLoss`][stagereg.jax.SupervisedLoss] by
+  [`make_supervised_loss`][stagereg.jax.make_supervised_loss];
 * composable RMSE and sample/grid-based point-CRPS metrics for both training
   and held-out validation;
-* a [`HeldOutValidation`][probreg.jax.HeldOutValidation] strategy evaluated after every
+* a [`HeldOutValidation`][stagereg.jax.HeldOutValidation] strategy evaluated after every
   epoch;
-* an [`EarlyStopper`][probreg.core.EarlyStopper] monitoring the
+* an [`EarlyStopper`][stagereg.core.EarlyStopper] monitoring the
   validation loss, backed by an in-memory checkpoint store that persists
   the best model seen so far.
 
@@ -35,19 +35,19 @@ import numpy as np
 import optax
 from flax import nnx
 
-from probreg.core.checkpoints import InMemoryCheckpointStore
-from probreg.core.early_stopping import EarlyStopper, OptimizationMode
-from probreg.core.losses import NegativeLogLikelihoodLoss
-from probreg.core.metric_registry import (
+from stagereg.core.checkpoints import InMemoryCheckpointStore
+from stagereg.core.early_stopping import EarlyStopper, OptimizationMode
+from stagereg.core.losses import NegativeLogLikelihoodLoss
+from stagereg.core.metric_registry import (
     EvaluationGrid,
     PointContinuousRankedProbabilityScore,
     RootMeanSquaredError,
 )
-from probreg.core.naming import Split, metric_tag
-from probreg.core.protocols import LoaderFactory
-from probreg.core.tracking import TrainingEvent
-from probreg.core.types import Batch
-from probreg.jax import (
+from stagereg.core.naming import Split, metric_tag
+from stagereg.core.protocols import LoaderFactory
+from stagereg.core.tracking import TrainingEvent
+from stagereg.core.types import Batch
+from stagereg.jax import (
     GaussianHead,
     GaussianPredictor,
     HeldOutValidation,
@@ -91,7 +91,7 @@ def make_dataset(*, num_samples: int, key: jax.Array) -> tuple[jax.Array, jax.Ar
 def make_loader(
     inputs: jax.Array, targets: jax.Array, *, batch_size: int
 ) -> LoaderFactory:
-    """Build a [`LoaderFactory`][probreg.core.LoaderFactory] that yields shuffled mini-
+    """Build a [`LoaderFactory`][stagereg.core.LoaderFactory] that yields shuffled mini-
     batches.
 
     Args:
@@ -101,7 +101,7 @@ def make_loader(
 
     Returns:
         A callable ``loader(split, epoch)`` producing an iterable of
-        [`Batch`][probreg.core.Batch] objects for that epoch, with a
+        [`Batch`][stagereg.core.Batch] objects for that epoch, with a
         fresh shuffle derived from ``epoch``.
     """
 
@@ -180,8 +180,8 @@ def plot_predictions(
 
     Args:
         model: An NNX module mapping inputs directly to a
-            [`PredictiveDistribution`][probreg.core.PredictiveDistribution]
-            (e.g. a [`GaussianHead`][probreg.jax.GaussianHead]).
+            [`PredictiveDistribution`][stagereg.core.PredictiveDistribution]
+            (e.g. a [`GaussianHead`][stagereg.jax.GaussianHead]).
         inputs: Validation inputs, shaped ``(n, 1)``.
         targets: Validation targets, shaped ``(n, 1)``.
         save_path: If given, save the figure to this path instead of

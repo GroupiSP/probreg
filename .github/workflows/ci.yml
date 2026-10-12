@@ -1,10 +1,14 @@
 name: CI
 
+# The verification gate. release.yml calls this workflow, so a release is gated by
+# exactly the checks a pull request must pass.
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -24,14 +28,43 @@ jobs:
         run: uv run pre-commit run --all-files
 
   test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dev dependencies
+        run: uv sync --extra jax --group dev --group example-cmapss
+      - name: Run tests
+        run: uv run pytest
+
+  # Branch protection requires a check named "Test"; the matrix jobs above report as
+  # "Test (Python X.Y)", so this job rolls them up under the stable name.
+  test-result:
     name: Test
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    steps:
+      - name: Require every matrix job to pass
+        run: test "${{ needs.test.result }}" = "success"
+
+  docs:
+    name: Docs build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - name: Install dev dependencies
-        run: uv sync --extra jax --group dev --group example_cmapss
-      - name: Run tests
-        run: uv run pytest
+      - name: Install docs dependencies
+        # mkdocstrings imports stagereg.jax to introspect it, so the jax extra is needed.
+        run: uv sync --extra jax --group docs
+      - name: Build site
+        run: uv run --extra jax --group docs mkdocs build --strict

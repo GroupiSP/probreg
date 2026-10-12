@@ -19,9 +19,9 @@ from posterior_runs import (
     restore_mean_and_variance,
 )
 
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.types import Batch, PyTree, StageState
-from probreg.jax import (
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.types import Batch, PyTree, StageState
+from stagereg.jax import (
     IsotropicGaussianPrior,
     PosteriorProblem,
     PosteriorStage,

@@ -1,8 +1,8 @@
-site_name: probreg
+site_name: stagereg
 site_description: Stage-oriented probabilistic regression
-site_url: https://groupisp.github.io/probreg/
-repo_url: https://github.com/GroupiSP/probreg
-repo_name: GroupiSP/probreg
+site_url: https://groupisp.github.io/stagereg/
+repo_url: https://github.com/GroupiSP/stagereg
+repo_name: GroupiSP/stagereg
 edit_uri: ""
 
 # The published pages live apart from docs/, which holds ADRs and agent notes
@@ -22,8 +22,8 @@ nav:
       - Tracking a run: guides/tracking.md
       - Examples: guides/examples.md
   - API reference:
-      - probreg.core: reference/core.md
-      - probreg.jax: reference/jax.md
+      - stagereg.core: reference/core.md
+      - stagereg.jax: reference/jax.md
   - Glossary: glossary.md
 
 theme:
@@ -65,7 +65,7 @@ hooks:
 plugins:
   - search
   # Listed explicitly so autorefs also registers page headings: a docstring can
-  # then link a module by its reference-page section, e.g. [x][probregjaxstate].
+  # then link a module by its reference-page section, e.g. [x][stageregjaxstate].
   - autorefs
   - mkdocstrings:
       handlers:

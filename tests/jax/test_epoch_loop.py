@@ -16,13 +16,13 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from probreg.core.checkpoints import InMemoryCheckpointStore
-from probreg.core.early_stopping import EarlyStopper
-from probreg.core.metric_registry import EpochPredictionData, RootMeanSquaredError
-from probreg.core.naming import Split
-from probreg.core.types import Batch, TrainingState
-from probreg.jax.epoch_loop import StateSnapshot, run_epoch_loop
-from probreg.jax.metrics import MetricSuite
+from stagereg.core.checkpoints import InMemoryCheckpointStore
+from stagereg.core.early_stopping import EarlyStopper
+from stagereg.core.metric_registry import EpochPredictionData, RootMeanSquaredError
+from stagereg.core.naming import Split
+from stagereg.core.types import Batch, TrainingState
+from stagereg.jax.epoch_loop import StateSnapshot, run_epoch_loop
+from stagereg.jax.metrics import MetricSuite
 
 
 class ScriptedStep:
