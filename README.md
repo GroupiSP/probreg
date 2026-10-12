@@ -1,5 +1,9 @@
 # stagereg
 
+[![PyPI version](https://img.shields.io/pypi/v/stagereg)](https://pypi.org/project/stagereg/)
+[![Python versions](https://img.shields.io/pypi/pyversions/stagereg)](https://pypi.org/project/stagereg/)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
+
 `stagereg` is a library for stage-oriented probabilistic regression: training
 models that predict a distribution over the target, not just a point estimate.
 Training runs as a sequence of explicit, checkpointed stages, such as fitting a
@@ -7,16 +11,35 @@ mean model and then a separate variance model on its residuals. A core of
 backend-neutral contracts is implemented by an optional JAX backend built on
 Flax NNX and Optax.
 
-**Documentation:** <https://groupisp.github.io/stagereg/>
+**Documentation:** <https://groupisp.github.io/stagereg/>. The docs site tracks
+the `main` branch, with no per-release docs before 1.0, so it may describe
+features newer than your installed version.
 
 ## Install
 
+<!-- --8<-- [start:install] -->
+Install with the JAX backend (JAX, Flax and Optax):
+
 ```bash
-uv add "stagereg[jax] @ git+https://github.com/GroupiSP/stagereg"
+pip install "stagereg[jax]"
 ```
 
-With pip, use `pip install "stagereg[jax] @ git+https://github.com/GroupiSP/stagereg"`.
-Drop the `[jax]` extra for the backend-neutral contracts alone.
+The optional `plot` extra also installs matplotlib, for plotting results:
+
+```bash
+pip install "stagereg[jax,plot]"
+```
+
+With uv, use the equivalent `uv add` form:
+
+```bash
+uv add "stagereg[jax]"
+uv add "stagereg[jax,plot]"
+```
+
+Drop the `[jax]` extra for the backend-neutral contracts alone, which depend
+only on NumPy.
+<!-- --8<-- [end:install] -->
 
 ## Minimal example
 
