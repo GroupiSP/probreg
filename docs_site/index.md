@@ -40,9 +40,6 @@ stages and [the posterior stage](guides/posterior-stage.md) for the third.
 
 --8<-- "README.md:install"
 
-This site tracks the `main` branch, with no per-release docs before 1.0, so it
-may describe features newer than your installed version.
-
 ## Minimal example
 
 --8<-- "README.md:minimal-example"

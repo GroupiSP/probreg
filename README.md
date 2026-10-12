@@ -11,9 +11,7 @@ mean model and then a separate variance model on its residuals. A core of
 backend-neutral contracts is implemented by an optional JAX backend built on
 Flax NNX and Optax.
 
-**Documentation:** <https://groupisp.github.io/stagereg/>. The docs site tracks
-the `main` branch, with no per-release docs before 1.0, so it may describe
-features newer than your installed version.
+**Documentation:** <https://groupisp.github.io/stagereg/>
 
 ## Install
 
@@ -39,6 +37,9 @@ uv add "stagereg[jax,plot]"
 
 Drop the `[jax]` extra for the backend-neutral contracts alone, which depend
 only on NumPy.
+
+The documentation tracks the `main` branch, with no per-release docs before
+1.0, so it may describe features newer than your installed version.
 <!-- --8<-- [end:install] -->
 
 ## Minimal example
