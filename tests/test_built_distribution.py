@@ -199,6 +199,9 @@ def test_clean_install_of_the_wheel_imports(
 def test_citation_matches_the_declared_version_and_authors() -> None:
     citation = yaml.safe_load((REPOSITORY / "CITATION.cff").read_text())
     assert citation["version"] == DECLARED_VERSION
+    assert citation["license"] == PROJECT["license"]
+    assert citation["repository-code"] == PROJECT["urls"]["Repository"]
+    assert citation["url"] == PROJECT["urls"]["Documentation"]
     cited = [
         author.get("name") or f"{author['given-names']} {author['family-names']}"
         for author in citation["authors"]
