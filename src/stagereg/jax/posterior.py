@@ -93,6 +93,9 @@ class PosteriorProblem:
         prior: The prior over the parameter tree.
         train_loader: Factory producing the training batches of each epoch.
         dataset_size: The number of training examples ``N``.
+        aleatoric_variance: PROTOTYPE (stagereg#106). Maps inputs to the
+            frozen aleatoric variance, without gradient, so a method can draw
+            predictive samples (e.g. for an adversarial discriminator).
     """
 
     initial_parameters: PyTree
@@ -101,6 +104,7 @@ class PosteriorProblem:
     prior: Prior
     train_loader: LoaderFactory
     dataset_size: int
+    aleatoric_variance: Callable[[PyTree], jax.Array] | None = None
 
 
 class InferenceMethod(Protocol):
