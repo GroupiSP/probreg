@@ -36,22 +36,10 @@ jobs:
   verify:
     name: Verify
     needs: version-check
-    runs-on: ubuntu-latest
+    # The release gate is exactly CI: lint, tests on every supported Python, docs build.
+    uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: uv sync --extra jax --group dev --group docs --group example-cmapss
-      - name: Run pre-commit
-        run: uv run pre-commit run --all-files
-      - name: Run tests
-        run: uv run pytest
-      - name: Build docs
-        run: uv run --extra jax --group docs mkdocs build --strict
 
   build:
     name: Build distribution

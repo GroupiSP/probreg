@@ -1,10 +1,14 @@
 name: CI
 
+# The verification gate. release.yml calls this workflow, so a release is gated by
+# exactly the checks a pull request must pass.
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -39,3 +43,17 @@ jobs:
         run: uv sync --extra jax --group dev --group example-cmapss
       - name: Run tests
         run: uv run pytest
+
+  docs:
+    name: Docs build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install docs dependencies
+        # mkdocstrings imports stagereg.jax to introspect it, so the jax extra is needed.
+        run: uv sync --extra jax --group docs
+      - name: Build site
+        run: uv run --extra jax --group docs mkdocs build --strict

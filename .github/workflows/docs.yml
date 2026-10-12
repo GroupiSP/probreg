@@ -1,12 +1,11 @@
 name: Docs
 
 # Kept apart from ci.yml so that lint and test never run with a token that can
-# publish to GitHub Pages.
+# publish to GitHub Pages. Pull requests get the strict docs build from ci.yml, so
+# this workflow only runs on main, to publish the site.
 
 on:
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
 
 permissions:
@@ -29,7 +28,6 @@ jobs:
       - name: Build site
         run: uv run --extra jax --group docs mkdocs build --strict
       - name: Upload Pages artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
@@ -37,10 +35,9 @@ jobs:
   deploy:
     name: Deploy
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Queue overlapping deployments instead of cancelling one mid-publish. Scoped to
-    # this job so pull-request builds never wait on, or join, the deploy queue.
+    # this job so the build never waits on, or joins, the deploy queue.
     concurrency:
       group: pages
       cancel-in-progress: false
