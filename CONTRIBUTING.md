@@ -55,3 +55,16 @@ section per source module. Exporting a symbol from `stagereg.core` or `stagereg.
 `::: stagereg.core.Name` (its public path) under the section of the module that defines it;
 `tests/test_reference_completeness.py` fails until you do, and fails on an entry that names
 something not exported.
+
+## Cutting a release (maintainers)
+
+Releases are tag-driven by `.github/workflows/release.yml`; no local credentials are needed.
+
+1. Bump `version` in `pyproject.toml` (and in `CITATION.cff`) in a PR, and merge it into `main`.
+2. Tag the merge commit with the same version prefixed by `v`, and push the tag:
+   `git tag v0.1.0 && git push origin v0.1.0`.
+3. The workflow fails unless the tag matches the declared version, then re-runs the verification
+   gate, builds the wheel and sdist, and publishes them to TestPyPI.
+4. Check the TestPyPI upload, then approve the waiting **Publish to PyPI** job (the `pypi`
+   environment requires a maintainer's approval). The GitHub Release, with notes generated from
+   the merged PRs and the built files attached, is created after the PyPI publish succeeds.
