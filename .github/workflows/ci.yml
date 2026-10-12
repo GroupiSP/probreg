@@ -44,6 +44,17 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
+  # Branch protection requires a check named "Test"; the matrix jobs above report as
+  # "Test (Python X.Y)", so this job rolls them up under the stable name.
+  test-result:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    steps:
+      - name: Require every matrix job to pass
+        run: test "${{ needs.test.result }}" = "success"
+
   docs:
     name: Docs build
     runs-on: ubuntu-latest
