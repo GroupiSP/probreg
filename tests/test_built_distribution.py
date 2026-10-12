@@ -59,12 +59,14 @@ def dist(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def wheel(dist: Path) -> Path:
+    """Return the path of the single wheel the build produced."""
     (path,) = dist.glob("*.whl")
     return path
 
 
 @pytest.fixture(scope="module")
 def sdist(dist: Path) -> Path:
+    """Return the path of the single sdist the build produced."""
     (path,) = dist.glob("*.tar.gz")
     return path
 
@@ -172,7 +174,7 @@ def test_clean_install_of_the_wheel_imports(
         check=True,
         capture_output=True,
     )
-    python = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    python = venv / "bin" / "python"
     subprocess.run(
         [
             uv,
