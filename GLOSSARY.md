@@ -93,6 +93,14 @@ _Avoid_: Bayesian stage, BNN stage, Step 3
 The interchangeable strategy a posterior stage uses to turn a posterior problem into a posterior: Markov chain Monte Carlo, variational inference, ensembles, MC-Dropout. The posterior stage decides what is inferred; the inference method decides how.
 _Avoid_: Sampler (excludes variational methods), inference engine, backend
 
+**Inferred subnetwork**:
+The part of the mean network's parameters a posterior stage infers, such as one convolutional layer; by default the whole network.
+_Avoid_: Bayesian layer, stochastic part, Bayesian subset
+
+**Frozen remainder**:
+The mean network's parameters outside the inferred subnetwork, held at their trained-mean values throughout the posterior stage.
+_Avoid_: Backbone, fixed weights
+
 **Posterior problem**:
 Everything a posterior stage hands its inference method: the starting point taken from the trained mean, the likelihood of the targets under the fixed aleatoric variance, the prior, the training data and its size. Every inference method honors the prior; methods without an explicit prior use it as their regularizer.
 _Avoid_: Log-posterior (only one part of it), target density
