@@ -38,20 +38,10 @@ stages and [the posterior stage](guides/posterior-stage.md) for the third.
 
 ## Install
 
-The base package has only NumPy as a dependency and holds the backend-neutral
-contracts:
+--8<-- "README.md:install"
 
-```bash
-uv add "stagereg @ git+https://github.com/GroupiSP/stagereg"
-```
-
-The `jax` extra adds the JAX backend (JAX, Flax and Optax):
-
-```bash
-uv add "stagereg[jax] @ git+https://github.com/GroupiSP/stagereg"
-```
-
-With pip, use `pip install "stagereg[jax] @ git+https://github.com/GroupiSP/stagereg"`.
+This site tracks the `main` branch, with no per-release docs before 1.0, so it
+may describe features newer than your installed version.
 
 ## Minimal example
 
