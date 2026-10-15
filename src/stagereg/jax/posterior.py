@@ -16,6 +16,7 @@ from typing import Any, Protocol
 
 import jax
 import jax.numpy as jnp
+import optax
 
 from stagereg.core.protocols import LoaderFactory
 from stagereg.core.types import Batch, PyTree
@@ -262,6 +263,37 @@ def require_inferred_tree(parameters: PyTree, inferred: PyTree) -> None:
             "the parameter tree differs from the inferred subnetwork's; was the "
             "posterior saved with another inferred_subnetwork filter?"
         )
+
+
+def default_optimizer() -> optax.GradientTransformation:
+    """Return the default optimizer of the gradient-based inference methods.
+
+    Returns:
+        Adam with a learning rate of ``1e-3``.
+    """
+    return optax.adam(1e-3)
+
+
+def draw_unlimited(
+    draw: Callable[[jax.Array], jax.Array], num_samples: int | None
+) -> jax.Array:
+    """Stack the draws of an unlimited posterior.
+
+    Args:
+        draw: Maps a draw's index to its mean predictions.
+        num_samples: The number of draws ``S``, positive.
+
+    Returns:
+        The draws ``0, ..., S - 1``, stacked along a leading axis.
+
+    Raises:
+        ValueError: If ``num_samples`` is omitted or not positive.
+    """
+    if num_samples is None:
+        raise ValueError("an unlimited posterior needs num_samples.")
+    if num_samples <= 0:
+        raise ValueError("num_samples must be positive.")
+    return jax.vmap(draw)(jnp.arange(num_samples))
 
 
 @dataclass(frozen=True)
