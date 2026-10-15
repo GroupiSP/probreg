@@ -12,6 +12,7 @@ import pytest
 from flax import nnx
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
+from posterior_runs import DropoutLinearModel
 
 from stagereg.core.checkpoints import (
     Checkpoint,
@@ -83,14 +84,6 @@ class LogPrediction:
 class LogPredictionModel(nnx.Module):
     def __call__(self, inputs: jax.Array) -> LogPrediction:
         return LogPrediction(jnp.zeros_like(inputs))
-
-
-class DropoutMeanModel(nnx.Module):
-    def __init__(self, *, rngs: nnx.Rngs) -> None:
-        self.dropout = nnx.Dropout(rate=0.5, rngs=rngs)
-
-    def __call__(self, inputs: jax.Array) -> jax.Array:
-        return self.dropout(inputs)
 
 
 def test_mean_squared_error_loss_supports_weights_and_reduction(
@@ -248,7 +241,9 @@ def test_materialized_residual_targets_stop_source_target_gradients(
 
 
 def test_materialize_residual_loader_uses_inference_clone() -> None:
-    model = DropoutMeanModel(rngs=nnx.Rngs(0))
+    model = DropoutLinearModel(rngs=nnx.Rngs(0))
+    model.linear.kernel[...] = 1.0
+    model.linear.bias[...] = 0.0
     model.train()
 
     def source_loader(*, split: str, epoch: int) -> list[Batch]:
