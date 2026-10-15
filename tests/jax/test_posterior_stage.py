@@ -27,7 +27,11 @@ from posterior_runs import (
     restore_mean_and_variance,
 )
 
-from stagereg.core.checkpoints import Checkpoint
+from stagereg.core.checkpoints import (
+    CachedCheckpointStore,
+    Checkpoint,
+    finalized_only,
+)
 from stagereg.core.early_stopping import EarlyStopper
 from stagereg.core.metric_registry import (
     EvaluationGrid,
@@ -743,6 +747,30 @@ def test_three_stages_sharing_a_store_never_overwrite_each_other(
     }
     for key, stage in finals.items():
         assert finished_run.store.load(key).metadata["stage"] == stage
+
+
+def test_a_cached_store_persists_only_the_finalized_checkpoints_of_a_full_run(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    persistent = RecordingStore()
+    store = CachedCheckpointStore(persistent, persist_when=finalized_only)
+    run = variance_ready_run(checkpoint_store=store)
+    stage = _posterior_stage(
+        GradientAscentMethod(),
+        early_stopper=EarlyStopper(
+            metric="loss", mode="max", patience=10, source="train"
+        ),
+        checkpoint_store=store,
+    )
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+
+    assert [(key, checkpoint.metadata) for key, checkpoint in persistent.saves] == [
+        ("mean/best", {"stage": "mean", "stage_complete": True}),
+        ("variance/best", {"stage": "variance", "stage_complete": True}),
+        ("posterior/best", {"stage": "posterior", "stage_complete": True}),
+    ]
 
 
 def test_a_fresh_state_resumes_through_the_three_stage_restore(

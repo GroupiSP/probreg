@@ -129,9 +129,10 @@ class SupervisedStageOptions:
         validation: Optional validation strategy.
         early_stopper: Optional early-stopping policy.
         event_sinks: Event consumers notified by the runner.
-        checkpoint_store: Optional best-checkpoint store.
-        checkpoint_key: The checkpoint key the stage saves its best checkpoint
-            under. Defaults to ``None``, which resolves to the stage-scoped
+        checkpoint_store: Optional store for the stage's best and finalized
+            checkpoints.
+        checkpoint_key: The checkpoint key the stage saves its best and
+            finalized checkpoints under. Defaults to ``None``, which resolves to the stage-scoped
             key ``f"{stage}/best"`` (``mean/best``, ``variance/best``), the
             same default as [`run_supervised`][stagereg.jax.run_supervised],
             so stages sharing one ``checkpoint_store`` never overwrite each
@@ -211,11 +212,12 @@ class MeanStage:
     def train(self, state: TrainingState) -> StageResult:
         """Train the mean model and transition the workflow to ``MEAN_READY``.
 
-        With an early stopper and a checkpoint store configured, the stage then
-        restores its best checkpoint, so the live mean model holds the best
-        epoch's weights, and saves it again under the same key as a finalized
-        ``MEAN_READY`` checkpoint with metadata
-        ``{"stage": "mean", "stage_complete": True}``.
+        With a checkpoint store configured, the stage then saves a finalized
+        ``MEAN_READY`` checkpoint under its checkpoint key, with metadata
+        ``{"stage": "mean", "stage_complete": True}``. With an early stopper,
+        it first restores its best checkpoint, so the live mean model holds the
+        best epoch's weights and the finalized checkpoint is the best epoch's;
+        without one, the finalized checkpoint is the last epoch's.
 
         Args:
             state: Prepared staged training state.
@@ -430,12 +432,14 @@ class GammaVarianceStage:
     def train(self, state: TrainingState) -> StageResult:
         """Train the variance model and transition to ``VARIANCE_READY``.
 
-        With an early stopper and a checkpoint store configured, the stage then
-        restores its best checkpoint, so the live variance model holds the best
-        epoch's weights, while the mean model and, if registered, the mean
-        optimizer stay registered. It saves the checkpoint again under the same
-        key as a finalized ``VARIANCE_READY`` checkpoint with metadata
-        ``{"stage": "variance", "stage_complete": True}``.
+        With a checkpoint store configured, the stage then saves a finalized
+        ``VARIANCE_READY`` checkpoint under its checkpoint key, with metadata
+        ``{"stage": "variance", "stage_complete": True}``. With an early
+        stopper, it first restores its best checkpoint, so the live variance
+        model holds the best epoch's weights, while the mean model and, if
+        registered, the mean optimizer stay registered; the finalized
+        checkpoint is then the best epoch's. Without an early stopper, it is
+        the last epoch's.
 
         Args:
             state: Prepared state retaining a frozen mean component.
@@ -603,7 +607,7 @@ def _train_stage(
     validation: ValidationStrategy | None,
     ready: StageState,
 ) -> StageResult:
-    """Run a stage's supervised training, mark it ready and finalize its best.
+    """Run a stage's supervised training, mark it ready and finalize it.
 
     Args:
         stage: The prepared stage to train.
@@ -640,7 +644,7 @@ def _train_stage(
     if result.loss is None or not math.isfinite(result.loss):
         raise ValueError(f"{stage.name} stage produced a non-finite final loss.")
     state.lifecycle_state = ready
-    return _restore_and_finalize_best_checkpoint(stage, state, result)
+    return _finalize_checkpoint(stage, state, result)
 
 
 def _select_checkpoint(stage: _CheckpointingStage) -> CheckpointRef:
@@ -660,17 +664,17 @@ def _select_checkpoint(stage: _CheckpointingStage) -> CheckpointRef:
     )
 
 
-def _restore_and_finalize_best_checkpoint(
+def _finalize_checkpoint(
     stage: _CheckpointingStage,
     state: TrainingState,
     result: StageResult,
 ) -> StageResult:
-    """Restore a stage's best checkpoint and save it again as finalized.
+    """Save a trained stage's finalized checkpoint under its checkpoint key.
 
-    The checkpoint is not finalized yet, so it is restored through the stage's
-    unchecked restore path rather than its public ``restore``. Without an
-    early stopper, a checkpoint store, or a saved best checkpoint, ``result``
-    is returned unchanged.
+    With an early stopper, the stage's best checkpoint is restored and saved
+    again as finalized; without one, the last epoch's state is (ADR 0011).
+    Without a checkpoint store, or with an early stopper but no saved best
+    checkpoint, nothing is saved.
 
     Args:
         stage: The stage that has just trained.
@@ -678,16 +682,57 @@ def _restore_and_finalize_best_checkpoint(
         result: The supervised runner result of the stage.
 
     Returns:
-        ``result`` if nothing was restored, otherwise a result reporting the
-        restored epoch's training metrics.
+        A result reporting the restored epoch's training metrics when the best
+        checkpoint was restored, otherwise ``result``.
     """
     options = stage.options
     store = options.checkpoint_store
+    if store is None:
+        return result
+    if options.early_stopper is None:
+        store.save(
+            _checkpoint_key(stage),
+            finalized_checkpoint(
+                state,
+                stage=stage.name,
+                epoch=options.epochs - 1,
+                early_stopping_state=None,
+                parameters=snapshot(stage.model),
+                optimizer_state=snapshot(stage.optimizer),
+            ),
+        )
+        return result
+    return _restore_and_finalize_best_checkpoint(stage, state, result, store=store)
+
+
+def _restore_and_finalize_best_checkpoint(
+    stage: _CheckpointingStage,
+    state: TrainingState,
+    result: StageResult,
+    *,
+    store: CheckpointStore,
+) -> StageResult:
+    """Restore a stage's best checkpoint and save it again as finalized.
+
+    The checkpoint is not finalized yet, so it is restored through the stage's
+    unchecked restore path rather than its public ``restore``. Without a saved
+    best checkpoint, ``result`` is returned unchanged.
+
+    Args:
+        stage: The stage that has just trained, with an early stopper.
+        state: State the stage has just trained and marked ready.
+        result: The supervised runner result of the stage.
+        store: The stage's checkpoint store.
+
+    Returns:
+        ``result`` if nothing was restored, otherwise a result reporting the
+        restored epoch's training metrics.
+    """
     key = _checkpoint_key(stage)
     checkpoint = load_best_checkpoint(
-        early_stopper=options.early_stopper, checkpoint_store=store, key=key
+        early_stopper=stage.options.early_stopper, checkpoint_store=store, key=key
     )
-    if store is None or checkpoint is None:
+    if checkpoint is None:
         return result
 
     stage._restore_live(state, checkpoint)

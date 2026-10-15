@@ -42,6 +42,14 @@ All notable changes to `stagereg` are recorded here. The format follows
 - `stagereg.core.expected_sample_crps(predictive_samples, reference_samples)`: the
   exact, grid-free expected CRPS of each scoring unit's empirical predictive under
   its reference samples, batched over units.
+- `stagereg.core.CachedCheckpointStore(persistent, persist_when=finalized_only)`: a
+  checkpoint store that caches every save in memory and forwards to `persistent`
+  only the saves its predicate selects, reading the cache first and falling back to
+  `persistent`. Ready-made predicates `finalized_only`, `every_nth_save(n)` and
+  `always`, typed as `PersistencePredicate`.
+- `stagereg.core.STAGE_COMPLETE_METADATA_KEY` and `stagereg.core.is_finalized`: the
+  checkpoint-metadata marker of a finalized checkpoint, now public. The stages write
+  and check it as before.
 
 ### Changed
 
@@ -49,6 +57,11 @@ All notable changes to `stagereg` are recorded here. The format follows
   inferred subnetwork only. `BayesByBackprop.load_posterior` and
   `PreconditionedSGLD.load_posterior` refuse a posterior whose tree differs
   from it, and `PreconditionedSGLD.load_posterior` now requires `init` (#105).
+- `MeanStage` and `GammaVarianceStage` with a checkpoint store but no early stopper
+  now save their last epoch as their finalized checkpoint under the stage's
+  checkpoint key, so the stage can be restored in a later process. Previously they
+  saved nothing. With an early stopper the best epoch is still finalized
+  (ADR 0011).
 
 ## [0.1.0]
 

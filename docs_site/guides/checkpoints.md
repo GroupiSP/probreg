@@ -118,16 +118,21 @@ that monitors a validation metric needs a validation strategy as well.
 
 [`MeanStage`][stagereg.jax.MeanStage] and
 [`GammaVarianceStage`][stagereg.jax.GammaVarianceStage] go one step further when
-their options carry an early stopper and a checkpoint store, and both follow the
-same rule. At the end of `train` the stage restores its best checkpoint into its
-live model, so the model it leaves behind is the best one rather than the last.
-It then saves that checkpoint again under the same key, finalized: its training
-state is at the stage's ready lifecycle state, `MEAN_READY` or `VARIANCE_READY`,
-and its metadata records the stage and `"stage_complete": True`, for example
-`{"stage": "mean", "stage_complete": True}`. The returned result reports the
-restored epoch's training metrics. So the variance stage computes residuals from
-the best mean model, and a finalized checkpoint is the hand-off point after each
-stage.
+their options carry a checkpoint store, and both follow the same rule. With an
+early stopper, at the end of `train` the stage restores its best checkpoint into
+its live model, so the model it leaves behind is the best one rather than the
+last. It then saves that checkpoint again under the same key, finalized: its
+training state is at the stage's ready lifecycle state, `MEAN_READY` or
+`VARIANCE_READY`, and its metadata records the stage and `"stage_complete": True`,
+for example `{"stage": "mean", "stage_complete": True}`. The returned result
+reports the restored epoch's training metrics. So the variance stage computes
+residuals from the best mean model, and a finalized checkpoint is the hand-off
+point after each stage.
+
+Without an early stopper there is no best checkpoint, and the stage finalizes
+its last epoch instead: it saves the live model and optimizer under the same
+key, with the same ready lifecycle state and metadata. The stage can then be
+restored in a later process without configuring early stopping.
 
 The variance checkpoint snapshots only the variance model and optimizer, since
 the mean model is frozen and already lives in the mean stage's checkpoint. When
@@ -302,3 +307,62 @@ store of your own. `CheckpointStore` is a protocol, so any object with matching
 `save`, `load` and `exists` methods will do, with no base class to inherit.
 Such a store has to serialize the whole checkpoint, including the backend's
 snapshots and the random key, and `stagereg` does not ship one.
+
+### Persisting only what you need
+
+A stage with an early stopper saves a best checkpoint on every improvement. That
+is cheap in memory, but a persistent store, say one that uploads to an
+experiment tracker, would then write on every improvement too. Wrap it in a
+[`CachedCheckpointStore`][stagereg.core.CachedCheckpointStore]: every save lands
+in an in-memory cache, and only the saves its `persist_when` predicate selects
+reach the persistent store. `load` and `exists` read the cache first and fall
+back to the persistent store, so the stages resume from the cache within the
+process, and a fresh cache in a later process still loads what was persisted.
+A key held by neither raises `KeyError`, as with every store.
+
+A predicate is any callable `(key, checkpoint) -> bool`
+([`PersistencePredicate`][stagereg.core.PersistencePredicate]). Three are ready-made:
+
+| Predicate | Persists |
+| --- | --- |
+| [`finalized_only`][stagereg.core.finalized_only] (the default) | Only finalized checkpoints, those [`is_finalized`][stagereg.core.is_finalized] accepts |
+| [`every_nth_save(n)`][stagereg.core.every_nth_save] | The `n`-th, `2n`-th, ... save under each key; it counts, so give each store its own |
+| [`always`][stagereg.core.always] | Every save |
+
+A finalized checkpoint carries
+[`STAGE_COMPLETE_METADATA_KEY`][stagereg.core.STAGE_COMPLETE_METADATA_KEY]
+set to `True` in its metadata, which is what `finalized_only` reads. With it,
+a run's best checkpoints stay in memory, and each stage persists the one
+checkpoint it can be restored from:
+
+```python
+from stagereg.core import (
+    STAGE_COMPLETE_METADATA_KEY,
+    CachedCheckpointStore,
+    Checkpoint,
+    InMemoryCheckpointStore,
+    TrainingState,
+)
+
+persistent = InMemoryCheckpointStore()  # stands in for a store of your own
+store = CachedCheckpointStore(persistent)
+
+best = Checkpoint(state=TrainingState(), epoch=3)
+finalized = Checkpoint(
+    state=TrainingState(),
+    epoch=3,
+    metadata={"stage": "mean", STAGE_COMPLETE_METADATA_KEY: True},
+)
+
+store.save("mean/best", best)
+assert store.exists("mean/best") and not persistent.exists("mean/best")
+
+store.save("mean/best", finalized)
+assert persistent.load("mean/best") == finalized
+
+# A later process wraps the same persistent store in a fresh cache.
+assert CachedCheckpointStore(persistent).load("mean/best") == finalized
+```
+
+Pass the cached store as the stages' `checkpoint_store`, exactly where an
+`InMemoryCheckpointStore` went above.
