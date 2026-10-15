@@ -9,6 +9,10 @@ All notable changes to `stagereg` are recorded here. The format follows
 
 ### Added
 
+- `stagereg.core.expected_sample_crps(predictive_samples, reference_samples)`: the
+  exact, grid-free expected CRPS of each scoring unit's empirical predictive under
+  its reference samples, batched over units.
+
 ### Changed
 
 ## [0.1.0]

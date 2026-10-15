@@ -201,3 +201,80 @@ def test_expected_sample_crps_is_the_mean_sample_crps_over_reference_samples(
     assert expected_sample_crps(predictive, reference) == pytest.approx(
         expected, abs=1e-6
     )
+
+
+@given(samples=_sample_matrices())
+def test_expected_sample_crps_is_non_negative(
+    samples: tuple[np.ndarray, np.ndarray],
+) -> None:
+    assert np.all(expected_sample_crps(*samples) >= 0.0)
+
+
+@given(
+    samples=_sample_matrices(),
+    shift=_finite_values,
+    seed=st.integers(0, 2**32 - 1),
+)
+def test_expected_sample_crps_is_permutation_and_translation_invariant(
+    samples: tuple[np.ndarray, np.ndarray], shift: float, seed: int
+) -> None:
+    predictive, reference = samples
+    rng = np.random.default_rng(seed)
+    score = expected_sample_crps(predictive, reference)
+
+    permuted = expected_sample_crps(
+        rng.permuted(predictive, axis=1), rng.permuted(reference, axis=1)
+    )
+    shifted = expected_sample_crps(predictive + shift, reference + shift)
+
+    assert permuted == pytest.approx(score, abs=1e-6)
+    assert shifted == pytest.approx(score, abs=1e-6)
+
+
+@given(samples=_sample_matrices(), scale=st.floats(1e-3, 1e3))
+def test_expected_sample_crps_scales_linearly_under_positive_scaling(
+    samples: tuple[np.ndarray, np.ndarray], scale: float
+) -> None:
+    predictive, reference = samples
+
+    assert expected_sample_crps(scale * predictive, scale * reference) == pytest.approx(
+        scale * expected_sample_crps(predictive, reference), rel=1e-6, abs=1e-6
+    )
+
+
+@given(samples=_sample_matrices())
+def test_expected_sample_crps_scores_batched_rows_like_single_rows(
+    samples: tuple[np.ndarray, np.ndarray],
+) -> None:
+    predictive, reference = samples
+
+    single_rows = [
+        expected_sample_crps(row[None, :], targets[None, :])[0]
+        for row, targets in zip(predictive, reference, strict=True)
+    ]
+
+    assert expected_sample_crps(predictive, reference) == pytest.approx(single_rows)
+
+
+def test_expected_sample_crps_of_a_point_reference_is_sample_crps() -> None:
+    assert expected_sample_crps([[1.0, 2.0, 3.0]], [[1.0]]) == pytest.approx([5 / 9])
+
+
+@pytest.mark.parametrize(
+    ("predictive_samples", "reference_samples"),
+    [
+        (np.empty((0, 2)), np.empty((0, 2))),
+        ([[]], [[1.0]]),
+        ([[1.0]], [[]]),
+        ([[np.nan]], [[1.0]]),
+        ([[1.0]], [[np.inf]]),
+        ([1.0, 2.0], [[1.0]]),
+        ([[1.0]], [[[1.0]]]),
+        ([[1.0], [2.0]], [[1.0]]),
+    ],
+)
+def test_expected_sample_crps_rejects_malformed_samples(
+    predictive_samples: object, reference_samples: object
+) -> None:
+    with pytest.raises(ValueError):
+        expected_sample_crps(predictive_samples, reference_samples)
