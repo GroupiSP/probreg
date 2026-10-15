@@ -12,6 +12,10 @@ All notable changes to `stagereg` are recorded here. The format follows
   `active_stage` instead.
 - `Checkpoint.rng_state` is removed. A checkpoint's random key lives only in
   `Checkpoint.state.rng_state`, and restores read it from there.
+- `TrainingState.outer_iteration` and `TrainingState.data_fingerprint` are removed.
+  Nothing in the library populated them.
+- `TrainingEvent.iteration` is removed. It always reported `0`, as no run has outer
+  iterations yet.
 
 ### Added
 

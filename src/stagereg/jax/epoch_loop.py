@@ -473,7 +473,6 @@ def _emit(
         name=name,
         stage=stage,
         split=split,
-        iteration=state.outer_iteration,
         step=epoch,
         metrics={} if metrics is None else metrics,
         state=state,

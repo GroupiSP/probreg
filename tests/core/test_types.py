@@ -50,6 +50,12 @@ def test_training_state_takes_the_active_stage_as_its_only_stage_label() -> None
         TrainingState(stage="mean")  # type: ignore[call-arg]
 
 
+@pytest.mark.parametrize("field", ["outer_iteration", "data_fingerprint"])
+def test_training_state_has_no_unpopulated_fields(field: str) -> None:
+    with pytest.raises(TypeError, match=field):
+        TrainingState(**{field: None})
+
+
 def test_training_state_allows_idempotent_component_registration() -> None:
     state = TrainingState()
     component = object()

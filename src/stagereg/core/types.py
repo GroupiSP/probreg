@@ -108,11 +108,6 @@ class TrainingState:
             [`StageState.NEW`][stagereg.core.StageState].
         active_stage: Label of the stage that last trained or restored the
             state. Defaults to ``None`` outside a runner.
-        outer_iteration: Zero-based outer iteration: the count of passes through
-            the run's sequence of stages. Defaults to ``0``.
-        data_fingerprint: Identifier of the dataset the state was trained on,
-            meant to detect resuming against different data. Set by the user and
-            not interpreted by the library. Defaults to ``None``.
         checkpoint_registry: Named references to checkpoints a stage registered,
             such as its best checkpoint. Defaults to an empty mapping.
         metric_history: Recorded values of each metric in order, keyed by metric
@@ -128,8 +123,6 @@ class TrainingState:
     rng_state: Any | None = None
     lifecycle_state: StageState = StageState.NEW
     active_stage: str | None = None
-    outer_iteration: int = 0
-    data_fingerprint: str | None = None
     checkpoint_registry: dict[str, CheckpointRef] = field(default_factory=dict)
     metric_history: dict[str, list[float]] = field(default_factory=dict)
 
