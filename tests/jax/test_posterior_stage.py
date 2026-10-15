@@ -42,8 +42,13 @@ from stagereg.core.types import (
     StageState,
     TrainingState,
 )
-from stagereg.jax import MetricSuite, PosteriorPredictivePredictor
-from stagereg.jax.posterior import PosteriorProblem
+from stagereg.jax import (
+    BayesByBackprop,
+    MetricSuite,
+    PosteriorPredictivePredictor,
+    PreconditionedSGLD,
+)
+from stagereg.jax.posterior import InferenceMethod, PosteriorProblem
 from stagereg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
 
 Tracker = Callable[[], Any]
@@ -103,6 +108,7 @@ class GradientAscentMethod:
     learning_rate: float = 0.01
     offsets: tuple[float, ...] | None = (-0.5, 0.5)
     early_stopping: bool = True
+    diagnostics: tuple[str, ...] = ()
     problem: PosteriorProblem | None = None
     parameters: PyTree = None
     steps: int = 0
@@ -139,7 +145,8 @@ class GradientAscentMethod:
             grads,
         )
         self.steps += 1
-        return {"loss": loss}
+        # Each step also reports its own count, under a declared and an undeclared key.
+        return {"loss": loss, "step_count": self.steps, "internal": self.steps}
 
     def posterior(self) -> OffsetDrawsPosterior:
         assert self.problem is not None
@@ -400,6 +407,73 @@ def test_the_three_stages_of_a_posterior_run_never_share_a_tag(
     } == expected
     assert tracker.tags == expected
     assert set(run.state.metric_history) == expected
+
+
+def test_declared_diagnostics_are_recorded_as_epoch_means_and_reach_trackers(
+    in_memory_tracker: Tracker,
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    tracker = in_memory_tracker()
+    run = variance_ready_run()
+    stage = _posterior_stage(
+        GradientAscentMethod(diagnostics=("step_count",)),
+        event_sinks=(TrackerEventSink(tracker),),
+    )
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+
+    # Two batches per epoch: steps 1 and 2, then 3 and 4, then 5 and 6.
+    assert run.state.metric_history["posterior/train/step_count"] == [1.5, 3.5, 5.5]
+    assert "posterior/train/step_count" in tracker.tags
+    assert not any("internal" in tag for tag in run.state.metric_history)
+    assert not any("internal" in tag for tag in tracker.tags)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [BayesByBackprop(), PreconditionedSGLD(step_size=1e-3)],
+    ids=["bbb", "psgld"],
+)
+def test_the_shipped_methods_record_only_the_training_loss(
+    variance_ready_run: MakeVarianceReadyRun, method: InferenceMethod
+) -> None:
+    run = variance_ready_run()
+    stage = dataclasses.replace(
+        _posterior_stage(GradientAscentMethod()), inference_method=method
+    )
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+
+    assert {
+        tag for tag in run.state.metric_history if tag.startswith("posterior/")
+    } == {"posterior/train/loss"}
+
+
+@pytest.mark.parametrize("diagnostics", [("loss",), ("step_count", "step_count")])
+def test_a_diagnostic_colliding_with_a_recorded_tag_is_refused(
+    variance_ready_run: MakeVarianceReadyRun, diagnostics: tuple[str, ...]
+) -> None:
+    run = variance_ready_run()
+    stage = _posterior_stage(GradientAscentMethod(diagnostics=diagnostics))
+    before = _observable(run.state)
+
+    with pytest.raises(ValueError, match="diagnostic"):
+        stage.prepare(run.state)
+
+    assert _observable(run.state) == before
+
+
+def test_a_declared_diagnostic_that_update_omits_fails_training(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    run = variance_ready_run()
+    stage = _posterior_stage(GradientAscentMethod(diagnostics=("absent",)))
+    stage.prepare(run.state)
+
+    with pytest.raises(ValueError, match="diagnostic 'absent'"):
+        stage.train(run.state)
 
 
 def test_validation_scores_the_current_posterior_predictive(

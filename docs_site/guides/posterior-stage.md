@@ -192,6 +192,24 @@ from stagereg.jax import PreconditionedSGLD
 method = PreconditionedSGLD(step_size=3e-3, burn_in=0, thinning=8)
 ```
 
+## Writing your own inference method
+
+Any object satisfying [`InferenceMethod`][stagereg.jax.InferenceMethod] can
+drive the stage. Two parts of the seam serve methods beyond Bayes by Backprop
+and pSGLD:
+
+- The problem's `aleatoric_variance` maps inputs to the fixed aleatoric
+  variance, without gradient, the same variance its `log_likelihood` uses. An
+  implicit method, such as a generator trained against a discriminator, adds
+  Gaussian noise with this variance to a draw's means to get predictive samples.
+- A method lists its own training signals, such as a discriminator loss, in
+  [`diagnostics`][stagereg.jax.InferenceMethod.diagnostics]. The stage records
+  each declared key of `update`'s output as `posterior/train/<key>`, its mean
+  over the epoch's batches, and passes it to event sinks and trackers like any
+  other metric. Undeclared keys are ignored, and `prepare` refuses a key whose
+  tag the stage already records, such as `loss`. Bayes by Backprop and pSGLD
+  declare none.
+
 ## The XSin example
 
 `examples/jax/xsin/posterior.py` runs mean, variance and posterior stages on the

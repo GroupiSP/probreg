@@ -11,6 +11,7 @@ inference method's ``update(batch, key)``.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -47,7 +48,7 @@ class BatchStep(Protocol):
 
         Returns:
             A mapping holding ``"loss"`` plus the value of every registered
-            batch metric.
+            batch metric and every declared diagnostic.
         """
         ...
 
@@ -122,6 +123,8 @@ def check_epoch_loop_arguments(
     stage: str,
     validation: ValidationStrategy | None,
     early_stopper: EarlyStopper | None,
+    diagnostics: Sequence[str] = (),
+    metrics: MetricSuite | None = None,
 ) -> None:
     """Refuse a loop configuration before anything is mutated.
 
@@ -131,11 +134,16 @@ def check_epoch_loop_arguments(
         stage: The stage segment of every metric tag.
         validation: The optional validation strategy.
         early_stopper: The optional early-stopping policy.
+        diagnostics: The declared diagnostic keys of the step's output.
+        metrics: The registered metrics, whose training tags a diagnostic must
+            not take.
 
     Raises:
         ValueError: If ``epochs`` is not positive, if ``stage`` is empty or
-            contains ``/``, or if ``early_stopper`` monitors a validation
-            metric without a ``validation`` strategy.
+            contains ``/``, if ``early_stopper`` monitors a validation metric
+            without a ``validation`` strategy, or if a diagnostic is empty,
+            contains ``/``, is declared twice or would be recorded under a
+            training tag the loop already records.
         TypeError: If ``state.rng_state`` is not a JAX random key.
     """
     if epochs <= 0:
@@ -145,6 +153,30 @@ def check_epoch_loop_arguments(
     if early_stopper and early_stopper.expects_validation() and validation is None:
         raise ValueError("validation metric monitoring requires a validation strategy.")
     metric_tag(stage, Split.TRAIN, "loss")
+    _check_diagnostics(stage, diagnostics, metrics)
+
+
+def _check_diagnostics(
+    stage: str, diagnostics: Sequence[str], metrics: MetricSuite | None
+) -> None:
+    """Refuse a diagnostic whose training tag is invalid or already taken.
+
+    Raises:
+        ValueError: As
+            [`check_epoch_loop_arguments`][stagereg.jax.epoch_loop.check_epoch_loop_arguments].
+    """
+    taken = {"loss"}
+    if metrics is not None:
+        taken |= {spec.name for spec in metrics.batch}
+        taken |= {metric.name for metric in metrics.epoch}
+    for name in diagnostics:
+        tag = metric_tag(stage, Split.TRAIN, name)
+        if name in taken:
+            raise ValueError(
+                f"diagnostic {name!r} collides with the tag {tag!r} "
+                "that is already recorded."
+            )
+        taken.add(name)
 
 
 def run_epoch_loop(
@@ -162,6 +194,7 @@ def run_epoch_loop(
     checkpoint_store: CheckpointStore | None = None,
     metrics: MetricSuite | None = None,
     epoch_predictions: EpochPredictionCollector | None = None,
+    diagnostics: Sequence[str] = (),
 ) -> StageResult:
     """Run ``step`` over every training batch for up to ``epochs`` epochs.
 
@@ -191,6 +224,8 @@ def run_epoch_loop(
             is collected.
         epoch_predictions: Predicts on each batch for epoch metrics. Required
             when ``metrics`` registers epoch metrics.
+        diagnostics: Keys of ``step``'s output recorded, as their epoch mean,
+            alongside the training metrics. Other undeclared keys are ignored.
 
     Returns:
         A [`StageResult`][stagereg.core.StageResult] with ``state``, the last
@@ -199,8 +234,9 @@ def run_epoch_loop(
     Raises:
         ValueError: If the arguments are refused by
             [`check_epoch_loop_arguments`][stagereg.jax.epoch_loop.check_epoch_loop_arguments],
-            if epoch metrics are registered without ``epoch_predictions``, or
-            if the monitored metric is not produced.
+            if epoch metrics are registered without ``epoch_predictions``, if
+            ``step`` does not produce a declared diagnostic or produces a
+            non-finite one, or if the monitored metric is not produced.
         TypeError: If ``state.rng_state`` is not a JAX random key.
     """
     check_epoch_loop_arguments(
@@ -209,6 +245,8 @@ def run_epoch_loop(
         stage=stage,
         validation=validation,
         early_stopper=early_stopper,
+        diagnostics=diagnostics,
+        metrics=metrics,
     )
     metric_suite = metrics if metrics is not None else MetricSuite()
     if metric_suite.epoch and epoch_predictions is None:
@@ -225,6 +263,7 @@ def run_epoch_loop(
             epoch=epoch,
             metrics=metric_suite,
             epoch_predictions=epoch_predictions,
+            diagnostics=diagnostics,
         )
         latest_metrics = epoch_metrics
         _record_metrics(state, stage, Split.TRAIN, epoch_metrics)
@@ -269,6 +308,7 @@ def _run_training_epoch(
     epoch: int,
     metrics: MetricSuite,
     epoch_predictions: EpochPredictionCollector | None,
+    diagnostics: Sequence[str],
 ) -> dict[str, float]:
     """Run one training epoch and reduce all registered metrics.
 
@@ -280,32 +320,50 @@ def _run_training_epoch(
         metrics: Registered batch and epoch metrics.
         epoch_predictions: Predicts on each batch when epoch metrics are
             registered.
+        diagnostics: Keys of each step's output reduced to their epoch mean.
 
     Returns:
-        Reduced epoch metrics containing ``"loss"`` and any registered metrics.
+        Reduced epoch metrics containing ``"loss"``, any registered metrics
+        and every diagnostic.
+
+    Raises:
+        ValueError: If a step does not produce a diagnostic, or a diagnostic's
+            epoch mean is not finite.
     """
     losses: list[float] = []
     batch_metric_values = initialize_batch_metric_values(metrics.batch)
     epoch_metric_parts: list[EpochPredictionData] | None = [] if metrics.epoch else None
+    diagnostic_values: dict[str, list[float]] = {name: [] for name in diagnostics}
 
     for batch in train_loader(split="train", epoch=epoch):
         state.rng_state, batch_key = split_key(state.rng_state)
         if epoch_metric_parts is not None and epoch_predictions is not None:
             epoch_metric_parts.append(epoch_predictions(batch, metric_key(batch_key)))
+        output = step(batch, batch_key)
         collect_step_metrics(
-            step(batch, batch_key),
+            output,
             metrics=metrics.batch,
             losses=losses,
             batch_metric_values=batch_metric_values,
             context="train step",
         )
+        for name, values in diagnostic_values.items():
+            if name not in output:
+                raise ValueError(f"train step did not produce diagnostic {name!r}.")
+            values.append(float(output[name]))
 
-    return reduce_metric_suite(
+    reduced = reduce_metric_suite(
         suite=metrics,
         losses=losses,
         batch_metric_values=batch_metric_values,
         epoch_metric_parts=epoch_metric_parts,
     )
+    for name, values in diagnostic_values.items():
+        mean = math.fsum(values) / len(values) if values else math.nan
+        if not math.isfinite(mean):
+            raise ValueError(f"diagnostic {name!r} is not finite.")
+        reduced[name] = mean
+    return reduced
 
 
 def _run_validation_epoch(

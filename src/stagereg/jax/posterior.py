@@ -131,6 +131,18 @@ class InferenceMethod(Protocol):
         ...
 
     @property
+    def diagnostics(self) -> tuple[str, ...]:
+        """The keys of ``update``'s output the posterior stage records.
+
+        The stage records each as ``posterior/train/<key>``, the mean of its
+        scalar values over the epoch's batches, and ignores every other key
+        but ``"loss"``. A key whose tag the stage already records, such as
+        ``"loss"``, is refused when the stage is prepared. ``()`` records
+        none.
+        """
+        ...
+
+    @property
     def has_posterior(self) -> bool:
         """Whether [`posterior`][stagereg.jax.InferenceMethod.posterior] can be read.
 
@@ -157,7 +169,10 @@ class InferenceMethod(Protocol):
             key: A fresh PRNG key for this batch.
 
         Returns:
-            A mapping holding the scalar ``"loss"`` the method minimizes.
+            A mapping holding the scalar ``"loss"`` the method minimizes and
+            a scalar for every declared
+            [`diagnostics`][stagereg.jax.InferenceMethod.diagnostics] key.
+            Other keys are ignored.
         """
         ...
 

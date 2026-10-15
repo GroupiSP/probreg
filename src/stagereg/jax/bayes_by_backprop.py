@@ -143,6 +143,11 @@ class BayesByBackprop:
         return True
 
     @property
+    def diagnostics(self) -> tuple[str, ...]:
+        """``()``: the stage records only the loss."""
+        return ()
+
+    @property
     def has_posterior(self) -> bool:
         """Whether the method has been initialized."""
         return self._problem is not None
