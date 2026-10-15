@@ -18,6 +18,18 @@ def _as_nonempty_vector(values: ArrayLike, *, name: str) -> NDArray[np.float64]:
     return vector
 
 
+def _as_nonempty_matrix(values: ArrayLike, *, name: str) -> NDArray[np.float64]:
+    """Return a finite, two-dimensional floating-point matrix without empty axes."""
+    matrix = np.asarray(values, dtype=float)
+    if matrix.ndim != 2:
+        raise ValueError(f"{name} must be two-dimensional.")
+    if matrix.size == 0:
+        raise ValueError(f"{name} must not be empty.")
+    if not np.all(np.isfinite(matrix)):
+        raise ValueError(f"{name} must contain only finite values.")
+    return matrix
+
+
 def _evaluation_grid(values: ArrayLike) -> NDArray[np.float64]:
     """Validate and return a numerical integration grid."""
     grid = _as_nonempty_vector(values, name="x_grid")
@@ -127,6 +139,67 @@ def sample_crps(y_true: float, samples_pred: ArrayLike) -> float:
     ranks = 2.0 * np.arange(count) - count + 1.0
     mean_pairwise_distance = 2.0 * np.dot(ranks, samples) / count**2
     return float(absolute_error - mean_pairwise_distance / 2.0)
+
+
+def _mean_pairwise_distance(sorted_samples: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Return ``E|X - X'|`` for each row of row-sorted samples."""
+    count = sorted_samples.shape[-1]
+    ranks = 2.0 * np.arange(count) - count + 1.0
+    return 2.0 * (sorted_samples @ ranks) / count**2
+
+
+def expected_sample_crps(
+    predictive_samples: ArrayLike, reference_samples: ArrayLike
+) -> NDArray[np.float64]:
+    """Return the exact expected CRPS of each unit's empirical predictive.
+
+    For each scoring unit (row) it evaluates ``E|X - Y| - E|X - X'| / 2``,
+    with ``X`` and ``X'`` drawn from the unit's predictive samples and ``Y``
+    from its reference samples. This equals the mean of
+    [`sample_crps`][stagereg.core.sample_crps] over the unit's reference
+    samples. No evaluation grid is needed, and all units are scored at once
+    by sorting rather than looping over reference samples.
+
+    Args:
+        predictive_samples: Predictive samples of shape ``(units, S)``.
+        reference_samples: Reference samples of shape ``(units, R)``, such as
+            draws from a simulator.
+
+    Returns:
+        The expected CRPS of each unit, of shape ``(units,)``.
+
+    Raises:
+        ValueError: If either input is empty, non-finite or not
+            two-dimensional, or if their numbers of units differ.
+    """
+    predictive = _as_nonempty_matrix(predictive_samples, name="predictive_samples")
+    reference = _as_nonempty_matrix(reference_samples, name="reference_samples")
+    if predictive.shape[0] != reference.shape[0]:
+        raise ValueError(
+            "predictive_samples and reference_samples must have the same number "
+            "of units."
+        )
+    predictive_count = predictive.shape[1]
+    reference_count = reference.shape[1]
+
+    # Sort predictive and reference samples jointly per row. For each reference
+    # sample, the predictive samples before it in that order are not larger
+    # than it, which gives sum_i |x_i - y| from a running count and sum.
+    pooled = np.concatenate([predictive, reference], axis=1)
+    order = np.argsort(pooled, axis=1, kind="stable")
+    pooled = np.take_along_axis(pooled, order, axis=1)
+    is_predictive = order < predictive_count
+    predictive_below = np.cumsum(is_predictive, axis=1)
+    sum_below = np.cumsum(np.where(is_predictive, pooled, 0.0), axis=1)
+    total = predictive.sum(axis=1, keepdims=True)
+    distance_to_each = (
+        pooled * (2.0 * predictive_below - predictive_count) + total - 2.0 * sum_below
+    )
+    absolute_error = np.where(is_predictive, 0.0, distance_to_each).sum(axis=1) / (
+        predictive_count * reference_count
+    )
+    spread = _mean_pairwise_distance(np.sort(predictive, axis=1))
+    return absolute_error - spread / 2.0
 
 
 def rmse(y_true: ArrayLike, y_pred: ArrayLike) -> float:

@@ -83,6 +83,8 @@ grouped by the module that defines it.
 
 ::: stagereg.core.sample_crps
 
+::: stagereg.core.expected_sample_crps
+
 ::: stagereg.core.rmse
 
 ::: stagereg.core.coverage
