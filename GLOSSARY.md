@@ -94,7 +94,7 @@ The interchangeable strategy a posterior stage uses to turn a posterior problem 
 _Avoid_: Sampler (excludes variational methods), inference engine, backend
 
 **Inferred subnetwork**:
-The part of the mean network's parameters a posterior stage infers, such as one convolutional layer; by default the whole network.
+The part of the mean network's parameters a posterior stage infers, such as one convolutional layer; by default the whole network. It is selected from the posterior network's parameters only, never its random-number or batch-statistic variables, and the posterior problem and its prior cover it alone. MC-Dropout fine-tunes the inferred subnetwork with dropout active; the dropout masks are not part of the subnetwork.
 _Avoid_: Bayesian layer, stochastic part, Bayesian subset
 
 **Frozen remainder**:

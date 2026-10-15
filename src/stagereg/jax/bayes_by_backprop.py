@@ -22,7 +22,12 @@ import jax.scipy.stats as jstats
 import optax
 
 from stagereg.core.types import Batch, PyTree
-from stagereg.jax.posterior import IsotropicGaussianPrior, PosteriorProblem, Prior
+from stagereg.jax.posterior import (
+    IsotropicGaussianPrior,
+    PosteriorProblem,
+    Prior,
+    require_inferred_tree,
+)
 
 
 def _default_optimizer() -> optax.GradientTransformation:
@@ -266,9 +271,13 @@ class BayesByBackprop:
                 [`posterior_state`][stagereg.jax.BayesByBackprop.posterior_state].
 
         Raises:
-            ValueError: If the method has not been initialized.
+            ValueError: If the method has not been initialized, or if the
+                means' or standard deviations' tree differs from the inferred
+                subnetwork's.
         """
-        self._require_problem()
+        problem = self._require_problem()
+        for tree in (state["means"], state["stds"]):
+            require_inferred_tree(tree, problem.initial_parameters)
         self._variational = {
             "means": state["means"],
             "rhos": jax.tree.map(_inverse_softplus, state["stds"]),
