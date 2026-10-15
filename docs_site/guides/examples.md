@@ -77,13 +77,13 @@ outside it. It plots the moment-matched predictive's 95% band over the variance
 stage's band, with the aleatoric and epistemic variance below. Under the
 seeded configuration Bayes by Backprop and pSGLD lower the overall NLL, in the
 extrapolation region, where the variance stage's band is far too narrow. Bayes
-by Backprop leaves the overall CRPS about unchanged and pSGLD raises it. Both
-epistemic variances grow away from the training data. pSGLD's grows the most
+by Backprop leaves the overall CRPS about unchanged and pSGLD raises it. Their
+epistemic variances both grow away from the training data. pSGLD's grows the most
 relative to its variance inside the training domain, where its scores improve
 too; Bayes by Backprop's is also spread through the training domain and worsens
 both scores there. MC-Dropout, with one dropout layer before the output layer
-of the mean network, lowers the overall NLL much further, from about 188 to 23,
-and the overall CRPS from 5.5 to 4.4: its epistemic variance grows steeply
+of the mean network, lowers the overall NLL far more, by almost an order of
+magnitude, and lowers the overall CRPS too: its epistemic variance grows steeply
 outside the training domain, widening its band there, while inside it both
 scores worsen slightly. All three bands remain too narrow far into
 extrapolation, where the trained mean continues the oscillation poorly.

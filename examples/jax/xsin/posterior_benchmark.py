@@ -1,9 +1,10 @@
 """The posterior stage on the XSin-inspired benchmark.
 
 Bayes by Backprop, pSGLD and MC-Dropout inference methods, MC-Dropout's
-posterior network, a mean, variance and posterior run, the NLL and point CRPS of its predictives, and a plot of the posterior
-predictive band against the variance stage's band. The data, models and the
-two stages it starts from live in ``benchmark.py``.
+posterior network, a mean, variance and posterior run, the NLL and point CRPS
+of its predictives, and a plot of the posterior predictive band against the
+variance stage's band. The data, models and the two stages it starts from live
+in ``benchmark.py``.
 """
 
 from __future__ import annotations

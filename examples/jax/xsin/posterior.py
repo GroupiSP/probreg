@@ -3,9 +3,10 @@
 The VeBNN-style workflow: the mean and Gamma variance stages of
 ``two_steps.py``, then a posterior stage that replaces the trained mean with a
 posterior over mean functions, inferred in turn by Bayes by Backprop, pSGLD and
-MC-Dropout, the last on the mean network with batch-shared dropout. Each run prints the NLL and CRPS of the variance stage's Gaussian and of
-the posterior predictive on noisy evaluation targets, and plots the posterior
-predictive band against the variance stage's band.
+MC-Dropout, the last on the mean network with batch-shared dropout. Each run
+prints the NLL and CRPS of the variance stage's Gaussian and of the posterior
+predictive on noisy evaluation targets, and plots the posterior predictive band
+against the variance stage's band.
 
 Run with:
 
