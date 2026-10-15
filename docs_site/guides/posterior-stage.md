@@ -226,8 +226,16 @@ method = PreconditionedSGLD(step_size=3e-3, burn_in=0, thinning=8)
 ## Writing your own inference method
 
 Any object satisfying [`InferenceMethod`][stagereg.jax.InferenceMethod] can
-drive the stage. Two parts of the seam serve methods beyond Bayes by Backprop
+drive the stage. Three parts of the seam serve methods beyond Bayes by Backprop
 and pSGLD:
+
+- The problem's `mean_function(parameters, inputs, key)` and
+  `log_likelihood(parameters, batch, key)` take a PRNG key. The stage reseeds
+  the posterior network's random-number streams from it, so a network with
+  `nnx.Dropout` draws its masks from the key, purely under `jax.jit` and
+  `jax.grad`; a deterministic network ignores it. Pass the key `update`
+  receives to the log-likelihood, and one key per draw to the mean function in
+  `sample_means`, so that a draw is the same function at every input.
 
 - The problem's `aleatoric_variance` maps inputs to the fixed aleatoric
   variance, without gradient, the same variance its `log_likelihood` uses. An
