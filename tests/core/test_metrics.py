@@ -11,6 +11,7 @@ from stagereg.core.metrics import (
     cdf,
     coverage,
     crps,
+    expected_sample_crps,
     point_crps,
     rmse,
     sample_crps,
@@ -158,3 +159,45 @@ def test_crps_rejects_malformed_samples_and_grids(
 ) -> None:
     with pytest.raises(ValueError):
         crps(samples_true, samples_pred, grid)
+
+
+@st.composite
+def _sample_matrices(draw: st.DrawFn) -> tuple[np.ndarray, np.ndarray]:
+    """Draw ``(units, S)`` predictive and ``(units, R)`` reference samples."""
+    units = draw(st.integers(1, 4))
+    predictive_count = draw(st.integers(1, 8))
+    reference_count = draw(st.integers(1, 8))
+    predictive = draw(
+        st.lists(
+            _finite_values,
+            min_size=units * predictive_count,
+            max_size=units * predictive_count,
+        )
+    )
+    reference = draw(
+        st.lists(
+            _finite_values,
+            min_size=units * reference_count,
+            max_size=units * reference_count,
+        )
+    )
+    return (
+        np.reshape(predictive, (units, predictive_count)),
+        np.reshape(reference, (units, reference_count)),
+    )
+
+
+@given(samples=_sample_matrices())
+def test_expected_sample_crps_is_the_mean_sample_crps_over_reference_samples(
+    samples: tuple[np.ndarray, np.ndarray],
+) -> None:
+    predictive, reference = samples
+
+    expected = [
+        np.mean([sample_crps(target, row) for target in targets])
+        for row, targets in zip(predictive, reference, strict=True)
+    ]
+
+    assert expected_sample_crps(predictive, reference) == pytest.approx(
+        expected, abs=1e-6
+    )
