@@ -470,6 +470,10 @@ class PosteriorStage:
                 ``Param`` leaf of it.
         """
         network = nnx.clone(self.model if self.model is not None else mean_model)
+        # Dropout masks come from the key, whatever mode the network was left in.
+        network.set_attributes(
+            nnx.Dropout, deterministic=False, raise_if_not_found=False
+        )
         mean_parameters = nnx.state(mean_model, nnx.Param)
         _require_same_parameter_tree(nnx.state(network, nnx.Param), mean_parameters)
 

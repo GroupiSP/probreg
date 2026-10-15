@@ -19,8 +19,9 @@ All notable changes to `stagereg` are recorded here. The format follows
 - The posterior seam is keyed: `PosteriorProblem.mean_function` takes
   `(parameters, inputs, key)` and `PosteriorProblem.log_likelihood` takes
   `(parameters, batch, key)`. `PosteriorStage` reseeds the posterior network's
-  RNG streams from the key, so a network with `nnx.Dropout` draws its masks from
-  it; a deterministic network ignores it. A custom inference method passes a key
+  RNG streams from the key and turns on the `nnx.Dropout` layers of its copy of
+  the network, so a network with `nnx.Dropout` draws its masks from it even if it
+  was left in eval mode; a deterministic network ignores it. A custom inference method passes a key
   to both, and a hand-built `PosteriorProblem` accepts one. `BayesByBackprop` and
   `PreconditionedSGLD` give the same results as before for a deterministic
   network (#92).

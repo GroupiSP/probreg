@@ -110,6 +110,24 @@ def test_mc_dropout_draws_differ_from_each_other(
     )
 
 
+def test_mc_dropout_draws_differ_after_the_posterior_network_was_put_in_eval_mode(
+    squared_error: Any,
+) -> None:
+    run = run_to_variance_ready(build_stages(MLP, squared_error))
+    stage = _stage(None)
+    stage.model.eval()
+    inputs, _ = regression_data()
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+    draws = run.state.model_components["posterior"].sample_means(
+        inputs, jax.random.key(0), 2
+    )
+
+    assert not jnp.allclose(draws[0], draws[1])
+    assert stage.model.dropout.deterministic
+
+
 @settings(deadline=None, max_examples=20)
 @given(
     seed=st.integers(0, 2**31 - 1),
