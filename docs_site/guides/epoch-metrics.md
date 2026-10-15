@@ -180,6 +180,20 @@ suite = MetricSuite(
 )
 ```
 
+To score predictive samples against reference samples outside a training run,
+call [`expected_sample_crps`][stagereg.core.expected_sample_crps]. It takes a
+`(units, S)` array of predictive samples and a `(units, R)` array of reference
+samples and returns each unit's grid-free expected CRPS, the mean of
+`sample_crps` over that unit's reference samples:
+
+```python
+import numpy as np
+
+from stagereg.core import expected_sample_crps
+
+scores = expected_sample_crps(np.array([[1.0, 2.0, 3.0]]), np.array([[1.0, 3.0]]))
+```
+
 ### Spread: an explicit coordinate
 
 `WeightedSpread` (`wsu`) summarises how an interval's width evolves along an
