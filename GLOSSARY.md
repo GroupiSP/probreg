@@ -110,7 +110,7 @@ What an inference method produces: an approximate posterior over mean functions,
 _Avoid_: BNN, weight samples, variational distribution (one kind of posterior)
 
 **Draw**:
-One mean function taken from a posterior: the same function at every input and in every batch, so predictions compared across inputs (such as a RUL curve) come from one consistent function. A posterior with a finite set of draws (retained samples, ensemble members) always uses all of them.
+One mean function taken from a posterior: the same function at every input and in every batch, so predictions compared across inputs (such as a RUL curve) come from one consistent function. A posterior with a finite set of draws (retained samples, ensemble members) always uses all of them. For MC-Dropout a draw is the fine-tuned network under one set of dropout masks, drawn from one key; it is one function only if no mask varies across the inputs, so its dropout layers share each mask across the batch axis.
 _Avoid_: Sample (clashes with predictive samples), particle, predictive draw
 
 **Predictive sample**:

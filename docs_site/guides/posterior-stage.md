@@ -23,11 +23,11 @@ The stage and its inference methods share a small vocabulary, defined in the
 
 | Term | Meaning |
 | --- | --- |
-| Inference method | The interchangeable strategy that turns the stage's posterior problem into a posterior, such as [`BayesByBackprop`][stagereg.jax.BayesByBackprop] or [`PreconditionedSGLD`][stagereg.jax.PreconditionedSGLD]. The stage decides what is inferred; the method decides how. |
+| Inference method | The interchangeable strategy that turns the stage's posterior problem into a posterior, such as [`BayesByBackprop`][stagereg.jax.BayesByBackprop], [`PreconditionedSGLD`][stagereg.jax.PreconditionedSGLD] or [`MCDropout`][stagereg.jax.MCDropout]. The stage decides what is inferred; the method decides how. |
 | Posterior | What the inference method produces: an approximate posterior over mean functions, from which draws can be taken. |
 | Inferred subnetwork | The part of the network's parameters the stage infers, selected with `inferred_subnetwork`; by default the whole network. |
 | Frozen remainder | Every other parameter, held at its trained-mean value. |
-| Draw | One mean function taken from the posterior, the same function at every input. A finite posterior, such as pSGLD's retained samples, always uses all its draws. |
+| Draw | One mean function taken from the posterior, the same function at every input: a parameter sample, or for MC-Dropout one dropout mask set. A finite posterior, such as pSGLD's retained samples, always uses all its draws. |
 | Posterior predictive | The [`PosteriorPredictive`][stagereg.jax.PosteriorPredictive]: the equally weighted mixture, over the draws, of Gaussians centred on each draw's mean with the aleatoric variance. |
 | Moment-matched predictive | The [`MomentMatchedPredictive`][stagereg.jax.MomentMatchedPredictive]: the single Gaussian with the posterior predictive's mean and variance, the aleatoric plus the epistemic variance. A summary, not a substitute. |
 
@@ -182,6 +182,59 @@ The checkpoint does not record the filter. Restore with the filter the posterior
 was trained with: Bayes by Backprop and pSGLD refuse a saved posterior whose
 tree differs from the configured subnetwork's.
 
+## MC-Dropout
+
+[`MCDropout`][stagereg.jax.MCDropout] needs a posterior network with dropout
+layers. Pass it as `model`: here it is the mean network plus input dropout, so
+it has the mean network's parameter tree, since dropout has no parameters, and
+infers the same subnetwork as any other method. A training state holds one
+posterior, so this continues the run above in a fresh state:
+
+```{.python continuation}
+from stagereg.jax import MCDropout
+
+
+class DropoutLinear(nnx.Linear):
+    """The mean network behind an input dropout shared by the whole batch."""
+
+    def __init__(self, *, rngs: nnx.Rngs) -> None:
+        super().__init__(1, 1, rngs=rngs)
+        self.dropout = nnx.Dropout(0.1, broadcast_dims=(0,), rngs=rngs)
+
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        return super().__call__(self.dropout(inputs))
+
+
+dropout_state = TrainingState(rng_state=jax.random.key(0))
+for stage in (mean_stage, variance_stage):
+    stage.prepare(dropout_state)
+    stage.train(dropout_state)
+
+dropout_stage = PosteriorStage(
+    inference_method=MCDropout(optimizer=optax.adam(0.01)),
+    train_loader=loader,
+    dataset_size=8,
+    options=PosteriorStageOptions(epochs=3, num_draws=16, validation_loader=loader),
+    model=DropoutLinear(rngs=nnx.Rngs(2)),
+)
+dropout_stage.prepare(dropout_state)
+dropout_stage.train(dropout_state)
+
+mask_draws = dropout_state.model_components["posterior"].sample_means(
+    inputs, jax.random.key(3), 16
+)
+assert mask_draws.shape == (16, 8, 1)
+```
+
+The stage fine-tunes the inferred subnetwork with dropout active, under fresh
+masks for every batch, maximizing the log-likelihood plus the log-prior. Each
+draw of the posterior is the fine-tuned network under one mask set, drawn from
+one key, and there are as many draws as you ask for. `broadcast_dims=(0,)`
+shares one mask across the batch axis, so a draw is the same function at every
+input; without it, every row would get its own mask and a draw would not be one
+mean function. MC-Dropout supports early stopping, and its finalized checkpoint
+holds the fine-tuned subnetwork alone; restore it with the same `model`.
+
 ## Restoring three stages
 
 The posterior stage's finalized checkpoint holds the posterior alone, not the
@@ -226,8 +279,8 @@ method = PreconditionedSGLD(step_size=3e-3, burn_in=0, thinning=8)
 ## Writing your own inference method
 
 Any object satisfying [`InferenceMethod`][stagereg.jax.InferenceMethod] can
-drive the stage. Three parts of the seam serve methods beyond Bayes by Backprop
-and pSGLD:
+drive the stage. Three parts of the seam serve methods beyond Bayes by Backprop,
+pSGLD and MC-Dropout:
 
 - The problem's `mean_function(parameters, inputs, key)` and
   `log_likelihood(parameters, batch, key)` take a PRNG key. The stage reseeds
@@ -246,8 +299,8 @@ and pSGLD:
   each declared key of `update`'s output as `posterior/train/<key>`, its mean
   over the epoch's batches, and passes it to event sinks and trackers like any
   other metric. Undeclared keys are ignored, and `prepare` refuses a key whose
-  tag the stage already records, such as `loss`. Bayes by Backprop and pSGLD
-  declare none.
+  tag the stage already records, such as `loss`. Bayes by Backprop, pSGLD and
+  MC-Dropout declare none.
 
 ## The XSin example
 

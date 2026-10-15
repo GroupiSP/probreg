@@ -29,6 +29,12 @@ All notable changes to `stagereg` are recorded here. The format follows
 
 ### Added
 
+- `MCDropout`, an MC-Dropout inference method, and its unlimited posterior
+  `MCDropoutPosterior`. It fine-tunes the inferred subnetwork of a posterior
+  network with dropout active by maximizing the keyed log-likelihood plus the
+  log-prior, draws one dropout mask set per key, and supports early stopping and
+  checkpoints. Its dropout layers must broadcast their masks over the batch axis
+  (`broadcast_dims=(0,)`) so that each draw is one mean function (#92).
 - `PosteriorProblem.aleatoric_variance`: the fixed, stop-gradient aleatoric
   variance a `PosteriorStage` uses for its likelihood, so an implicit method
   can turn draws into predictive samples. Optional for hand-built problems (#106).
