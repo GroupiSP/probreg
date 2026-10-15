@@ -25,6 +25,12 @@ All notable changes to `stagereg` are recorded here. The format follows
 
 ### Changed
 
+- `MeanStage` and `GammaVarianceStage` with a checkpoint store but no early stopper
+  now save their last epoch as their finalized checkpoint under the stage's
+  checkpoint key, so the stage can be restored in a later process. Previously they
+  saved nothing. With an early stopper the best epoch is still finalized
+  (ADR 0011).
+
 ## [0.1.0]
 
 First release under the `stagereg` name.
