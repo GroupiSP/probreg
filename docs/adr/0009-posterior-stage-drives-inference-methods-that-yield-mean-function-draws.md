@@ -11,3 +11,5 @@ The posterior stage must host inference methods as different as variational infe
 ## Consequences
 
 A method that needs its own control flow (full-batch HMC) fits by taking a one-batch loader, with one epoch being one or more transitions. A method declares whether it supports early stopping; the stage refuses an early stopper for one that does not, and SG-MCMC writes only a finalized checkpoint.
+
+The stage, not the method, decides what is inferred: a filter selects the inferred subnetwork from the posterior network's parameters, and the frozen remainder stays at its trained-mean values. The posterior problem's starting point and prior cover the inferred subnetwork alone, and its mean function closes over the frozen remainder, so a method sees only the subtree it infers and needs no knowledge of the rest of the network. The filter is configuration, not state: a checkpoint does not record it, a restore rebuilds the problem from the configured filter, and a saved posterior whose tree no longer matches is refused.

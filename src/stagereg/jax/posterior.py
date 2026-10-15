@@ -22,13 +22,17 @@ from stagereg.core.types import Batch, PyTree
 
 
 class Prior(Protocol):
-    """A log-density over the parameter tree of the posterior network."""
+    """A log-density over the parameters of the inferred subnetwork.
+
+    The frozen remainder of the posterior network is not inferred, so the prior does not
+    cover it.
+    """
 
     def log_prob(self, parameters: PyTree) -> jax.Array:
         """Return the scalar log-density of ``parameters``.
 
         Args:
-            parameters: A tree with the posterior network's parameter tree.
+            parameters: A tree with the inferred subnetwork's parameter tree.
 
         Returns:
             The scalar prior log-density.
@@ -82,15 +86,18 @@ class PosteriorProblem:
 
     Attributes:
         initial_parameters: The warm start: a copy of the trained mean
-            network's parameters, in the posterior network's parameter tree.
+            network's parameters in the inferred subnetwork, in the posterior
+            network's parameter tree restricted to that subnetwork.
         mean_function: Maps ``(parameters, inputs)`` to the posterior
-            network's mean predictions at ``inputs``.
+            network's mean predictions at ``inputs``, where ``parameters``
+            holds the inferred subnetwork only and the frozen remainder keeps
+            its trained-mean values.
         log_likelihood: Maps ``(parameters, batch)`` to the scalar Gaussian
             log-likelihood of the batch targets around the mean predictions,
             under the fixed aleatoric variance, scaled by ``N / B`` so that a
             minibatch estimates the full-data log-likelihood. Differentiable in
             ``parameters``; the aleatoric variance carries no gradient.
-        prior: The prior over the parameter tree.
+        prior: The prior over the inferred subnetwork's parameter tree.
         train_loader: Factory producing the training batches of each epoch.
         dataset_size: The number of training examples ``N``.
     """
