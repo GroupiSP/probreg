@@ -211,7 +211,11 @@ class PosteriorStage:
                 network's parameter tree differs from the mean network's, if
                 ``dataset_size`` is not positive, if an early stopper is
                 configured for a method that does not support early stopping,
-                or if the epoch-loop configuration is refused.
+                if one of the method's
+                [`diagnostics`][stagereg.jax.InferenceMethod.diagnostics] is
+                invalid as a metric name, declared twice or collides with a
+                training tag the stage already records (``"loss"``), or if the
+                epoch-loop configuration is refused.
             TypeError: If the mean or variance model is not an NNX module, or
                 ``state.rng_state`` is not a JAX random key.
         """
@@ -255,6 +259,7 @@ class PosteriorStage:
             stage=self.name,
             validation=validation,
             early_stopper=options.early_stopper,
+            diagnostics=self.inference_method.diagnostics,
         )
         self.inference_method.init(self._problem(mean_model, variance_model))
         state.frozen_components = state.frozen_components | {
@@ -308,6 +313,7 @@ class PosteriorStage:
             early_stopper=options.early_stopper,
             event_sinks=options.event_sinks,
             checkpoint_store=options.checkpoint_store,
+            diagnostics=method.diagnostics,
         )
         if result.loss is None or not math.isfinite(result.loss):
             raise ValueError(f"{self.name} stage produced a non-finite final loss.")
@@ -450,17 +456,19 @@ class PosteriorStage:
 
         nnx.update(network, jax.tree.map(jnp.copy, mean_parameters))
         mean_function = _mean_function(network)
+        aleatoric_variance = _aleatoric_variance(variance_model)
         return PosteriorProblem(
             initial_parameters=jax.tree.map(jnp.copy, nnx.state(network, nnx.Param)),
             mean_function=mean_function,
             log_likelihood=_scaled_log_likelihood(
                 mean_function,
-                _aleatoric_variance(variance_model),
+                aleatoric_variance,
                 dataset_size=self.dataset_size,
             ),
             prior=self.prior,
             train_loader=self.train_loader,
             dataset_size=self.dataset_size,
+            aleatoric_variance=aleatoric_variance,
         )
 
     def _register_posterior(
