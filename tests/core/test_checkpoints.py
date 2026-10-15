@@ -200,6 +200,22 @@ def test_cached_store_raises_key_error_on_a_key_neither_holds() -> None:
         store.load("variance/best")
 
 
+class _FileStore(InMemoryCheckpointStore):
+    """A store that, like a file-backed one, reports a missing key as a missing file."""
+
+    def load(self, key: str) -> Checkpoint:
+        if not self.exists(key):
+            raise FileNotFoundError(key)
+        return super().load(key)
+
+
+def test_cached_store_raises_key_error_whatever_the_persistent_store_raises() -> None:
+    store = CachedCheckpointStore(_FileStore())
+
+    with pytest.raises(KeyError, match="variance/best"):
+        store.load("variance/best")
+
+
 def test_cached_store_reads_the_cache_before_the_persistent_store() -> None:
     persistent = InMemoryCheckpointStore()
     persistent.save("mean/best", Checkpoint(state=TrainingState(), epoch=0))

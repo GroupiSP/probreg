@@ -234,6 +234,8 @@ class CachedCheckpointStore:
         """
         if self._cache.exists(key):
             return self._cache.load(key)
+        if not self._persistent.exists(key):
+            raise KeyError(key)
         return self._persistent.load(key)
 
     def exists(self, key: str) -> bool:
