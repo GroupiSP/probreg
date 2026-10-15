@@ -7,6 +7,10 @@ All notable changes to `stagereg` are recorded here. The format follows
 
 ### Breaking changes
 
+- `TrainingState.active_stage` is now a dataclass field. The `TrainingState.stage`
+  field, which the `active_stage` property used to wrap, is removed; pass and read
+  `active_stage` instead.
+
 ### Added
 
 ### Changed

@@ -42,13 +42,12 @@ def test_training_state_separates_lifecycle_from_active_stage() -> None:
     assert state.active_stage == "mean"
 
 
-def test_training_state_stage_alias_preserves_active_stage_compatibility() -> None:
-    state = TrainingState()
+def test_training_state_takes_the_active_stage_as_its_only_stage_label() -> None:
+    state = TrainingState(active_stage="mean")
 
-    state.stage = "supervised"
-
-    assert state.active_stage == "supervised"
-    assert state.stage == "supervised"
+    assert state.active_stage == "mean"
+    with pytest.raises(TypeError, match="stage"):
+        TrainingState(stage="mean")  # type: ignore[call-arg]
 
 
 def test_training_state_allows_idempotent_component_registration() -> None:

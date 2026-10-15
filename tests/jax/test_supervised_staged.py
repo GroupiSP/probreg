@@ -1183,6 +1183,29 @@ def test_stages_resume_a_fresh_state_from_their_finalized_checkpoints(
     assert jnp.array_equal(restored.rate, trained.rate)
 
 
+def test_a_stage_restore_round_trips_the_active_stage_and_the_random_key(
+    finalized_run: FinalizedRun,
+    make_fresh_stages: MakeFreshStages,
+) -> None:
+    _, _, store = finalized_run
+    mean_stage, variance_stage = make_fresh_stages()
+    fresh_key = jax.random.key(123)
+    state = TrainingState(rng_state=fresh_key)
+
+    for stage, key in ((mean_stage, "mean-best"), (variance_stage, "variance-best")):
+        saved = store.load(key)
+        stage.restore(state, saved)
+
+        assert state.active_stage == stage.name
+        assert jnp.array_equal(
+            jax.random.key_data(state.rng_state),
+            jax.random.key_data(saved.state.rng_state),
+        )
+        assert not jnp.array_equal(
+            jax.random.key_data(state.rng_state), jax.random.key_data(fresh_key)
+        )
+
+
 def test_variance_restore_before_mean_restore_is_refused(
     finalized_run: FinalizedRun,
     make_fresh_stages: MakeFreshStages,

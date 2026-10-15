@@ -38,7 +38,7 @@ def test_snapshot_is_independent_and_checkpoint_restores_live_objects() -> None:
         optimizer_states={"mean_optimizer": optimizer},
         rng_state=jax.random.key(3),
         lifecycle_state=StageState.MEAN_READY,
-        stage="mean",
+        active_stage="mean",
         metric_history={"mean/train/loss": [1.0]},
     )
     checkpoint = Checkpoint(

@@ -182,7 +182,7 @@ def _observable(state: TrainingState) -> tuple[Any, ...]:
         state.posterior_state,
         state.rng_state,
         state.lifecycle_state,
-        state.stage,
+        state.active_stage,
         {tag: list(values) for tag, values in state.metric_history.items()},
     )
 
@@ -656,6 +656,11 @@ def test_a_fresh_state_resumes_through_the_three_stage_restore(
 
     assert stage.validate(state).passed
     assert state.lifecycle_state is StageState.POSTERIOR_READY
+    assert state.active_stage == "posterior"
+    assert jnp.array_equal(
+        jax.random.key_data(state.rng_state),
+        jax.random.key_data(finished_run.run.state.rng_state),
+    )
     assert state.model_components["mean_model"] is stages.mean.model
     assert state.model_components["variance_model"] is stages.variance.model
     assert state.optimizer_states["mean_optimizer"] is stages.mean.optimizer

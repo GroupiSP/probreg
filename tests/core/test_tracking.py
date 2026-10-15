@@ -41,7 +41,7 @@ def test_tracker_protocols_record_structured_training_data(
         iteration=0,
         step=3,
         metrics={"loss": 0.1},
-        state=TrainingState(stage="mean"),
+        state=TrainingState(active_stage="mean"),
     )
 
     sink.on_event(event)
@@ -69,7 +69,7 @@ def test_tracker_event_sink_tags_any_event_without_registration(
             iteration=0,
             step=2,
             metrics={"loss": 0.5},
-            state=TrainingState(stage="mean"),
+            state=TrainingState(active_stage="mean"),
         )
     )
 

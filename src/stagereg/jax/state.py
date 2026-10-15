@@ -226,7 +226,7 @@ def _restore_training_state(state: TrainingState, restored: TrainingState) -> No
     state.posterior_state = restored.posterior_state
     state.rng_state = restored.rng_state
     state.lifecycle_state = restored.lifecycle_state
-    state.stage = restored.stage
+    state.active_stage = restored.active_stage
     state.outer_iteration = restored.outer_iteration
     state.data_fingerprint = restored.data_fingerprint
     state.checkpoint_registry = dict(restored.checkpoint_registry)
