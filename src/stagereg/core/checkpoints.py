@@ -16,6 +16,9 @@ A stage saves its finalized checkpoint with this key set to ``True`` in its
 checkpoints, saved on every improvement during training, do not carry it.
 """
 
+STAGE_METADATA_KEY = "stage"
+"""Checkpoint metadata key naming the stage that wrote the checkpoint."""
+
 
 @dataclass(frozen=True)
 class Checkpoint:
