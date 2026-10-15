@@ -106,14 +106,8 @@ class TrainingState:
         lifecycle_state: Position of the workflow in the ordered
             [`StageState`][stagereg.core.StageState] lifecycle. Defaults to
             [`StageState.NEW`][stagereg.core.StageState].
-        stage: Label of the active stage, the value behind the
-            [`active_stage`][stagereg.core.TrainingState.active_stage] property.
-            Defaults to ``None`` outside a runner.
-        outer_iteration: Zero-based outer iteration: the count of passes through
-            the run's sequence of stages. Defaults to ``0``.
-        data_fingerprint: Identifier of the dataset the state was trained on,
-            meant to detect resuming against different data. Set by the user and
-            not interpreted by the library. Defaults to ``None``.
+        active_stage: Label of the stage that last trained or restored the
+            state. Defaults to ``None`` outside a runner.
         checkpoint_registry: Named references to checkpoints a stage registered,
             such as its best checkpoint. Defaults to an empty mapping.
         metric_history: Recorded values of each metric in order, keyed by metric
@@ -128,29 +122,9 @@ class TrainingState:
     posterior_state: Any | None = None
     rng_state: Any | None = None
     lifecycle_state: StageState = StageState.NEW
-    stage: str | None = None
-    outer_iteration: int = 0
-    data_fingerprint: str | None = None
+    active_stage: str | None = None
     checkpoint_registry: dict[str, CheckpointRef] = field(default_factory=dict)
     metric_history: dict[str, list[float]] = field(default_factory=dict)
-
-    @property
-    def active_stage(self) -> str | None:
-        """Return the explicit active training-stage label.
-
-        Returns:
-            The active training-stage label, or ``None`` outside a runner.
-        """
-        return self.stage
-
-    @active_stage.setter
-    def active_stage(self, value: str | None) -> None:
-        """Set the explicit active training-stage label.
-
-        Args:
-            value: The active training-stage label, or ``None``.
-        """
-        self.stage = value
 
     def register_component(self, name: str, component: Any) -> None:
         """Register a model component under ``name``.

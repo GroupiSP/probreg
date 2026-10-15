@@ -11,12 +11,14 @@ import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
 import numpy as np
+import optax
 import pytest
 from flax import nnx
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from posterior_runs import (
     DATASET_SIZE,
+    DropoutLinearModel,
     MakeStages,
     MakeVarianceReadyRun,
     RecordingStore,
@@ -27,7 +29,11 @@ from posterior_runs import (
     restore_mean_and_variance,
 )
 
-from stagereg.core.checkpoints import Checkpoint
+from stagereg.core.checkpoints import (
+    CachedCheckpointStore,
+    Checkpoint,
+    finalized_only,
+)
 from stagereg.core.early_stopping import EarlyStopper
 from stagereg.core.metric_registry import (
     EvaluationGrid,
@@ -42,8 +48,13 @@ from stagereg.core.types import (
     StageState,
     TrainingState,
 )
-from stagereg.jax import MetricSuite, PosteriorPredictivePredictor
-from stagereg.jax.posterior import PosteriorProblem
+from stagereg.jax import (
+    BayesByBackprop,
+    MetricSuite,
+    PosteriorPredictivePredictor,
+    PreconditionedSGLD,
+)
+from stagereg.jax.posterior import InferenceMethod, PosteriorProblem
 from stagereg.jax.posterior_stage import PosteriorStage, PosteriorStageOptions
 
 Tracker = Callable[[], Any]
@@ -71,7 +82,7 @@ class OffsetDrawsPosterior:
     shifts the mean by a standard normal offset drawn from the key.
     """
 
-    mean_function: Callable[[PyTree, PyTree], jax.Array]
+    mean_function: Callable[[PyTree, PyTree, jax.Array], jax.Array]
     parameters: PyTree
     offsets: tuple[float, ...] | None = None
     calls: list[tuple[jax.Array, int | None]] = field(default_factory=list)
@@ -92,7 +103,7 @@ class OffsetDrawsPosterior:
             if num_samples is None:
                 raise ValueError("an unlimited posterior needs num_samples.")
             offsets = jax.random.normal(key, (num_samples,))
-        means = self.mean_function(self.parameters, inputs)
+        means = self.mean_function(self.parameters, inputs, key)
         return means[None] + offsets.reshape((-1,) + (1,) * means.ndim)
 
 
@@ -103,6 +114,7 @@ class GradientAscentMethod:
     learning_rate: float = 0.01
     offsets: tuple[float, ...] | None = (-0.5, 0.5)
     early_stopping: bool = True
+    diagnostics: tuple[str, ...] = ()
     problem: PosteriorProblem | None = None
     parameters: PyTree = None
     steps: int = 0
@@ -122,13 +134,12 @@ class GradientAscentMethod:
         self.steps = 0
 
     def update(self, batch: Batch, key: jax.Array) -> Mapping[str, Any]:
-        del key
         assert self.problem is not None
         problem = self.problem
 
         def negative_log_posterior(parameters: PyTree) -> jax.Array:
             return -(
-                problem.log_likelihood(parameters, batch)
+                problem.log_likelihood(parameters, batch, key)
                 + problem.prior.log_prob(parameters)
             )
 
@@ -139,7 +150,8 @@ class GradientAscentMethod:
             grads,
         )
         self.steps += 1
-        return {"loss": loss}
+        # Each step also reports its own count, under a declared and an undeclared key.
+        return {"loss": loss, "step_count": self.steps, "internal": self.steps}
 
     def posterior(self) -> OffsetDrawsPosterior:
         assert self.problem is not None
@@ -182,7 +194,7 @@ def _observable(state: TrainingState) -> tuple[Any, ...]:
         state.posterior_state,
         state.rng_state,
         state.lifecycle_state,
-        state.stage,
+        state.active_stage,
         {tag: list(values) for tag, values in state.metric_history.items()},
     )
 
@@ -237,7 +249,9 @@ def test_the_warm_start_equals_the_mean_weights(
     )
     inputs, _ = regression_data()
     assert jnp.allclose(
-        method.problem.mean_function(method.problem.initial_parameters, inputs),
+        method.problem.mean_function(
+            method.problem.initial_parameters, inputs, jax.random.key(0)
+        ),
         run.mean_model(inputs),
     )
 
@@ -297,7 +311,7 @@ def test_the_likelihood_is_scaled_by_dataset_size_over_batch_size(
     )
 
     log_likelihood = method.problem.log_likelihood(
-        method.problem.initial_parameters, repeated
+        method.problem.initial_parameters, repeated, jax.random.key(0)
     )
 
     assert float(log_likelihood) == pytest.approx(
@@ -317,7 +331,7 @@ def test_the_likelihood_weights_each_row_by_its_sample_weight(
     weighted = Batch(inputs=inputs, targets=targets, sample_weight=weights)
 
     log_likelihood = method.problem.log_likelihood(
-        method.problem.initial_parameters, weighted
+        method.problem.initial_parameters, weighted, jax.random.key(0)
     )
 
     variance = run.variance_model(inputs).mean()
@@ -326,6 +340,32 @@ def test_the_likelihood_weights_each_row_by_its_sample_weight(
     )
     expected = DATASET_SIZE * float(jnp.mean(weights[:, None] * rows))
     assert float(log_likelihood) == pytest.approx(expected, rel=1e-4)
+
+
+@settings(deadline=None, max_examples=10)
+@given(
+    inputs=st.lists(
+        st.floats(-3.0, 3.0, allow_nan=False, width=32), min_size=1, max_size=8
+    )
+)
+def test_the_problem_carries_the_stages_aleatoric_variance(
+    shared_variance_ready_run: VarianceReadyRun, inputs: list[float]
+) -> None:
+    run = _isolated(shared_variance_ready_run)
+    method = GradientAscentMethod()
+    _posterior_stage(method).prepare(run.state)
+    assert method.problem is not None
+    aleatoric_variance = method.problem.aleatoric_variance
+    assert aleatoric_variance is not None
+    points = jnp.asarray(inputs)[:, None]
+
+    variance = aleatoric_variance(points)
+
+    assert jnp.allclose(variance, run.variance_model(points).mean(), rtol=1e-6)
+    assert jnp.array_equal(
+        jax.grad(lambda x: aleatoric_variance(x).sum())(points),
+        jnp.zeros_like(points),
+    )
 
 
 def _validation_suite() -> MetricSuite:
@@ -376,6 +416,73 @@ def test_the_three_stages_of_a_posterior_run_never_share_a_tag(
     assert set(run.state.metric_history) == expected
 
 
+def test_declared_diagnostics_are_recorded_as_epoch_means_and_reach_trackers(
+    in_memory_tracker: Tracker,
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    tracker = in_memory_tracker()
+    run = variance_ready_run()
+    stage = _posterior_stage(
+        GradientAscentMethod(diagnostics=("step_count",)),
+        event_sinks=(TrackerEventSink(tracker),),
+    )
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+
+    # Two batches per epoch: steps 1 and 2, then 3 and 4, then 5 and 6.
+    assert run.state.metric_history["posterior/train/step_count"] == [1.5, 3.5, 5.5]
+    assert "posterior/train/step_count" in tracker.tags
+    assert not any("internal" in tag for tag in run.state.metric_history)
+    assert not any("internal" in tag for tag in tracker.tags)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [BayesByBackprop(), PreconditionedSGLD(step_size=1e-3)],
+    ids=["bbb", "psgld"],
+)
+def test_the_shipped_methods_record_only_the_training_loss(
+    variance_ready_run: MakeVarianceReadyRun, method: InferenceMethod
+) -> None:
+    run = variance_ready_run()
+    stage = dataclasses.replace(
+        _posterior_stage(GradientAscentMethod()), inference_method=method
+    )
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+
+    assert {
+        tag for tag in run.state.metric_history if tag.startswith("posterior/")
+    } == {"posterior/train/loss"}
+
+
+@pytest.mark.parametrize("diagnostics", [("loss",), ("step_count", "step_count")])
+def test_a_diagnostic_colliding_with_a_recorded_tag_is_refused(
+    variance_ready_run: MakeVarianceReadyRun, diagnostics: tuple[str, ...]
+) -> None:
+    run = variance_ready_run()
+    stage = _posterior_stage(GradientAscentMethod(diagnostics=diagnostics))
+    before = _observable(run.state)
+
+    with pytest.raises(ValueError, match="diagnostic"):
+        stage.prepare(run.state)
+
+    assert _observable(run.state) == before
+
+
+def test_a_declared_diagnostic_that_update_omits_fails_training(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    run = variance_ready_run()
+    stage = _posterior_stage(GradientAscentMethod(diagnostics=("absent",)))
+    stage.prepare(run.state)
+
+    with pytest.raises(ValueError, match="diagnostic 'absent'"):
+        stage.train(run.state)
+
+
 def test_validation_scores_the_current_posterior_predictive(
     variance_ready_run: MakeVarianceReadyRun,
 ) -> None:
@@ -401,7 +508,7 @@ def test_validation_scores_the_current_posterior_predictive(
         [b.inputs for b in regression_loader(split="validation", epoch=2)]
     )
     draws = (
-        final.mean_function(final.parameters, inputs)[None]
+        final.mean_function(final.parameters, inputs, jax.random.key(0))[None]
         + jnp.array([-0.5, 0.5])[:, None, None]
     )
     scale = jnp.sqrt(run.variance_model(inputs).mean())
@@ -644,6 +751,30 @@ def test_three_stages_sharing_a_store_never_overwrite_each_other(
         assert finished_run.store.load(key).metadata["stage"] == stage
 
 
+def test_a_cached_store_persists_only_the_finalized_checkpoints_of_a_full_run(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> None:
+    persistent = RecordingStore()
+    store = CachedCheckpointStore(persistent, persist_when=finalized_only)
+    run = variance_ready_run(checkpoint_store=store)
+    stage = _posterior_stage(
+        GradientAscentMethod(),
+        early_stopper=EarlyStopper(
+            metric="loss", mode="max", patience=10, source="train"
+        ),
+        checkpoint_store=store,
+    )
+
+    stage.prepare(run.state)
+    stage.train(run.state)
+
+    assert [(key, checkpoint.metadata) for key, checkpoint in persistent.saves] == [
+        ("mean/best", {"stage": "mean", "stage_complete": True}),
+        ("variance/best", {"stage": "variance", "stage_complete": True}),
+        ("posterior/best", {"stage": "posterior", "stage_complete": True}),
+    ]
+
+
 def test_a_fresh_state_resumes_through_the_three_stage_restore(
     finished_run: FinishedRun, make_stages: MakeStages
 ) -> None:
@@ -656,6 +787,11 @@ def test_a_fresh_state_resumes_through_the_three_stage_restore(
 
     assert stage.validate(state).passed
     assert state.lifecycle_state is StageState.POSTERIOR_READY
+    assert state.active_stage == "posterior"
+    assert jnp.array_equal(
+        jax.random.key_data(state.rng_state),
+        jax.random.key_data(finished_run.run.state.rng_state),
+    )
     assert state.model_components["mean_model"] is stages.mean.model
     assert state.model_components["variance_model"] is stages.variance.model
     assert state.optimizer_states["mean_optimizer"] is stages.mean.optimizer
@@ -791,3 +927,376 @@ def test_restore_refuses_a_checkpoint_saved_under_other_component_names(
         stage.restore(state, finished_run.store.load("posterior/best"))
 
     assert _observable(state) == before
+
+
+# Inferred subnetwork. The mean network of `posterior_runs` is one linear
+# layer. Inferring its kernel alone leaves the bias as the frozen remainder,
+# which every draw then shares: at input zero each draw is exactly the bias.
+
+_KERNEL = nnx.PathContains("kernel")
+
+_SUBNETWORK_METHODS: dict[str, Callable[[], InferenceMethod]] = {
+    "bayes by backprop": lambda: BayesByBackprop(
+        optimizer=optax.adam(0.01), initial_std=0.05
+    ),
+    "psgld": lambda: PreconditionedSGLD(step_size=1e-3, burn_in=1, thinning=2),
+}
+
+
+def _subnetwork_stage(
+    method: InferenceMethod, inferred_subnetwork: Any = nnx.Param, **options: Any
+) -> PosteriorStage:
+    return PosteriorStage(
+        inference_method=method,
+        train_loader=regression_loader,
+        dataset_size=DATASET_SIZE,
+        options=PosteriorStageOptions(**{"epochs": 3, "num_draws": 4, **options}),
+        inferred_subnetwork=inferred_subnetwork,
+    )
+
+
+@dataclass
+class SubnetworkRun:
+    """A posterior stage trained on a variance-ready run."""
+
+    run: VarianceReadyRun
+    method: InferenceMethod
+
+
+def _train_subnetwork(
+    variance_ready_run: MakeVarianceReadyRun,
+    method_name: str,
+    inferred_subnetwork: Any = nnx.Param,
+) -> SubnetworkRun:
+    run = variance_ready_run()
+    method = _SUBNETWORK_METHODS[method_name]()
+    stage = _subnetwork_stage(method, inferred_subnetwork)
+    stage.prepare(run.state)
+    stage.train(run.state)
+    return SubnetworkRun(run, method)
+
+
+def _parameter_names(tree: PyTree) -> set[str]:
+    """The names of the linear layer's parameters in a parameter tree."""
+    return set(tree["linear"].keys())
+
+
+@pytest.fixture(scope="module")
+def kernel_runs(variance_ready_run: MakeVarianceReadyRun) -> dict[str, SubnetworkRun]:
+    """Each method trained on the kernel alone; never mutate them."""
+    return {
+        name: _train_subnetwork(variance_ready_run, name, _KERNEL)
+        for name in _SUBNETWORK_METHODS
+    }
+
+
+@pytest.mark.parametrize("method_name", sorted(_SUBNETWORK_METHODS))
+def test_a_method_infers_only_the_inferred_subnetwork(
+    kernel_runs: dict[str, SubnetworkRun], method_name: str
+) -> None:
+    posterior_state = kernel_runs[method_name].method.posterior_state()
+    trees = (
+        [posterior_state["means"], posterior_state["stds"]]
+        if method_name == "bayes by backprop"
+        else [posterior_state]
+    )
+
+    assert all(_parameter_names(tree) == {"kernel"} for tree in trees)
+
+
+@settings(deadline=None, max_examples=10)
+@given(
+    method_name=st.sampled_from(sorted(_SUBNETWORK_METHODS)),
+    seed=st.integers(0, 2**31 - 1),
+    rows=st.integers(1, 5),
+)
+def test_the_frozen_remainder_keeps_its_trained_mean_values_bit_for_bit(
+    kernel_runs: dict[str, SubnetworkRun], method_name: str, seed: int, rows: int
+) -> None:
+    trained = kernel_runs[method_name]
+    posterior = trained.run.state.model_components["posterior"]
+    num_samples = None if posterior.num_draws is not None else 4
+
+    draws = posterior.sample_means(
+        jnp.zeros((rows, 1)), jax.random.key(seed), num_samples
+    )
+
+    bias = trained.run.mean_model.linear.bias.get_value()
+    assert draws.shape[1:] == (rows, 1)
+    np.testing.assert_array_equal(draws, jnp.broadcast_to(bias, draws.shape))
+
+
+# The training losses of the default filter under stagereg 0.1.0, which
+# inferred the whole network.
+_LOSSES_OF_0_1_0 = {
+    "bayes by backprop": [17.569884300231934, 17.512011528015137, 17.620736122131348],
+    "psgld": [14.574500560760498, 14.39689016342163, 14.398993968963623],
+}
+
+
+@pytest.mark.parametrize("method_name", sorted(_SUBNETWORK_METHODS))
+def test_the_default_filter_reproduces_stagereg_0_1_0(
+    variance_ready_run: MakeVarianceReadyRun, method_name: str
+) -> None:
+    trained = _train_subnetwork(variance_ready_run, method_name)
+
+    np.testing.assert_allclose(
+        trained.run.state.metric_history["posterior/train/loss"],
+        _LOSSES_OF_0_1_0[method_name],
+        rtol=1e-5,
+    )
+
+
+@pytest.mark.parametrize(
+    "inferred_subnetwork",
+    [nnx.PathContains("conv"), nnx.RngState, nnx.Not(nnx.Param)],
+    ids=["unknown path", "rng state", "no param"],
+)
+def test_a_filter_selecting_no_param_leaf_is_refused_at_prepare(
+    variance_ready_run: MakeVarianceReadyRun, inferred_subnetwork: Any
+) -> None:
+    state = variance_ready_run().state
+    lifecycle, frozen, stage_name = (
+        state.lifecycle_state,
+        state.frozen_components,
+        state.active_stage,
+    )
+    stage = _subnetwork_stage(
+        _SUBNETWORK_METHODS["bayes by backprop"](), inferred_subnetwork
+    )
+
+    with pytest.raises(ValueError, match="selects no Param leaf"):
+        stage.prepare(state)
+
+    assert (state.lifecycle_state, state.frozen_components, state.active_stage) == (
+        lifecycle,
+        frozen,
+        stage_name,
+    )
+
+
+@pytest.mark.parametrize("method_name", sorted(_SUBNETWORK_METHODS))
+@pytest.mark.parametrize(
+    ("trained_with", "restored_with"),
+    [(_KERNEL, nnx.Param), (nnx.Param, _KERNEL), (_KERNEL, nnx.PathContains("bias"))],
+    ids=["kernel then all", "all then kernel", "kernel then bias"],
+)
+def test_restoring_under_another_filter_is_refused(
+    variance_ready_run: MakeVarianceReadyRun,
+    make_stages: MakeStages,
+    method_name: str,
+    trained_with: Any,
+    restored_with: Any,
+) -> None:
+    store = RecordingStore()
+    run = variance_ready_run(checkpoint_store=store)
+    trained = _subnetwork_stage(
+        _SUBNETWORK_METHODS[method_name](), trained_with, checkpoint_store=store
+    )
+    trained.prepare(run.state)
+    trained.train(run.state)
+    state = restore_mean_and_variance(make_stages(seed=7), store)
+    stage = _subnetwork_stage(_SUBNETWORK_METHODS[method_name](), restored_with)
+
+    with pytest.raises(ValueError, match="inferred_subnetwork"):
+        stage.restore(state, store.load("posterior/best"))
+
+    assert stage.inference_method.has_posterior is False
+    assert "posterior" not in state.model_components
+
+
+@pytest.mark.parametrize("method_name", sorted(_SUBNETWORK_METHODS))
+def test_restoring_under_the_same_filter_rebuilds_the_posterior(
+    variance_ready_run: MakeVarianceReadyRun,
+    make_stages: MakeStages,
+    method_name: str,
+) -> None:
+    store = RecordingStore()
+    run = variance_ready_run(checkpoint_store=store)
+    trained = _subnetwork_stage(
+        _SUBNETWORK_METHODS[method_name](), _KERNEL, checkpoint_store=store
+    )
+    trained.prepare(run.state)
+    trained.train(run.state)
+    state = restore_mean_and_variance(make_stages(seed=7), store)
+    stage = _subnetwork_stage(_SUBNETWORK_METHODS[method_name](), _KERNEL)
+
+    stage.restore(state, store.load("posterior/best"))
+
+    inputs = jnp.linspace(-1.0, 1.0, 5)[:, None]
+    key = jax.random.key(0)
+    restored = state.model_components["posterior"]
+    num_samples = None if restored.num_draws is not None else 4
+    np.testing.assert_array_equal(
+        restored.sample_means(inputs, key, num_samples),
+        run.state.model_components["posterior"].sample_means(inputs, key, num_samples),
+    )
+
+
+# The keyed seam: the stage hands its inference method a mean function and a
+# log-likelihood that take a PRNG key. A deterministic network ignores it; a
+# network with ``nnx.Dropout`` draws its masks from it.
+
+
+@dataclass
+class KeyedProbe:
+    """Delegates to an inference method, and records each batch's mean function.
+
+    In every ``update`` it evaluates the problem's mean function at the warm
+    start on ``probe_inputs`` under the batch's key, so a test can see which
+    masks the stage's keys select.
+    """
+
+    inner: InferenceMethod
+    probe_inputs: jax.Array
+    problem: PosteriorProblem | None = None
+    probes: list[jax.Array] = field(default_factory=list)
+
+    @property
+    def supports_early_stopping(self) -> bool:
+        return self.inner.supports_early_stopping
+
+    @property
+    def diagnostics(self) -> tuple[str, ...]:
+        return self.inner.diagnostics
+
+    @property
+    def has_posterior(self) -> bool:
+        return self.inner.has_posterior
+
+    def init(self, problem: PosteriorProblem) -> None:
+        self.problem = problem
+        self.inner.init(problem)
+
+    def update(self, batch: Batch, key: jax.Array) -> Mapping[str, Any]:
+        assert self.problem is not None
+        self.probes.append(
+            self.problem.mean_function(
+                self.problem.initial_parameters, self.probe_inputs, key
+            )
+        )
+        return self.inner.update(batch, key)
+
+    def posterior(self) -> Any:
+        return self.inner.posterior()
+
+    def state(self) -> PyTree:
+        return self.inner.state()
+
+    def load_state(self, state: PyTree) -> None:
+        self.inner.load_state(state)
+
+    def posterior_state(self) -> PyTree:
+        return self.inner.posterior_state()
+
+    def load_posterior(self, state: PyTree) -> None:
+        self.inner.load_posterior(state)
+
+
+def _probe() -> KeyedProbe:
+    return KeyedProbe(
+        inner=BayesByBackprop(optimizer=optax.adam(0.01), initial_std=0.05),
+        probe_inputs=jnp.ones((64, 1)),
+    )
+
+
+def _keyed_stage(
+    method: InferenceMethod, model: nnx.Module | None = None
+) -> PosteriorStage:
+    return PosteriorStage(
+        inference_method=method,
+        train_loader=regression_loader,
+        dataset_size=DATASET_SIZE,
+        options=PosteriorStageOptions(epochs=3, num_draws=4),
+        model=model,
+    )
+
+
+@pytest.fixture(scope="module")
+def deterministic_problem(
+    variance_ready_run: MakeVarianceReadyRun,
+) -> PosteriorProblem:
+    """The posterior problem a stage builds for the deterministic mean network."""
+    run = variance_ready_run()
+    probe = _probe()
+    _keyed_stage(probe).prepare(run.state)
+    assert probe.problem is not None
+    return probe.problem
+
+
+@pytest.fixture(scope="module")
+def dropout_run(variance_ready_run: MakeVarianceReadyRun) -> tuple[Any, KeyedProbe]:
+    """A dropout posterior network trained by Bayes by Backprop; never mutate it."""
+    run: VarianceReadyRun = variance_ready_run()
+    probe = _probe()
+    stage = _keyed_stage(probe, model=DropoutLinearModel(rngs=nnx.Rngs(0)))
+    stage.prepare(run.state)
+    result = stage.train(run.state)
+    return result, probe
+
+
+@settings(deadline=None, max_examples=20)
+@given(
+    first_seed=st.integers(0, 2**31 - 1),
+    second_seed=st.integers(0, 2**31 - 1),
+    rows=st.integers(1, DATASET_SIZE),
+)
+def test_a_deterministic_network_gives_identical_results_for_any_key(
+    deterministic_problem: PosteriorProblem,
+    first_seed: int,
+    second_seed: int,
+    rows: int,
+) -> None:
+    problem = deterministic_problem
+    inputs, targets = regression_data()
+    batch = Batch(inputs=inputs[:rows], targets=targets[:rows])
+    first, second = jax.random.key(first_seed), jax.random.key(second_seed)
+    parameters = problem.initial_parameters
+
+    assert jnp.array_equal(
+        problem.mean_function(parameters, batch.inputs, first),
+        problem.mean_function(parameters, batch.inputs, second),
+    )
+    assert jnp.array_equal(
+        problem.log_likelihood(parameters, batch, first),
+        problem.log_likelihood(parameters, batch, second),
+    )
+
+
+def test_a_dropout_network_trains_under_the_posterior_stage(
+    dropout_run: tuple[Any, KeyedProbe],
+) -> None:
+    result, _ = dropout_run
+
+    assert result.loss is not None
+    assert jnp.isfinite(result.loss)
+
+
+def test_a_dropout_networks_masks_vary_across_batches(
+    dropout_run: tuple[Any, KeyedProbe],
+) -> None:
+    _, probe = dropout_run
+
+    assert len(probe.probes) == 6
+    assert all(
+        not jnp.array_equal(earlier, later)
+        for index, earlier in enumerate(probe.probes)
+        for later in probe.probes[index + 1 :]
+    )
+
+
+@settings(deadline=None, max_examples=10)
+@given(seed=st.integers(0, 2**31 - 1))
+def test_a_dropout_networks_masks_come_from_the_key(
+    dropout_run: tuple[Any, KeyedProbe], seed: int
+) -> None:
+    _, probe = dropout_run
+    problem = probe.problem
+    assert problem is not None
+    key = jax.random.key(seed)
+    parameters = problem.initial_parameters
+
+    first = problem.mean_function(parameters, probe.probe_inputs, key)
+    again = jax.jit(problem.mean_function)(parameters, probe.probe_inputs, key)
+
+    assert jnp.allclose(first, again)

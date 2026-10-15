@@ -23,9 +23,11 @@ The stage and its inference methods share a small vocabulary, defined in the
 
 | Term | Meaning |
 | --- | --- |
-| Inference method | The interchangeable strategy that turns the stage's posterior problem into a posterior, such as [`BayesByBackprop`][stagereg.jax.BayesByBackprop] or [`PreconditionedSGLD`][stagereg.jax.PreconditionedSGLD]. The stage decides what is inferred; the method decides how. |
+| Inference method | The interchangeable strategy that turns the stage's posterior problem into a posterior, such as [`BayesByBackprop`][stagereg.jax.BayesByBackprop], [`PreconditionedSGLD`][stagereg.jax.PreconditionedSGLD] or [`MCDropout`][stagereg.jax.MCDropout]. The stage decides what is inferred; the method decides how. |
 | Posterior | What the inference method produces: an approximate posterior over mean functions, from which draws can be taken. |
-| Draw | One mean function taken from the posterior, the same function at every input. A finite posterior, such as pSGLD's retained samples, always uses all its draws. |
+| Inferred subnetwork | The part of the network's parameters the stage infers, selected with `inferred_subnetwork`; by default the whole network. |
+| Frozen remainder | Every other parameter, held at its trained-mean value. |
+| Draw | One mean function taken from the posterior, the same function at every input: a parameter sample, or for MC-Dropout one dropout mask set. A finite posterior, such as pSGLD's retained samples, always uses all its draws. |
 | Posterior predictive | The [`PosteriorPredictive`][stagereg.jax.PosteriorPredictive]: the equally weighted mixture, over the draws, of Gaussians centred on each draw's mean with the aleatoric variance. |
 | Moment-matched predictive | The [`MomentMatchedPredictive`][stagereg.jax.MomentMatchedPredictive]: the single Gaussian with the posterior predictive's mean and variance, the aleatoric plus the epistemic variance. A summary, not a substitute. |
 
@@ -151,6 +153,109 @@ itself: it is exact for the draws taken and may be skewed or multimodal. The
 moment-matched predictive is for reporting the variance split or drawing a
 band.
 
+## Inferring a subnetwork
+
+By default the stage infers every parameter of the network. To infer only part
+of it, such as one convolutional layer of a larger network, pass an NNX filter
+as `inferred_subnetwork`; continuing the run above, this stage would infer the
+linear layer's kernel alone:
+
+```{.python continuation}
+kernel_stage = PosteriorStage(
+    inference_method=BayesByBackprop(optimizer=optax.adam(0.01)),
+    train_loader=loader,
+    dataset_size=8,
+    options=PosteriorStageOptions(epochs=3, num_draws=16),
+    inferred_subnetwork=nnx.PathContains("kernel"),
+)
+```
+
+The filter selects from the warm-started posterior network, and only its
+`nnx.Param` leaves are inferred, so random-number or batch-statistic variables
+never are. Every other parameter is the frozen remainder: it keeps its trained-mean
+value in every draw. The inference method sees the inferred subnetwork alone:
+the posterior problem's initial parameters, its mean function and the prior
+all cover that subtree, so a method needs no change to infer a subnetwork.
+`prepare` refuses a filter that selects no parameter, such as a mistyped path.
+
+The checkpoint does not record the filter. Restore with the filter the posterior
+was trained with: Bayes by Backprop and pSGLD refuse a saved posterior whose
+tree differs from the configured subnetwork's.
+
+## MC-Dropout
+
+[`MCDropout`][stagereg.jax.MCDropout] needs a posterior network with dropout
+layers. Pass it as `model`: here it is a mean network with a hidden layer plus
+dropout on that layer, so it has the mean network's parameter tree, since
+dropout has no parameters, and infers the same subnetwork as any other method.
+Each mask then drops some of the hidden units. A training state holds one
+posterior, so this trains such a mean network and the variance model in a
+fresh state:
+
+```{.python continuation}
+from stagereg.jax import MCDropout
+
+
+class MLP(nnx.Module):
+    """A mean network with one hidden layer of 16 units."""
+
+    def __init__(self, *, rngs: nnx.Rngs) -> None:
+        self.hidden = nnx.Linear(1, 16, rngs=rngs)
+        self.output = nnx.Linear(16, 1, rngs=rngs)
+
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        return self.output(nnx.relu(self.hidden(inputs)))
+
+
+class DropoutMLP(MLP):
+    """The mean network with a hidden dropout mask shared by the whole batch."""
+
+    def __init__(self, *, rngs: nnx.Rngs) -> None:
+        super().__init__(rngs=rngs)
+        self.dropout = nnx.Dropout(0.1, broadcast_dims=(0,), rngs=rngs)
+
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        return self.output(self.dropout(nnx.relu(self.hidden(inputs))))
+
+
+mlp = MLP(rngs=nnx.Rngs(0))
+mlp_stage = MeanStage(
+    model=mlp,
+    optimizer=create_optimizer(mlp, optax.adam(0.1)),
+    train_loader=loader,
+    options=SupervisedStageOptions(epochs=3),
+)
+dropout_state = TrainingState(rng_state=jax.random.key(0))
+for stage in (mlp_stage, variance_stage):
+    stage.prepare(dropout_state)
+    stage.train(dropout_state)
+
+dropout_stage = PosteriorStage(
+    inference_method=MCDropout(optimizer=optax.adam(0.01)),
+    train_loader=loader,
+    dataset_size=8,
+    options=PosteriorStageOptions(epochs=3, num_draws=16, validation_loader=loader),
+    model=DropoutMLP(rngs=nnx.Rngs(2)),
+)
+dropout_stage.prepare(dropout_state)
+dropout_stage.train(dropout_state)
+
+mask_draws = dropout_state.model_components["posterior"].sample_means(
+    inputs, jax.random.key(3), 16
+)
+assert mask_draws.shape == (16, 8, 1)
+assert bool(jnp.any(mask_draws.std(axis=0) > 0.0))
+```
+
+The stage fine-tunes the inferred subnetwork with dropout active, under fresh
+masks for every batch, maximizing the log-likelihood plus the log-prior. Each
+draw of the posterior is the fine-tuned network under one mask set, drawn from
+one key, and there are as many draws as you ask for. `broadcast_dims=(0,)`
+shares one mask across the batch axis, so a draw is the same function at every
+input; without it, every row would get its own mask and a draw would not be one
+mean function. MC-Dropout supports early stopping, and its finalized checkpoint
+holds the fine-tuned subnetwork alone; restore it with the same `model`.
+
 ## Restoring three stages
 
 The posterior stage's finalized checkpoint holds the posterior alone, not the
@@ -191,6 +296,32 @@ from stagereg.jax import PreconditionedSGLD
 # Eight batches per epoch: retain the position at the end of every epoch.
 method = PreconditionedSGLD(step_size=3e-3, burn_in=0, thinning=8)
 ```
+
+## Writing your own inference method
+
+Any object satisfying [`InferenceMethod`][stagereg.jax.InferenceMethod] can
+drive the stage. Three parts of the seam serve methods beyond Bayes by Backprop,
+pSGLD and MC-Dropout:
+
+- The problem's `mean_function(parameters, inputs, key)` and
+  `log_likelihood(parameters, batch, key)` take a PRNG key. The stage reseeds
+  the posterior network's random-number streams from it, so a network with
+  `nnx.Dropout` draws its masks from the key, purely under `jax.jit` and
+  `jax.grad`; a deterministic network ignores it. Pass the key `update`
+  receives to the log-likelihood, and one key per draw to the mean function in
+  `sample_means`, so that a draw is the same function at every input.
+
+- The problem's `aleatoric_variance` maps inputs to the fixed aleatoric
+  variance, without gradient, the same variance its `log_likelihood` uses. An
+  implicit method, such as a generator trained against a discriminator, adds
+  Gaussian noise with this variance to a draw's means to get predictive samples.
+- A method lists its own training signals, such as a discriminator loss, in
+  [`diagnostics`][stagereg.jax.InferenceMethod.diagnostics]. The stage records
+  each declared key of `update`'s output as `posterior/train/<key>`, its mean
+  over the epoch's batches, and passes it to event sinks and trackers like any
+  other metric. Undeclared keys are ignored, and `prepare` refuses a key whose
+  tag the stage already records, such as `loss`. Bayes by Backprop, pSGLD and
+  MC-Dropout declare none.
 
 ## The XSin example
 

@@ -1,9 +1,16 @@
 """Backend-neutral contracts and utilities for probabilistic regression."""
 
 from stagereg.core.checkpoints import (
+    STAGE_COMPLETE_METADATA_KEY,
+    CachedCheckpointStore,
     Checkpoint,
     CheckpointStore,
     InMemoryCheckpointStore,
+    PersistencePredicate,
+    always,
+    every_nth_save,
+    finalized_only,
+    is_finalized,
 )
 from stagereg.core.distributions import (
     DistributionHead,
@@ -44,6 +51,7 @@ from stagereg.core.metrics import (
     cdf,
     coverage,
     crps,
+    expected_sample_crps,
     point_crps,
     rmse,
     sample_crps,
@@ -83,9 +91,11 @@ from stagereg.core.types import (
 )
 
 __all__ = [
+    "STAGE_COMPLETE_METADATA_KEY",
     "Array",
     "Batch",
     "BetaNLLLoss",
+    "CachedCheckpointStore",
     "Checkpoint",
     "CheckpointRef",
     "CheckpointStore",
@@ -115,6 +125,7 @@ __all__ = [
     "OptimizationMode",
     "Optimizer",
     "ParameterRole",
+    "PersistencePredicate",
     "PointContinuousRankedProbabilityScore",
     "PredictionInterval",
     "PredictionLoss",
@@ -135,10 +146,15 @@ __all__ = [
     "ValidationStrategy",
     "WeightedSpread",
     "add_epsilon",
+    "always",
     "cdf",
     "coverage",
     "crps",
+    "every_nth_save",
+    "expected_sample_crps",
+    "finalized_only",
     "flatten_parameters",
+    "is_finalized",
     "metric_tag",
     "parse_metric_tag",
     "point_crps",

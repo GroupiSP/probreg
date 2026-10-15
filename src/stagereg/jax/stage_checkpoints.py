@@ -5,7 +5,9 @@ these helpers, and none of them is exported from `stagereg.jax`.
 
 A stage saves its best checkpoint under its checkpoint key during training,
 then, once trained, saves its finalized checkpoint under the same key with
-metadata ``{"stage": <stage name>, "stage_complete": True}``. Only a
+metadata ``{"stage": <stage name>, "stage_complete": True}``, the latter
+being the public [`STAGE_COMPLETE_METADATA_KEY`][stagereg.core.STAGE_COMPLETE_METADATA_KEY]
+marker. Only a
 finalized checkpoint can be restored through the stage's ``restore``.
 """
 
@@ -14,7 +16,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from stagereg.core.checkpoints import Checkpoint, CheckpointStore
+from stagereg.core.checkpoints import (
+    STAGE_COMPLETE_METADATA_KEY,
+    STAGE_METADATA_KEY,
+    Checkpoint,
+    CheckpointStore,
+    is_finalized,
+)
 from stagereg.core.early_stopping import EarlyStopper
 from stagereg.core.naming import Split, parse_metric_tag
 from stagereg.core.types import (
@@ -25,12 +33,6 @@ from stagereg.core.types import (
     TrainingState,
 )
 from stagereg.jax.state import freeze_training_state
-
-STAGE_METADATA_KEY = "stage"
-"""Checkpoint metadata key naming the stage that wrote the checkpoint."""
-
-STAGE_COMPLETE_METADATA_KEY = "stage_complete"
-"""Checkpoint metadata key marking a stage's finalized checkpoint."""
 
 
 def load_best_checkpoint(
@@ -88,7 +90,6 @@ def finalized_checkpoint(
         epoch=epoch,
         parameters=parameters,
         optimizer_state=optimizer_state,
-        rng_state=state.rng_state,
         early_stopping_state=early_stopping_state,
         metadata={
             **(metadata or {}),
@@ -139,7 +140,7 @@ def require_finalized(
     if (
         checkpoint.state.lifecycle_state is not ready
         or checkpoint.metadata.get(STAGE_METADATA_KEY) != stage
-        or checkpoint.metadata.get(STAGE_COMPLETE_METADATA_KEY) is not True
+        or not is_finalized(checkpoint)
     ):
         raise ValueError(
             f"checkpoint is not a finalized {stage!r} checkpoint: expected "

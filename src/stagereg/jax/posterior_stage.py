@@ -11,6 +11,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.stats as jstats
 from flax import nnx
+from flax.nnx.filterlib import Filter
 
 from stagereg.core.checkpoints import Checkpoint, CheckpointStore
 from stagereg.core.early_stopping import EarlyStopper
@@ -52,6 +53,7 @@ from stagereg.jax.posterior import (
     Posterior,
     PosteriorProblem,
     Prior,
+    require_inferred_tree,
 )
 from stagereg.jax.rng import split_key
 from stagereg.jax.stage_checkpoints import (
@@ -168,6 +170,15 @@ class PosteriorStage:
             parameters never change. Its parameter tree must equal the mean
             network's, but its module may differ. Defaults to ``None``, which
             uses a copy of the mean network.
+        inferred_subnetwork: An NNX filter selecting the inferred subnetwork
+            from the warm-started posterior network, e.g.
+            ``nnx.PathContains("conv")``. The stage infers only the ``Param``
+            leaves it selects, so RNG or batch-stat variables are never
+            inferred; every other ``Param`` leaf is the frozen remainder, held
+            at its trained-mean value. The posterior problem's initial
+            parameters, mean function and prior cover the inferred subnetwork
+            alone. The filter is not saved in checkpoints. Defaults to
+            ``nnx.Param``, the whole network.
         mean_model_name: Registry name of the trained mean model.
         variance_model_name: Registry name of the trained variance model.
         model_name: Registry name the posterior is registered under.
@@ -179,6 +190,7 @@ class PosteriorStage:
     options: PosteriorStageOptions
     prior: Prior = field(default_factory=IsotropicGaussianPrior)
     model: nnx.Module | None = None
+    inferred_subnetwork: Filter = nnx.Param
     mean_model_name: str = "mean_model"
     variance_model_name: str = "variance_model"
     model_name: str = "posterior"
@@ -209,9 +221,14 @@ class PosteriorStage:
                 the mean or variance model is not registered with its role, if
                 ``model_name`` is taken by another component, if the posterior
                 network's parameter tree differs from the mean network's, if
+                ``inferred_subnetwork`` selects no ``Param`` leaf of it, if
                 ``dataset_size`` is not positive, if an early stopper is
                 configured for a method that does not support early stopping,
-                or if the epoch-loop configuration is refused.
+                if one of the method's
+                [`diagnostics`][stagereg.jax.InferenceMethod.diagnostics] is
+                invalid as a metric name, declared twice or collides with a
+                training tag the stage already records (``"loss"``), or if the
+                epoch-loop configuration is refused.
             TypeError: If the mean or variance model is not an NNX module, or
                 ``state.rng_state`` is not a JAX random key.
         """
@@ -255,6 +272,7 @@ class PosteriorStage:
             stage=self.name,
             validation=validation,
             early_stopper=options.early_stopper,
+            diagnostics=self.inference_method.diagnostics,
         )
         self.inference_method.init(self._problem(mean_model, variance_model))
         state.frozen_components = state.frozen_components | {
@@ -308,6 +326,7 @@ class PosteriorStage:
             early_stopper=options.early_stopper,
             event_sinks=options.event_sinks,
             checkpoint_store=options.checkpoint_store,
+            diagnostics=method.diagnostics,
         )
         if result.loss is None or not math.isfinite(result.loss):
             raise ValueError(f"{self.name} stage produced a non-finite final loss.")
@@ -358,10 +377,13 @@ class PosteriorStage:
         Call it after the mean stage's
         [`restore`][stagereg.jax.MeanStage.restore] and the variance stage's
         [`restore`][stagereg.jax.GammaVarianceStage.restore]. The inference
-        method is initialized on the posterior problem of the registered mean
-        and variance models, then rebuilds the saved posterior with
+        method is initialized on the posterior problem rebuilt from the
+        registered mean and variance models and the configured
+        ``inferred_subnetwork``, then rebuilds the saved posterior with
         [`load_posterior`][stagereg.jax.InferenceMethod.load_posterior]; the
-        posterior is registered under ``model_name``. Every model component
+        posterior is registered under ``model_name``. The checkpoint does not
+        hold the filter, so restore with the one the posterior was trained
+        with. Every model component
         and optimizer registered before, such as the mean and variance models,
         stays registered. Afterwards the state passes
         [`validate`][stagereg.jax.PosteriorStage.validate].
@@ -378,10 +400,12 @@ class PosteriorStage:
                 or it holds no posterior state; if it was saved with another
                 ``model_name``, ``mean_model_name`` or ``variance_model_name``;
                 if the mean or variance model is not registered with its role;
-                if ``dataset_size`` is not positive; or if the posterior
-                network's parameter tree differs from the mean network's; or
-                if the inference method's ``load_posterior`` refuses the saved
-                posterior state. All are checked before ``state``, the inference
+                if ``dataset_size`` is not positive; if the posterior
+                network's parameter tree differs from the mean network's; if
+                ``inferred_subnetwork`` selects no ``Param`` leaf; or if the
+                inference method's ``load_posterior`` refuses the saved
+                posterior state, as the built-in methods do when its tree
+                differs from the inferred subnetwork's. All are checked before ``state``, the inference
                 method or ``model`` changes.
             TypeError: If the mean or variance model is not an NNX module, or
                 the checkpoint holds no JAX random key.
@@ -423,8 +447,8 @@ class PosteriorStage:
         posterior_state = checkpoint.state.posterior_state
         if posterior_state is None:
             raise ValueError("checkpoint holds no posterior state.")
-        if not isinstance(checkpoint.rng_state, jax.Array):
-            raise TypeError("checkpoint.rng_state must be a JAX random key.")
+        if not isinstance(checkpoint.state.rng_state, jax.Array):
+            raise TypeError("checkpoint.state.rng_state must be a JAX random key.")
         mean_model = _registered_module(
             state, self.mean_model_name, ParameterRole.MEAN, kind="mean"
         )
@@ -442,25 +466,33 @@ class PosteriorStage:
 
         Raises:
             ValueError: If the posterior network's parameter tree differs from
-                the mean network's.
+                the mean network's, or if ``inferred_subnetwork`` selects no
+                ``Param`` leaf of it.
         """
         network = nnx.clone(self.model if self.model is not None else mean_model)
+        # Dropout masks come from the key, whatever mode the network was left in.
+        network.set_attributes(
+            nnx.Dropout, deterministic=False, raise_if_not_found=False
+        )
         mean_parameters = nnx.state(mean_model, nnx.Param)
         _require_same_parameter_tree(nnx.state(network, nnx.Param), mean_parameters)
 
         nnx.update(network, jax.tree.map(jnp.copy, mean_parameters))
-        mean_function = _mean_function(network)
+        split = _InferredSplit.of(network, self.inferred_subnetwork)
+        mean_function = split.mean_function()
+        aleatoric_variance = _aleatoric_variance(variance_model)
         return PosteriorProblem(
-            initial_parameters=jax.tree.map(jnp.copy, nnx.state(network, nnx.Param)),
+            initial_parameters=jax.tree.map(jnp.copy, split.inferred),
             mean_function=mean_function,
             log_likelihood=_scaled_log_likelihood(
                 mean_function,
-                _aleatoric_variance(variance_model),
+                aleatoric_variance,
                 dataset_size=self.dataset_size,
             ),
             prior=self.prior,
             train_loader=self.train_loader,
             dataset_size=self.dataset_size,
+            aleatoric_variance=aleatoric_variance,
         )
 
     def _register_posterior(
@@ -633,14 +665,108 @@ def _require_same_parameter_tree(candidate: PyTree, reference: PyTree) -> None:
         )
 
 
-def _mean_function(network: nnx.Module) -> Callable[[PyTree, PyTree], jax.Array]:
-    """Return the posterior network as a pure function of its parameters."""
-    graph, _, rest = nnx.split(network, nnx.Param, ...)
+@dataclass(frozen=True)
+class _InferredSplit:
+    """The posterior network split around its inferred subnetwork.
 
-    def mean_function(parameters: PyTree, inputs: PyTree) -> jax.Array:
-        return nnx.merge(graph, parameters, rest)(inputs)
+    Attributes:
+        graph: The network's graph definition.
+        inferred: The inferred subtree: the ``Param`` leaves the filter selects.
+        frozen: The frozen remainder: every other ``Param`` leaf.
+        rest: Every non-``Param`` variable, such as RNG or batch-stat state.
+    """
 
-    return mean_function
+    graph: nnx.GraphDef[nnx.Module]
+    inferred: nnx.State
+    frozen: nnx.State
+    rest: nnx.State
+
+    @classmethod
+    def of(cls, network: nnx.Module, inferred_subnetwork: Filter) -> _InferredSplit:
+        """Split ``network``; only ``Param`` leaves are ever inferred.
+
+        Args:
+            network: The posterior network to split.
+            inferred_subnetwork: The NNX filter selecting the inferred
+                ``Param`` leaves.
+
+        Returns:
+            The network's graph, inferred subtree, frozen remainder and rest.
+
+        Raises:
+            ValueError: If the filter selects no ``Param`` leaf.
+        """
+        graph, inferred, frozen, rest = nnx.split(
+            network, nnx.All(nnx.Param, inferred_subnetwork), nnx.Param, ...
+        )
+        if not jax.tree.leaves(inferred):
+            raise ValueError(
+                "inferred_subnetwork selects no Param leaf of the posterior network."
+            )
+        return cls(graph, inferred, frozen, rest)
+
+    def mean_function(self) -> Callable[[PyTree, PyTree, jax.Array], jax.Array]:
+        """Return the network as a pure function of the inferred subtree and a key.
+
+        The returned function merges its ``parameters`` with the frozen
+        remainder and the rest, with every RNG stream of the rest reseeded
+        from its ``key``, and refuses parameters whose tree is not the inferred
+        subtree's. The network's own RNG state never changes, so the same key
+        gives the same result, also under ``jit`` and ``grad``.
+
+        Returns:
+            A function mapping ``(parameters, inputs, key)`` to the network's
+            outputs at ``inputs``. It raises ``ValueError`` if ``parameters``'
+            tree is not the inferred subtree's.
+        """
+        graph, inferred, frozen, rest = (
+            self.graph,
+            self.inferred,
+            self.frozen,
+            self.rest,
+        )
+
+        def mean_function(
+            parameters: PyTree, inputs: PyTree, key: jax.Array
+        ) -> jax.Array:
+            require_inferred_tree(parameters, inferred)
+            return nnx.merge(graph, parameters, frozen, _keyed_rest(rest, key))(inputs)
+
+        return mean_function
+
+
+def _keyed_rest(rest: nnx.State, key: jax.Array) -> nnx.State:
+    """Return ``rest`` with every RNG stream reseeded from ``key``.
+
+    The ``i``-th stream key, in tree order, becomes ``fold_in(key, i)`` and
+    every stream count restarts at zero, so two dropout layers with their own
+    streams draw independent masks. ``rest`` itself is not changed, and a
+    rest without RNG streams is returned as is.
+
+    Args:
+        rest: The network's non-``Param`` state.
+        key: A typed PRNG key or raw key data to reseed the streams from.
+
+    Returns:
+        A copy of ``rest`` with reseeded RNG streams.
+    """
+    if not jnp.issubdtype(key.dtype, jax.dtypes.prng_key):
+        key = jax.random.wrap_key_data(key)
+    stream_index = 0
+
+    def reseed(variable: nnx.Variable) -> nnx.Variable:
+        nonlocal stream_index
+        if isinstance(variable, nnx.RngKey):
+            stream_key = jax.random.fold_in(key, stream_index)
+            stream_index += 1
+            return variable.replace(stream_key)
+        if isinstance(variable, nnx.RngCount):
+            return variable.replace(jnp.zeros_like(variable.get_value()))
+        return variable
+
+    return jax.tree.map(
+        reseed, rest, is_leaf=lambda node: isinstance(node, nnx.Variable)
+    )
 
 
 def _aleatoric_variance(
@@ -662,22 +788,23 @@ def _aleatoric_variance(
 
 
 def _scaled_log_likelihood(
-    mean_function: Callable[[PyTree, PyTree], jax.Array],
+    mean_function: Callable[[PyTree, PyTree, jax.Array], jax.Array],
     aleatoric_variance: Callable[[PyTree], jax.Array],
     *,
     dataset_size: int,
-) -> Callable[[PyTree, Batch], jax.Array]:
+) -> Callable[[PyTree, Batch, jax.Array], jax.Array]:
     """Return the batch Gaussian log-likelihood scaled by ``N / B``.
 
-    Rows are weighted by ``batch.sample_weight`` when it is set, as in the supervised
-    losses.
+    The key reaches the mean function, so a stochastic network's randomness
+    comes from it. Rows are weighted by ``batch.sample_weight`` when it is
+    set, as in the supervised losses.
     """
 
-    def log_likelihood(parameters: PyTree, batch: Batch) -> jax.Array:
+    def log_likelihood(parameters: PyTree, batch: Batch, key: jax.Array) -> jax.Array:
         if batch.targets is None:
             raise ValueError("training batches must provide targets.")
         targets = jnp.asarray(batch.targets)
-        means = mean_function(parameters, batch.inputs)
+        means = mean_function(parameters, batch.inputs, key)
         scale = jnp.sqrt(aleatoric_variance(batch.inputs))
         log_density = jstats.norm.logpdf(targets, loc=means, scale=scale)
         if batch.sample_weight is not None:

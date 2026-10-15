@@ -11,6 +11,20 @@ grouped by the module that defines it.
 
 ::: stagereg.core.InMemoryCheckpointStore
 
+::: stagereg.core.CachedCheckpointStore
+
+::: stagereg.core.PersistencePredicate
+
+::: stagereg.core.finalized_only
+
+::: stagereg.core.every_nth_save
+
+::: stagereg.core.always
+
+::: stagereg.core.is_finalized
+
+::: stagereg.core.STAGE_COMPLETE_METADATA_KEY
+
 ## `stagereg.core.distributions`
 
 ::: stagereg.core.PredictiveDistribution
@@ -82,6 +96,8 @@ grouped by the module that defines it.
 ::: stagereg.core.point_crps
 
 ::: stagereg.core.sample_crps
+
+::: stagereg.core.expected_sample_crps
 
 ::: stagereg.core.rmse
 

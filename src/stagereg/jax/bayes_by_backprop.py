@@ -22,12 +22,15 @@ import jax.scipy.stats as jstats
 import optax
 
 from stagereg.core.types import Batch, PyTree
-from stagereg.jax.posterior import IsotropicGaussianPrior, PosteriorProblem, Prior
-
-
-def _default_optimizer() -> optax.GradientTransformation:
-    """Adam with a learning rate of ``1e-3``."""
-    return optax.adam(1e-3)
+from stagereg.jax.posterior import (
+    IsotropicGaussianPrior,
+    PosteriorProblem,
+    Prior,
+    default_optimizer,
+    draw_unlimited,
+    require_inferred_tree,
+)
+from stagereg.jax.rng import network_key
 
 
 @dataclass(frozen=True)
@@ -35,11 +38,12 @@ class MeanFieldGaussianPosterior:
     """An independent Gaussian on every parameter of the posterior network.
 
     Draw ``s`` under ``key`` samples its parameters from
-    ``jax.random.fold_in(key, s)``, so it is the same mean function at every
-    input, in every call, and whatever the number of draws asked for.
+    ``draw_key = jax.random.fold_in(key, s)`` and evaluates its mean function
+    with a key derived from ``draw_key``, so it is the same mean function at every input, in every
+    call, and whatever the number of draws asked for.
 
     Attributes:
-        mean_function: Maps ``(parameters, inputs)`` to the posterior
+        mean_function: Maps ``(parameters, inputs, key)`` to the posterior
             network's mean predictions.
         means: The variational means, in the posterior network's parameter
             tree.
@@ -47,7 +51,7 @@ class MeanFieldGaussianPosterior:
             tree.
     """
 
-    mean_function: Callable[[PyTree, PyTree], jax.Array]
+    mean_function: Callable[[PyTree, PyTree, jax.Array], jax.Array]
     means: PyTree
     stds: PyTree
 
@@ -75,16 +79,13 @@ class MeanFieldGaussianPosterior:
         Raises:
             ValueError: If ``num_samples`` is omitted or not positive.
         """
-        if num_samples is None:
-            raise ValueError("an unlimited posterior needs num_samples.")
-        if num_samples <= 0:
-            raise ValueError("num_samples must be positive.")
 
         def draw(index: jax.Array) -> jax.Array:
-            parameters = _sample(self.means, self.stds, jax.random.fold_in(key, index))
-            return self.mean_function(parameters, inputs)
+            draw_key = jax.random.fold_in(key, index)
+            parameters = _sample(self.means, self.stds, draw_key)
+            return self.mean_function(parameters, inputs, network_key(draw_key))
 
-        return jax.vmap(draw)(jnp.arange(num_samples))
+        return draw_unlimited(draw, num_samples)
 
 
 @dataclass
@@ -119,7 +120,7 @@ class BayesByBackprop:
             positive and finite. Defaults to ``1e-3``.
     """
 
-    optimizer: optax.GradientTransformation = field(default_factory=_default_optimizer)
+    optimizer: optax.GradientTransformation = field(default_factory=default_optimizer)
     initial_std: float = 1e-3
     _problem: PosteriorProblem | None = field(default=None, init=False, repr=False)
     _variational: PyTree = field(default=None, init=False, repr=False)
@@ -141,6 +142,11 @@ class BayesByBackprop:
     def supports_early_stopping(self) -> bool:
         """Always ``True``: the variational parameters can stop anywhere."""
         return True
+
+    @property
+    def diagnostics(self) -> tuple[str, ...]:
+        """``()``: the stage records only the loss."""
+        return ()
 
     @property
     def has_posterior(self) -> bool:
@@ -172,7 +178,8 @@ class BayesByBackprop:
 
         Args:
             batch: The training batch.
-            key: A fresh PRNG key for this batch's parameter sample.
+            key: A fresh PRNG key for this batch's parameter sample; the
+                log-likelihood is evaluated with a key derived from it.
 
         Returns:
             ``{"loss": negative_elbo}``, the minibatch estimate of the
@@ -261,9 +268,13 @@ class BayesByBackprop:
                 [`posterior_state`][stagereg.jax.BayesByBackprop.posterior_state].
 
         Raises:
-            ValueError: If the method has not been initialized.
+            ValueError: If the method has not been initialized, or if the
+                means' or standard deviations' tree differs from the inferred
+                subnetwork's.
         """
-        self._require_problem()
+        problem = self._require_problem()
+        for tree in (state["means"], state["stds"]):
+            require_inferred_tree(tree, problem.initial_parameters)
         self._variational = {
             "means": state["means"],
             "rhos": jax.tree.map(_inverse_softplus, state["stds"]),
@@ -293,7 +304,9 @@ def _make_step(
         stds = jax.tree.map(jax.nn.softplus, variational["rhos"])
         parameters = _sample(means, stds, key)
         batch = Batch(inputs=inputs, targets=targets, sample_weight=sample_weight)
-        return kl(means, stds, parameters) - problem.log_likelihood(parameters, batch)
+        return kl(means, stds, parameters) - problem.log_likelihood(
+            parameters, batch, network_key(key)
+        )
 
     @jax.jit
     def step(

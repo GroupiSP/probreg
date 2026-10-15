@@ -34,8 +34,9 @@ _NOISE_SCALE = 0.5
 _PRIOR_PRECISION = 1.0
 
 
-def _linear_mean(parameters: PyTree, inputs: jax.Array) -> jax.Array:
-    """A line through the inputs: ``weight * x + bias``."""
+def _linear_mean(parameters: PyTree, inputs: jax.Array, key: jax.Array) -> jax.Array:
+    """A line through the inputs: ``weight * x + bias``; it ignores the key."""
+    del key
     return parameters["weight"] * inputs[:, 0] + parameters["bias"]
 
 
@@ -49,8 +50,8 @@ def _linear_regression_batch() -> Batch:
 def _linear_regression_problem(batch: Batch) -> PosteriorProblem:
     """Bayesian linear regression with known noise, one full batch per step."""
 
-    def log_likelihood(parameters: PyTree, batch: Batch) -> jax.Array:
-        means = _linear_mean(parameters, batch.inputs)
+    def log_likelihood(parameters: PyTree, batch: Batch, key: jax.Array) -> jax.Array:
+        means = _linear_mean(parameters, batch.inputs, key)
         return jnp.sum(jstats.norm.logpdf(batch.targets, means, _NOISE_SCALE))
 
     return PosteriorProblem(
@@ -168,6 +169,16 @@ def test_burn_in_and_thinning_retain_exactly_the_due_positions(
     expected = jax.tree.map(lambda leaf: leaf[np.asarray(due) - 1], every_position)
     assert method.posterior().num_draws == len(due)
     jax.tree.map(np.testing.assert_array_equal, method.posterior_state(), expected)
+
+
+def test_samples_load_before_init_without_a_tree_check(every_position: PyTree) -> None:
+    method = PreconditionedSGLD(step_size=0.01)
+
+    method.load_posterior(every_position)
+
+    jax.tree.map(
+        np.testing.assert_array_equal, method.posterior_state(), every_position
+    )
 
 
 def test_a_chain_resumed_from_its_state_continues_as_if_uninterrupted(
