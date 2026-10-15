@@ -93,6 +93,12 @@ class PosteriorProblem:
         prior: The prior over the parameter tree.
         train_loader: Factory producing the training batches of each epoch.
         dataset_size: The number of training examples ``N``.
+        aleatoric_variance: Maps inputs to the fixed aleatoric variance at
+            them, without gradient: the same variance ``log_likelihood`` uses.
+            An implicit method uses it to turn draws into predictive samples,
+            e.g. for a discriminator. A
+            [`PosteriorStage`][stagereg.jax.PosteriorStage] always sets it.
+            Defaults to ``None``, for problems built by hand.
     """
 
     initial_parameters: PyTree
@@ -101,6 +107,7 @@ class PosteriorProblem:
     prior: Prior
     train_loader: LoaderFactory
     dataset_size: int
+    aleatoric_variance: Callable[[PyTree], jax.Array] | None = None
 
 
 class InferenceMethod(Protocol):
@@ -120,6 +127,18 @@ class InferenceMethod(Protocol):
         """Whether stopping on a validation improvement is meaningful.
 
         ``False`` for SG-MCMC, whose chain an early stopper would truncate.
+        """
+        ...
+
+    @property
+    def diagnostics(self) -> tuple[str, ...]:
+        """The keys of ``update``'s output the posterior stage records.
+
+        The stage records each as ``posterior/train/<key>``, the mean of its
+        scalar values over the epoch's batches, and ignores every other key
+        but ``"loss"``. A key whose tag the stage already records, such as
+        ``"loss"``, is refused when the stage is prepared. ``()`` records
+        none.
         """
         ...
 
@@ -150,7 +169,10 @@ class InferenceMethod(Protocol):
             key: A fresh PRNG key for this batch.
 
         Returns:
-            A mapping holding the scalar ``"loss"`` the method minimizes.
+            A mapping holding the scalar ``"loss"`` the method minimizes and
+            a scalar for every declared
+            [`diagnostics`][stagereg.jax.InferenceMethod.diagnostics] key.
+            Other keys are ignored.
         """
         ...
 

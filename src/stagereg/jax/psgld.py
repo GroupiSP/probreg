@@ -152,6 +152,11 @@ class PreconditionedSGLD:
         return False
 
     @property
+    def diagnostics(self) -> tuple[str, ...]:
+        """``()``: the stage records only the loss."""
+        return ()
+
+    @property
     def has_posterior(self) -> bool:
         """Whether at least one sample has been retained."""
         return bool(self._samples)
