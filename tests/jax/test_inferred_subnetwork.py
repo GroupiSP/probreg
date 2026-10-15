@@ -21,9 +21,12 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from posterior_runs import (
     DATASET_SIZE,
+    MakeStages,
     MakeVarianceReadyRun,
+    RecordingStore,
     VarianceReadyRun,
     regression_loader,
+    restore_mean_and_variance,
 )
 
 from stagereg.core.types import PyTree
@@ -143,4 +146,84 @@ def test_the_default_filter_reproduces_stagereg_0_1_0(
         trained.run.state.metric_history["posterior/train/loss"],
         _LOSSES_OF_0_1_0[method_name],
         rtol=1e-5,
+    )
+
+
+@pytest.mark.parametrize(
+    "inferred_subnetwork",
+    [nnx.PathContains("conv"), nnx.RngState, nnx.Not(nnx.Param)],
+    ids=["unknown path", "rng state", "no param"],
+)
+def test_a_filter_selecting_no_param_leaf_is_refused_at_prepare(
+    variance_ready_run: MakeVarianceReadyRun, inferred_subnetwork: Any
+) -> None:
+    state = variance_ready_run().state
+    lifecycle, frozen, stage_name = (
+        state.lifecycle_state,
+        state.frozen_components,
+        state.active_stage,
+    )
+    stage = _stage(_METHODS["bayes by backprop"](), inferred_subnetwork)
+
+    with pytest.raises(ValueError, match="selects no Param leaf"):
+        stage.prepare(state)
+
+    assert (state.lifecycle_state, state.frozen_components, state.active_stage) == (
+        lifecycle,
+        frozen,
+        stage_name,
+    )
+
+
+@pytest.mark.parametrize("method_name", sorted(_METHODS))
+@pytest.mark.parametrize(
+    ("trained_with", "restored_with"),
+    [(_KERNEL, nnx.Param), (nnx.Param, _KERNEL), (_KERNEL, nnx.PathContains("bias"))],
+    ids=["kernel then all", "all then kernel", "kernel then bias"],
+)
+def test_restoring_under_another_filter_is_refused(
+    variance_ready_run: MakeVarianceReadyRun,
+    make_stages: MakeStages,
+    method_name: str,
+    trained_with: Any,
+    restored_with: Any,
+) -> None:
+    store = RecordingStore()
+    run = variance_ready_run(checkpoint_store=store)
+    trained = _stage(_METHODS[method_name](), trained_with, checkpoint_store=store)
+    trained.prepare(run.state)
+    trained.train(run.state)
+    state = restore_mean_and_variance(make_stages(seed=7), store)
+    stage = _stage(_METHODS[method_name](), restored_with)
+
+    with pytest.raises(ValueError, match="inferred_subnetwork"):
+        stage.restore(state, store.load("posterior/best"))
+
+    assert stage.inference_method.has_posterior is False
+    assert "posterior" not in state.model_components
+
+
+@pytest.mark.parametrize("method_name", sorted(_METHODS))
+def test_restoring_under_the_same_filter_rebuilds_the_posterior(
+    variance_ready_run: MakeVarianceReadyRun,
+    make_stages: MakeStages,
+    method_name: str,
+) -> None:
+    store = RecordingStore()
+    run = variance_ready_run(checkpoint_store=store)
+    trained = _stage(_METHODS[method_name](), _KERNEL, checkpoint_store=store)
+    trained.prepare(run.state)
+    trained.train(run.state)
+    state = restore_mean_and_variance(make_stages(seed=7), store)
+    stage = _stage(_METHODS[method_name](), _KERNEL)
+
+    stage.restore(state, store.load("posterior/best"))
+
+    inputs = jnp.linspace(-1.0, 1.0, 5)[:, None]
+    key = jax.random.key(0)
+    restored = state.model_components["posterior"]
+    num_samples = None if restored.num_draws is not None else 4
+    np.testing.assert_array_equal(
+        restored.sample_means(inputs, key, num_samples),
+        run.state.model_components["posterior"].sample_means(inputs, key, num_samples),
     )

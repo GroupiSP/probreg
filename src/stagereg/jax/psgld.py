@@ -18,7 +18,7 @@ import jax
 import jax.numpy as jnp
 
 from stagereg.core.types import Batch, PyTree
-from stagereg.jax.posterior import PosteriorProblem
+from stagereg.jax.posterior import PosteriorProblem, require_inferred_tree
 
 
 @dataclass(frozen=True)
@@ -264,7 +264,14 @@ class PreconditionedSGLD:
         Args:
             state: Stacked samples previously returned by
                 [`posterior_state`][stagereg.jax.PreconditionedSGLD.posterior_state].
+
+        Raises:
+            ValueError: If the method has not been initialized, or if the
+                samples' tree differs from the inferred subnetwork's.
         """
+        if self._problem is None:
+            raise ValueError("call init before loading a posterior.")
+        require_inferred_tree(state, self._problem.initial_parameters)
         self._samples = _unstack(state)
 
     def _posterior_of(self, samples: PyTree) -> RetainedSamplesPosterior:

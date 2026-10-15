@@ -221,6 +221,7 @@ class PosteriorStage:
                 the mean or variance model is not registered with its role, if
                 ``model_name`` is taken by another component, if the posterior
                 network's parameter tree differs from the mean network's, if
+                ``inferred_subnetwork`` selects no ``Param`` leaf of it, if
                 ``dataset_size`` is not positive, if an early stopper is
                 configured for a method that does not support early stopping,
                 or if the epoch-loop configuration is refused.
@@ -370,10 +371,13 @@ class PosteriorStage:
         Call it after the mean stage's
         [`restore`][stagereg.jax.MeanStage.restore] and the variance stage's
         [`restore`][stagereg.jax.GammaVarianceStage.restore]. The inference
-        method is initialized on the posterior problem of the registered mean
-        and variance models, then rebuilds the saved posterior with
+        method is initialized on the posterior problem rebuilt from the
+        registered mean and variance models and the configured
+        ``inferred_subnetwork``, then rebuilds the saved posterior with
         [`load_posterior`][stagereg.jax.InferenceMethod.load_posterior]; the
-        posterior is registered under ``model_name``. Every model component
+        posterior is registered under ``model_name``. The checkpoint does not
+        hold the filter, so restore with the one the posterior was trained
+        with. Every model component
         and optimizer registered before, such as the mean and variance models,
         stays registered. Afterwards the state passes
         [`validate`][stagereg.jax.PosteriorStage.validate].
@@ -390,10 +394,12 @@ class PosteriorStage:
                 or it holds no posterior state; if it was saved with another
                 ``model_name``, ``mean_model_name`` or ``variance_model_name``;
                 if the mean or variance model is not registered with its role;
-                if ``dataset_size`` is not positive; or if the posterior
-                network's parameter tree differs from the mean network's; or
-                if the inference method's ``load_posterior`` refuses the saved
-                posterior state. All are checked before ``state``, the inference
+                if ``dataset_size`` is not positive; if the posterior
+                network's parameter tree differs from the mean network's; if
+                ``inferred_subnetwork`` selects no ``Param`` leaf; or if the
+                inference method's ``load_posterior`` refuses the saved
+                posterior state, as the built-in methods do when its tree
+                differs from the inferred subnetwork's. All are checked before ``state``, the inference
                 method or ``model`` changes.
             TypeError: If the mean or variance model is not an NNX module, or
                 the checkpoint holds no JAX random key.
@@ -454,7 +460,8 @@ class PosteriorStage:
 
         Raises:
             ValueError: If the posterior network's parameter tree differs from
-                the mean network's.
+                the mean network's, or if ``inferred_subnetwork`` selects no
+                ``Param`` leaf of it.
         """
         network = nnx.clone(self.model if self.model is not None else mean_model)
         mean_parameters = nnx.state(mean_model, nnx.Param)
