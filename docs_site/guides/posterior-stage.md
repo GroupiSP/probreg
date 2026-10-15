@@ -255,6 +255,8 @@ shares one mask across the batch axis, so a draw is the same function at every
 input; without it, every row would get its own mask and a draw would not be one
 mean function. MC-Dropout supports early stopping, and its finalized checkpoint
 holds the fine-tuned subnetwork alone; restore it with the same `model`.
+[The XSin example](#the-xsin-example) runs MC-Dropout on a mean network with
+one such dropout layer before its output layer.
 
 ## Restoring three stages
 
@@ -265,24 +267,28 @@ before changing anything, while the stages it depends on are missing.
 [Checkpoints](checkpoints.md#the-posterior-stage) shows the calls and what each
 checkpoint holds.
 
-## Bayes by Backprop or pSGLD
+## Choosing an inference method
 
-| | [`BayesByBackprop`][stagereg.jax.BayesByBackprop] | [`PreconditionedSGLD`][stagereg.jax.PreconditionedSGLD] |
-| --- | --- | --- |
-| Kind | Mean-field Gaussian variational inference | SG-MCMC: a preconditioned Langevin chain |
-| Posterior | Unlimited: takes `num_draws` draws per prediction | Finite: the retained samples, all used |
-| Early stopping | Supported, with a best checkpoint | Refused; only a finalized checkpoint |
-| Cost of a prediction | `num_draws` forward passes, chosen freely | One forward pass per retained sample |
-| Checkpoint size | Twice the network's parameters | The network's parameters times the retained samples |
-| Approximation | Independent Gaussians ignore correlations between parameters, so the spread of the draws can have the wrong shape | The retained samples approach the posterior as the chain runs, if the step size is small enough |
-| Tuning | Learning rate and initial standard deviation | Step size, burn-in and thinning; too large a step inflates the epistemic variance everywhere |
+| | [`BayesByBackprop`][stagereg.jax.BayesByBackprop] | [`PreconditionedSGLD`][stagereg.jax.PreconditionedSGLD] | [`MCDropout`][stagereg.jax.MCDropout] |
+| --- | --- | --- | --- |
+| Kind | Mean-field Gaussian variational inference | SG-MCMC: a preconditioned Langevin chain | MAP fine-tuning with dropout active; draws are dropout mask sets (Gal and Ghahramani, 2016) |
+| Posterior | Unlimited: takes `num_draws` draws per prediction | Finite: the retained samples, all used | Unlimited: takes `num_draws` draws per prediction |
+| Early stopping | Supported, with a best checkpoint | Refused; only a finalized checkpoint | Supported, with a best checkpoint |
+| Cost of a prediction | `num_draws` forward passes, chosen freely | One forward pass per retained sample | `num_draws` forward passes, chosen freely |
+| Checkpoint size | Twice the network's parameters | The network's parameters times the retained samples | The network's parameters |
+| Approximation | Independent Gaussians ignore correlations between parameters, so the spread of the draws can have the wrong shape | The retained samples approach the posterior as the chain runs, if the step size is small enough | The spread of the draws comes from the dropout rate, a fixed choice, not from the data, so its size follows the rate rather than the amount of data |
+| Tuning | Learning rate and initial standard deviation | Step size, burn-in and thinning; too large a step inflates the epistemic variance everywhere | Dropout rate and learning rate; needs a posterior network with batch-shared dropout passed as `model` |
 
 Start with Bayes by Backprop when you want early stopping, small checkpoints
 and cheap predictions. Choose pSGLD when the shape of the epistemic variance
 matters, as it does for extrapolation, and you can afford tuning the step size
-and storing samples. In the XSin example below, both epistemic variances
-grow away from the training data, but pSGLD's grows much more relative to its
-variance inside the training domain, where Bayes by Backprop's is spread.
+and storing samples. Choose MC-Dropout for the cheapest step from a trained
+mean network to a posterior, accepting that the size of its spread follows the
+chosen dropout rate rather than the data. In the XSin example below, all three
+epistemic variances grow away from the training data: pSGLD's grows much more
+relative to its variance inside the training domain, where Bayes by Backprop's
+is spread, and MC-Dropout's grows the most in absolute terms, which lowers the
+NLL outside the training domain far more than the other two.
 
 pSGLD counts `burn_in` and `thinning` in update steps, that is training
 batches. It has no posterior before its first retained sample, so the stage
