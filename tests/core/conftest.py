@@ -11,6 +11,8 @@ from typing import Any
 import numpy as np
 import pytest
 
+from stagereg.core.checkpoints import Checkpoint, InMemoryCheckpointStore
+
 
 class ExampleDistribution:
     """A two-example predictive distribution with ``log_prob(y) = -y**2``."""
@@ -39,3 +41,21 @@ class ExampleDistribution:
 def example_distribution() -> type[ExampleDistribution]:
     """The example predictive distribution class."""
     return ExampleDistribution
+
+
+class RecordingCheckpointStore(InMemoryCheckpointStore):
+    """An in-memory checkpoint store that also records every save it receives."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.saves: list[tuple[str, Checkpoint]] = []
+
+    def save(self, key: str, checkpoint: Checkpoint) -> None:
+        self.saves.append((key, checkpoint))
+        super().save(key, checkpoint)
+
+
+@pytest.fixture(scope="session")
+def recording_store() -> type[RecordingCheckpointStore]:
+    """The recording checkpoint store class."""
+    return RecordingCheckpointStore
