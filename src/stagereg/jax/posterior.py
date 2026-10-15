@@ -22,13 +22,17 @@ from stagereg.core.types import Batch, PyTree
 
 
 class Prior(Protocol):
-    """A log-density over the parameter tree of the posterior network."""
+    """A log-density over the parameters of the inferred subnetwork.
+
+    The frozen remainder of the posterior network is not inferred, so the prior does not
+    cover it.
+    """
 
     def log_prob(self, parameters: PyTree) -> jax.Array:
         """Return the scalar log-density of ``parameters``.
 
         Args:
-            parameters: A tree with the posterior network's parameter tree.
+            parameters: A tree with the inferred subnetwork's parameter tree.
 
         Returns:
             The scalar prior log-density.
@@ -82,17 +86,26 @@ class PosteriorProblem:
 
     Attributes:
         initial_parameters: The warm start: a copy of the trained mean
-            network's parameters, in the posterior network's parameter tree.
+            network's parameters in the inferred subnetwork, in the posterior
+            network's parameter tree restricted to that subnetwork.
         mean_function: Maps ``(parameters, inputs)`` to the posterior
-            network's mean predictions at ``inputs``.
+            network's mean predictions at ``inputs``, where ``parameters``
+            holds the inferred subnetwork only and the frozen remainder keeps
+            its trained-mean values.
         log_likelihood: Maps ``(parameters, batch)`` to the scalar Gaussian
             log-likelihood of the batch targets around the mean predictions,
             under the fixed aleatoric variance, scaled by ``N / B`` so that a
             minibatch estimates the full-data log-likelihood. Differentiable in
             ``parameters``; the aleatoric variance carries no gradient.
-        prior: The prior over the parameter tree.
+        prior: The prior over the inferred subnetwork's parameter tree.
         train_loader: Factory producing the training batches of each epoch.
         dataset_size: The number of training examples ``N``.
+        aleatoric_variance: Maps inputs to the fixed aleatoric variance at
+            them, without gradient: the same variance ``log_likelihood`` uses.
+            An implicit method uses it to turn draws into predictive samples,
+            e.g. for a discriminator. A
+            [`PosteriorStage`][stagereg.jax.PosteriorStage] always sets it.
+            Defaults to ``None``, for problems built by hand.
     """
 
     initial_parameters: PyTree
@@ -101,6 +114,7 @@ class PosteriorProblem:
     prior: Prior
     train_loader: LoaderFactory
     dataset_size: int
+    aleatoric_variance: Callable[[PyTree], jax.Array] | None = None
 
 
 class InferenceMethod(Protocol):
@@ -120,6 +134,18 @@ class InferenceMethod(Protocol):
         """Whether stopping on a validation improvement is meaningful.
 
         ``False`` for SG-MCMC, whose chain an early stopper would truncate.
+        """
+        ...
+
+    @property
+    def diagnostics(self) -> tuple[str, ...]:
+        """The keys of ``update``'s output the posterior stage records.
+
+        The stage records each as ``posterior/train/<key>``, the mean of its
+        scalar values over the epoch's batches, and ignores every other key
+        but ``"loss"``. A key whose tag the stage already records, such as
+        ``"loss"``, is refused when the stage is prepared. ``()`` records
+        none.
         """
         ...
 
@@ -150,7 +176,10 @@ class InferenceMethod(Protocol):
             key: A fresh PRNG key for this batch.
 
         Returns:
-            A mapping holding the scalar ``"loss"`` the method minimizes.
+            A mapping holding the scalar ``"loss"`` the method minimizes and
+            a scalar for every declared
+            [`diagnostics`][stagereg.jax.InferenceMethod.diagnostics] key.
+            Other keys are ignored.
         """
         ...
 
@@ -209,6 +238,26 @@ class InferenceMethod(Protocol):
                 [`posterior_state`][stagereg.jax.InferenceMethod.posterior_state].
         """
         ...
+
+
+def require_inferred_tree(parameters: PyTree, inferred: PyTree) -> None:
+    """Refuse parameters whose tree is not the inferred subnetwork's.
+
+    Args:
+        parameters: A tree meant to hold the inferred subnetwork's parameters,
+            such as a saved posterior's.
+        inferred: The inferred subnetwork's parameter tree, e.g. a posterior
+            problem's ``initial_parameters``.
+
+    Raises:
+        ValueError: If the two trees' structures differ, as they do for a
+            posterior saved under another ``inferred_subnetwork`` filter.
+    """
+    if jax.tree.structure(parameters) != jax.tree.structure(inferred):
+        raise ValueError(
+            "the parameter tree differs from the inferred subnetwork's; was the "
+            "posterior saved with another inferred_subnetwork filter?"
+        )
 
 
 @dataclass(frozen=True)

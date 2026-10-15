@@ -118,16 +118,21 @@ that monitors a validation metric needs a validation strategy as well.
 
 [`MeanStage`][stagereg.jax.MeanStage] and
 [`GammaVarianceStage`][stagereg.jax.GammaVarianceStage] go one step further when
-their options carry an early stopper and a checkpoint store, and both follow the
-same rule. At the end of `train` the stage restores its best checkpoint into its
-live model, so the model it leaves behind is the best one rather than the last.
-It then saves that checkpoint again under the same key, finalized: its training
-state is at the stage's ready lifecycle state, `MEAN_READY` or `VARIANCE_READY`,
-and its metadata records the stage and `"stage_complete": True`, for example
-`{"stage": "mean", "stage_complete": True}`. The returned result reports the
-restored epoch's training metrics. So the variance stage computes residuals from
-the best mean model, and a finalized checkpoint is the hand-off point after each
-stage.
+their options carry a checkpoint store, and both follow the same rule. With an
+early stopper, at the end of `train` the stage restores its best checkpoint into
+its live model, so the model it leaves behind is the best one rather than the
+last. It then saves that checkpoint again under the same key, finalized: its
+training state is at the stage's ready lifecycle state, `MEAN_READY` or
+`VARIANCE_READY`, and its metadata records the stage and `"stage_complete": True`,
+for example `{"stage": "mean", "stage_complete": True}`. The returned result
+reports the restored epoch's training metrics. So the variance stage computes
+residuals from the best mean model, and a finalized checkpoint is the hand-off
+point after each stage.
+
+Without an early stopper there is no best checkpoint, and the stage finalizes
+its last epoch instead: it saves the live model and optimizer under the same
+key, with the same ready lifecycle state and metadata. The stage can then be
+restored in a later process without configuring early stopping.
 
 The variance checkpoint snapshots only the variance model and optimizer, since
 the mean model is frozen and already lives in the mean stage's checkpoint. When

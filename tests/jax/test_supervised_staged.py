@@ -367,14 +367,16 @@ def make_mean_stage(
 
     def make(
         *,
+        epochs: int = 10,
         learning_rate: float = 0.1,
         checkpoint_store: CheckpointStore | None = None,
         early_stopper: EarlyStopper | None = None,
         validation: ValidationStrategy | None = None,
     ) -> tuple[MeanStage, TrainingState]:
-        """Build a ten-epoch mean stage on `mean_loader`, and fresh state.
+        """Build a mean stage on `mean_loader`, and fresh state.
 
         Args:
+            epochs: The stage's maximum number of epochs.
             learning_rate: The SGD learning rate.
             checkpoint_store: Where the stage saves its best checkpoint, if anywhere.
             early_stopper: The stage's early stopper, if any.
@@ -390,7 +392,7 @@ def make_mean_stage(
             optimizer=optimizer,
             train_loader=mean_loader,
             options=SupervisedStageOptions(
-                epochs=10,
+                epochs=epochs,
                 checkpoint_store=checkpoint_store,
                 checkpoint_key="mean-best",
                 early_stopper=early_stopper,
@@ -1071,30 +1073,6 @@ def test_variance_stage_without_a_store_keeps_its_last_epoch(
     assert stage.validate(state).passed
 
 
-def test_variance_stage_with_a_store_but_no_stopper_keeps_its_last_epoch(
-    make_variance_stage: MakeVarianceStage,
-    stop_at_first_epoch: StopAtFirstEpoch,
-) -> None:
-    store = InMemoryCheckpointStore()
-    earlier, earlier_state = make_variance_stage(
-        checkpoint_store=store,
-        **stop_at_first_epoch(),
-    )
-    earlier.prepare(earlier_state)
-    earlier.train(earlier_state)
-    earlier_checkpoint = store.load("variance-best")
-    stage, state = make_variance_stage(epochs=3, checkpoint_store=store)
-
-    stage.prepare(state)
-    result = stage.train(state)
-
-    assert store.load("variance-best") is earlier_checkpoint
-    assert int(stage.optimizer.step.get_value()) == 3
-    assert len(state.metric_history["variance/train/loss"]) == 3
-    assert result.loss == state.metric_history["variance/train/loss"][-1]
-    assert stage.validate(state).passed
-
-
 def test_variance_stage_restore_leaves_an_unregistered_mean_optimizer_out(
     make_variance_stage: MakeVarianceStage,
     stop_at_first_epoch: StopAtFirstEpoch,
@@ -1181,6 +1159,64 @@ def test_stages_resume_a_fresh_state_from_their_finalized_checkpoints(
     restored, trained = variance_stage.model(inputs), trained_variance.model(inputs)
     assert jnp.array_equal(restored.concentration, trained.concentration)
     assert jnp.array_equal(restored.rate, trained.rate)
+
+
+@settings(deadline=None, max_examples=5)
+@given(epochs=st.integers(min_value=1, max_value=4))
+def test_a_mean_stage_without_a_stopper_finalizes_its_last_epoch(
+    make_mean_stage: MakeMeanStage,
+    make_fresh_stages: MakeFreshStages,
+    epochs: int,
+) -> None:
+    store = InMemoryCheckpointStore()
+    trained, state = make_mean_stage(epochs=epochs, checkpoint_store=store)
+    trained.prepare(state)
+    result = trained.train(state)
+    fresh, _ = make_fresh_stages()
+    fresh_state = TrainingState()
+    inputs = mean_loader(split="train", epoch=0)[0].inputs
+
+    checkpoint = store.load("mean-best")
+    fresh.restore(fresh_state, checkpoint)
+
+    assert checkpoint.epoch == epochs - 1
+    assert len(state.metric_history["mean/train/loss"]) == epochs
+    assert result.loss == state.metric_history["mean/train/loss"][-1]
+    assert fresh.validate(fresh_state).passed
+    assert jnp.array_equal(fresh.model(inputs), trained.model(inputs))
+
+
+@settings(deadline=None, max_examples=5)
+@given(epochs=st.integers(min_value=1, max_value=4))
+def test_a_variance_stage_without_a_stopper_finalizes_its_last_epoch(
+    make_mean_stage: MakeMeanStage,
+    make_variance_stage: MakeVarianceStage,
+    make_fresh_stages: MakeFreshStages,
+    epochs: int,
+) -> None:
+    store = InMemoryCheckpointStore()
+    trained, state = make_variance_stage(
+        epochs=epochs,
+        checkpoint_store=store,
+        mean=make_mean_stage(epochs=epochs, checkpoint_store=store),
+    )
+    trained.prepare(state)
+    result = trained.train(state)
+    fresh_mean, fresh = make_fresh_stages()
+    fresh_state = TrainingState()
+    fresh_mean.restore(fresh_state, store.load("mean-best"))
+    inputs = mean_loader(split="train", epoch=0)[0].inputs
+
+    checkpoint = store.load("variance-best")
+    fresh.restore(fresh_state, checkpoint)
+
+    assert checkpoint.epoch == epochs - 1
+    assert len(state.metric_history["variance/train/loss"]) == epochs
+    assert result.loss == state.metric_history["variance/train/loss"][-1]
+    assert fresh.validate(fresh_state).passed
+    restored, live = fresh.model(inputs), trained.model(inputs)
+    assert jnp.array_equal(restored.concentration, live.concentration)
+    assert jnp.array_equal(restored.rate, live.rate)
 
 
 def test_a_stage_restore_round_trips_the_active_stage_and_the_random_key(

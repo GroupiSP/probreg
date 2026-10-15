@@ -25,6 +25,8 @@ The stage and its inference methods share a small vocabulary, defined in the
 | --- | --- |
 | Inference method | The interchangeable strategy that turns the stage's posterior problem into a posterior, such as [`BayesByBackprop`][stagereg.jax.BayesByBackprop] or [`PreconditionedSGLD`][stagereg.jax.PreconditionedSGLD]. The stage decides what is inferred; the method decides how. |
 | Posterior | What the inference method produces: an approximate posterior over mean functions, from which draws can be taken. |
+| Inferred subnetwork | The part of the network's parameters the stage infers, selected with `inferred_subnetwork`; by default the whole network. |
+| Frozen remainder | Every other parameter, held at its trained-mean value. |
 | Draw | One mean function taken from the posterior, the same function at every input. A finite posterior, such as pSGLD's retained samples, always uses all its draws. |
 | Posterior predictive | The [`PosteriorPredictive`][stagereg.jax.PosteriorPredictive]: the equally weighted mixture, over the draws, of Gaussians centred on each draw's mean with the aleatoric variance. |
 | Moment-matched predictive | The [`MomentMatchedPredictive`][stagereg.jax.MomentMatchedPredictive]: the single Gaussian with the posterior predictive's mean and variance, the aleatoric plus the epistemic variance. A summary, not a substitute. |
@@ -151,6 +153,35 @@ itself: it is exact for the draws taken and may be skewed or multimodal. The
 moment-matched predictive is for reporting the variance split or drawing a
 band.
 
+## Inferring a subnetwork
+
+By default the stage infers every parameter of the network. To infer only part
+of it, such as one convolutional layer of a larger network, pass an NNX filter
+as `inferred_subnetwork`; continuing the run above, this stage would infer the
+linear layer's kernel alone:
+
+```{.python continuation}
+kernel_stage = PosteriorStage(
+    inference_method=BayesByBackprop(optimizer=optax.adam(0.01)),
+    train_loader=loader,
+    dataset_size=8,
+    options=PosteriorStageOptions(epochs=3, num_draws=16),
+    inferred_subnetwork=nnx.PathContains("kernel"),
+)
+```
+
+The filter selects from the warm-started posterior network, and only its
+`nnx.Param` leaves are inferred, so random-number or batch-statistic variables
+never are. Every other parameter is the frozen remainder: it keeps its trained-mean
+value in every draw. The inference method sees the inferred subnetwork alone:
+the posterior problem's initial parameters, its mean function and the prior
+all cover that subtree, so a method needs no change to infer a subnetwork.
+`prepare` refuses a filter that selects no parameter, such as a mistyped path.
+
+The checkpoint does not record the filter. Restore with the filter the posterior
+was trained with: Bayes by Backprop and pSGLD refuse a saved posterior whose
+tree differs from the configured subnetwork's.
+
 ## Restoring three stages
 
 The posterior stage's finalized checkpoint holds the posterior alone, not the
@@ -191,6 +222,24 @@ from stagereg.jax import PreconditionedSGLD
 # Eight batches per epoch: retain the position at the end of every epoch.
 method = PreconditionedSGLD(step_size=3e-3, burn_in=0, thinning=8)
 ```
+
+## Writing your own inference method
+
+Any object satisfying [`InferenceMethod`][stagereg.jax.InferenceMethod] can
+drive the stage. Two parts of the seam serve methods beyond Bayes by Backprop
+and pSGLD:
+
+- The problem's `aleatoric_variance` maps inputs to the fixed aleatoric
+  variance, without gradient, the same variance its `log_likelihood` uses. An
+  implicit method, such as a generator trained against a discriminator, adds
+  Gaussian noise with this variance to a draw's means to get predictive samples.
+- A method lists its own training signals, such as a discriminator loss, in
+  [`diagnostics`][stagereg.jax.InferenceMethod.diagnostics]. The stage records
+  each declared key of `update`'s output as `posterior/train/<key>`, its mean
+  over the epoch's batches, and passes it to event sinks and trackers like any
+  other metric. Undeclared keys are ignored, and `prepare` refuses a key whose
+  tag the stage already records, such as `loss`. Bayes by Backprop and pSGLD
+  declare none.
 
 ## The XSin example
 

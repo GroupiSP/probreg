@@ -70,8 +70,8 @@ The checkpoint a stage saves whenever its early stopper reports an improvement. 
 _Avoid_: Hand-off checkpoint
 
 **Finalized checkpoint**:
-A stage's best checkpoint saved again once the stage completes, with the stage's ready lifecycle state and marked complete. The only kind of checkpoint a stage restores from, so a restore always leaves the stage ready.
-_Avoid_: Hand-off checkpoint, final checkpoint (it holds the best epoch, not the last)
+The checkpoint a stage saves once it completes, with the stage's ready lifecycle state and marked complete: its best checkpoint when an early stopper is configured, otherwise its last epoch's. The only kind of checkpoint a stage restores from, so a restore always leaves the stage ready.
+_Avoid_: Hand-off checkpoint, final checkpoint (with an early stopper it holds the best epoch, not the last)
 
 **Checkpoint key**:
 The name a checkpoint is stored under in a checkpoint store, `stage/best` by default, so that stages sharing one store never overwrite each other's checkpoints.
@@ -94,7 +94,7 @@ The interchangeable strategy a posterior stage uses to turn a posterior problem 
 _Avoid_: Sampler (excludes variational methods), inference engine, backend
 
 **Inferred subnetwork**:
-The part of the mean network's parameters a posterior stage infers, such as one convolutional layer; by default the whole network.
+The part of the mean network's parameters a posterior stage infers, such as one convolutional layer; by default the whole network. It is selected from the posterior network's parameters only, never its random-number or batch-statistic variables, and the posterior problem and its prior cover it alone. MC-Dropout fine-tunes the inferred subnetwork with dropout active; the dropout masks are not part of the subnetwork.
 _Avoid_: Bayesian layer, stochastic part, Bayesian subset
 
 **Frozen remainder**:
@@ -102,7 +102,7 @@ The mean network's parameters outside the inferred subnetwork, held at their tra
 _Avoid_: Backbone, fixed weights
 
 **Posterior problem**:
-Everything a posterior stage hands its inference method: the starting point taken from the trained mean, the likelihood of the targets under the fixed aleatoric variance, the prior, the training data and its size. Every inference method honors the prior; methods without an explicit prior use it as their regularizer.
+Everything a posterior stage hands its inference method: the starting point taken from the trained mean, the likelihood of the targets under the fixed aleatoric variance, that aleatoric variance itself (so an implicit method can form predictive samples), the prior, the training data and its size. Every inference method honors the prior; methods without an explicit prior use it as their regularizer.
 _Avoid_: Log-posterior (only one part of it), target density
 
 **Posterior**:

@@ -16,9 +16,21 @@ All notable changes to `stagereg` are recorded here. The format follows
   Nothing in the library populated them.
 - `TrainingEvent.iteration` is removed. It always reported `0`, as no run has outer
   iterations yet.
+- `InferenceMethod` requires a `diagnostics` property; a custom method
+  declares `()` to keep recording only its loss (#106).
 
 ### Added
 
+- `PosteriorProblem.aleatoric_variance`: the fixed, stop-gradient aleatoric
+  variance a `PosteriorStage` uses for its likelihood, so an implicit method
+  can turn draws into predictive samples. Optional for hand-built problems (#106).
+- `InferenceMethod.diagnostics`: the keys of `update`'s output that
+  `PosteriorStage` records as `posterior/train/<key>` epoch means. Undeclared
+  keys are ignored; a key colliding with a recorded tag is refused at `prepare`.
+  `BayesByBackprop` and `PreconditionedSGLD` declare `()` (#106).
+- `PosteriorStage.inferred_subnetwork`, an NNX filter selecting the inferred
+  subnetwork; the frozen remainder keeps its trained-mean values. The default,
+  `nnx.Param`, infers the whole network as in 0.1.0 (#105).
 - `stagereg.core.expected_sample_crps(predictive_samples, reference_samples)`: the
   exact, grid-free expected CRPS of each scoring unit's empirical predictive under
   its reference samples, batched over units.
@@ -32,6 +44,16 @@ All notable changes to `stagereg` are recorded here. The format follows
   and check it as before.
 
 ### Changed
+
+- `PosteriorProblem.initial_parameters`, `mean_function` and `prior` cover the
+  inferred subnetwork only. `BayesByBackprop.load_posterior` and
+  `PreconditionedSGLD.load_posterior` refuse a posterior whose tree differs
+  from it, and `PreconditionedSGLD.load_posterior` now requires `init` (#105).
+- `MeanStage` and `GammaVarianceStage` with a checkpoint store but no early stopper
+  now save their last epoch as their finalized checkpoint under the stage's
+  checkpoint key, so the stage can be restored in a later process. Previously they
+  saved nothing. With an early stopper the best epoch is still finalized
+  (ADR 0011).
 
 ## [0.1.0]
 
