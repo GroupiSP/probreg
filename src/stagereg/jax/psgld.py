@@ -275,25 +275,33 @@ class PreconditionedSGLD:
     def load_posterior(self, state: PyTree) -> None:
         """Rebuild the posterior of the given retained samples after ``init``.
 
+        The samples' tree is checked against the inferred subnetwork's once
+        the method is initialized. Samples loaded before ``init`` cannot reach
+        a posterior, as ``init`` discards them.
+
         Args:
             state: Stacked samples previously returned by
                 [`posterior_state`][stagereg.jax.PreconditionedSGLD.posterior_state].
 
         Raises:
-            ValueError: If the method has not been initialized, or if the
-                samples' tree differs from the inferred subnetwork's.
+            ValueError: If the method has been initialized and the samples'
+                tree differs from the inferred subnetwork's.
         """
-        if self._problem is None:
-            raise ValueError("call init before loading a posterior.")
-        require_inferred_tree(state, self._problem.initial_parameters)
+        if self._problem is not None:
+            require_inferred_tree(state, self._problem.initial_parameters)
         self._samples = _unstack(state)
 
     def _posterior_of(self, samples: PyTree) -> RetainedSamplesPosterior:
+        """Wrap stacked samples in a posterior with the problem's mean function."""
+        return RetainedSamplesPosterior(
+            mean_function=self._require_problem().mean_function, samples=samples
+        )
+
+    def _require_problem(self) -> PosteriorProblem:
+        """Return the posterior problem, refusing an uninitialized method."""
         if self._problem is None:
             raise ValueError("call init before reading the posterior.")
-        return RetainedSamplesPosterior(
-            mean_function=self._problem.mean_function, samples=samples
-        )
+        return self._problem
 
 
 def _make_step(
