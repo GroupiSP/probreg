@@ -80,7 +80,7 @@ class OffsetDrawsPosterior:
     shifts the mean by a standard normal offset drawn from the key.
     """
 
-    mean_function: Callable[[PyTree, PyTree], jax.Array]
+    mean_function: Callable[[PyTree, PyTree, jax.Array], jax.Array]
     parameters: PyTree
     offsets: tuple[float, ...] | None = None
     calls: list[tuple[jax.Array, int | None]] = field(default_factory=list)
@@ -101,7 +101,7 @@ class OffsetDrawsPosterior:
             if num_samples is None:
                 raise ValueError("an unlimited posterior needs num_samples.")
             offsets = jax.random.normal(key, (num_samples,))
-        means = self.mean_function(self.parameters, inputs)
+        means = self.mean_function(self.parameters, inputs, key)
         return means[None] + offsets.reshape((-1,) + (1,) * means.ndim)
 
 
@@ -132,13 +132,12 @@ class GradientAscentMethod:
         self.steps = 0
 
     def update(self, batch: Batch, key: jax.Array) -> Mapping[str, Any]:
-        del key
         assert self.problem is not None
         problem = self.problem
 
         def negative_log_posterior(parameters: PyTree) -> jax.Array:
             return -(
-                problem.log_likelihood(parameters, batch)
+                problem.log_likelihood(parameters, batch, key)
                 + problem.prior.log_prob(parameters)
             )
 
@@ -248,7 +247,9 @@ def test_the_warm_start_equals_the_mean_weights(
     )
     inputs, _ = regression_data()
     assert jnp.allclose(
-        method.problem.mean_function(method.problem.initial_parameters, inputs),
+        method.problem.mean_function(
+            method.problem.initial_parameters, inputs, jax.random.key(0)
+        ),
         run.mean_model(inputs),
     )
 
@@ -308,7 +309,7 @@ def test_the_likelihood_is_scaled_by_dataset_size_over_batch_size(
     )
 
     log_likelihood = method.problem.log_likelihood(
-        method.problem.initial_parameters, repeated
+        method.problem.initial_parameters, repeated, jax.random.key(0)
     )
 
     assert float(log_likelihood) == pytest.approx(
@@ -328,7 +329,7 @@ def test_the_likelihood_weights_each_row_by_its_sample_weight(
     weighted = Batch(inputs=inputs, targets=targets, sample_weight=weights)
 
     log_likelihood = method.problem.log_likelihood(
-        method.problem.initial_parameters, weighted
+        method.problem.initial_parameters, weighted, jax.random.key(0)
     )
 
     variance = run.variance_model(inputs).mean()
@@ -505,7 +506,7 @@ def test_validation_scores_the_current_posterior_predictive(
         [b.inputs for b in regression_loader(split="validation", epoch=2)]
     )
     draws = (
-        final.mean_function(final.parameters, inputs)[None]
+        final.mean_function(final.parameters, inputs, jax.random.key(0))[None]
         + jnp.array([-0.5, 0.5])[:, None, None]
     )
     scale = jnp.sqrt(run.variance_model(inputs).mean())

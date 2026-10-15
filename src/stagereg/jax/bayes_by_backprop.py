@@ -28,6 +28,7 @@ from stagereg.jax.posterior import (
     Prior,
     require_inferred_tree,
 )
+from stagereg.jax.rng import network_key
 
 
 def _default_optimizer() -> optax.GradientTransformation:
@@ -40,11 +41,12 @@ class MeanFieldGaussianPosterior:
     """An independent Gaussian on every parameter of the posterior network.
 
     Draw ``s`` under ``key`` samples its parameters from
-    ``jax.random.fold_in(key, s)``, so it is the same mean function at every
-    input, in every call, and whatever the number of draws asked for.
+    ``draw_key = jax.random.fold_in(key, s)`` and evaluates its mean function
+    with a key derived from ``draw_key``, so it is the same mean function at every input, in every
+    call, and whatever the number of draws asked for.
 
     Attributes:
-        mean_function: Maps ``(parameters, inputs)`` to the posterior
+        mean_function: Maps ``(parameters, inputs, key)`` to the posterior
             network's mean predictions.
         means: The variational means, in the posterior network's parameter
             tree.
@@ -52,7 +54,7 @@ class MeanFieldGaussianPosterior:
             tree.
     """
 
-    mean_function: Callable[[PyTree, PyTree], jax.Array]
+    mean_function: Callable[[PyTree, PyTree, jax.Array], jax.Array]
     means: PyTree
     stds: PyTree
 
@@ -86,8 +88,9 @@ class MeanFieldGaussianPosterior:
             raise ValueError("num_samples must be positive.")
 
         def draw(index: jax.Array) -> jax.Array:
-            parameters = _sample(self.means, self.stds, jax.random.fold_in(key, index))
-            return self.mean_function(parameters, inputs)
+            draw_key = jax.random.fold_in(key, index)
+            parameters = _sample(self.means, self.stds, draw_key)
+            return self.mean_function(parameters, inputs, network_key(draw_key))
 
         return jax.vmap(draw)(jnp.arange(num_samples))
 
@@ -182,7 +185,8 @@ class BayesByBackprop:
 
         Args:
             batch: The training batch.
-            key: A fresh PRNG key for this batch's parameter sample.
+            key: A fresh PRNG key for this batch's parameter sample; the
+                log-likelihood is evaluated with a key derived from it.
 
         Returns:
             ``{"loss": negative_elbo}``, the minibatch estimate of the
@@ -307,7 +311,9 @@ def _make_step(
         stds = jax.tree.map(jax.nn.softplus, variational["rhos"])
         parameters = _sample(means, stds, key)
         batch = Batch(inputs=inputs, targets=targets, sample_weight=sample_weight)
-        return kl(means, stds, parameters) - problem.log_likelihood(parameters, batch)
+        return kl(means, stds, parameters) - problem.log_likelihood(
+            parameters, batch, network_key(key)
+        )
 
     @jax.jit
     def step(

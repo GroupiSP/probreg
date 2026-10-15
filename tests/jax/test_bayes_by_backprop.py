@@ -33,14 +33,17 @@ def _targets() -> jax.Array:
     return 1.5 * _INPUTS - 0.5 + noise
 
 
-def _line(parameters: PyTree, inputs: PyTree) -> jax.Array:
+def _line(parameters: PyTree, inputs: PyTree, key: jax.Array) -> jax.Array:
+    del key
     return inputs * parameters["w"] + parameters["b"]
 
 
-def _scaled_log_likelihood(parameters: PyTree, batch: Batch) -> jax.Array:
+def _scaled_log_likelihood(
+    parameters: PyTree, batch: Batch, key: jax.Array
+) -> jax.Array:
     targets = jnp.asarray(batch.targets)
     log_density = jax.scipy.stats.norm.logpdf(
-        targets, _line(parameters, batch.inputs), _NOISE_STD
+        targets, _line(parameters, batch.inputs, key), _NOISE_STD
     )
     return _INPUTS.shape[0] / targets.shape[0] * jnp.sum(log_density)
 
@@ -190,7 +193,7 @@ def test_the_default_warm_start_draws_stay_close_to_the_trained_mean() -> None:
 
     draws = method.posterior().sample_means(_INPUTS, jax.random.key(0), 64)
 
-    trained = _line(problem.initial_parameters, _INPUTS)
+    trained = _line(problem.initial_parameters, _INPUTS, jax.random.key(1))
     assert jnp.max(jnp.abs(draws - trained)) < 0.01
 
 

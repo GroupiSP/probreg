@@ -88,15 +88,19 @@ class PosteriorProblem:
         initial_parameters: The warm start: a copy of the trained mean
             network's parameters in the inferred subnetwork, in the posterior
             network's parameter tree restricted to that subnetwork.
-        mean_function: Maps ``(parameters, inputs)`` to the posterior
+        mean_function: Maps ``(parameters, inputs, key)`` to the posterior
             network's mean predictions at ``inputs``, where ``parameters``
             holds the inferred subnetwork only and the frozen remainder keeps
-            its trained-mean values.
-        log_likelihood: Maps ``(parameters, batch)`` to the scalar Gaussian
-            log-likelihood of the batch targets around the mean predictions,
-            under the fixed aleatoric variance, scaled by ``N / B`` so that a
-            minibatch estimates the full-data log-likelihood. Differentiable in
-            ``parameters``; the aleatoric variance carries no gradient.
+            its trained-mean values. ``key`` seeds the network's RNG streams,
+            so a stochastic network, e.g. one with ``nnx.Dropout``, draws its
+            masks from it, purely under ``jit`` and ``grad``; the same key
+            gives the same function. A deterministic network ignores it.
+        log_likelihood: Maps ``(parameters, batch, key)`` to the scalar
+            Gaussian log-likelihood of the batch targets around the mean
+            predictions under ``key``, under the fixed aleatoric variance,
+            scaled by ``N / B`` so that a minibatch estimates the full-data
+            log-likelihood. Differentiable in ``parameters``; the aleatoric
+            variance carries no gradient.
         prior: The prior over the inferred subnetwork's parameter tree.
         train_loader: Factory producing the training batches of each epoch.
         dataset_size: The number of training examples ``N``.
@@ -109,8 +113,8 @@ class PosteriorProblem:
     """
 
     initial_parameters: PyTree
-    mean_function: Callable[[PyTree, PyTree], jax.Array]
-    log_likelihood: Callable[[PyTree, Batch], jax.Array]
+    mean_function: Callable[[PyTree, PyTree, jax.Array], jax.Array]
+    log_likelihood: Callable[[PyTree, Batch, jax.Array], jax.Array]
     prior: Prior
     train_loader: LoaderFactory
     dataset_size: int
