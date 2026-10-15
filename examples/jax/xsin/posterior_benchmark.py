@@ -1,7 +1,7 @@
 """The posterior stage on the XSin-inspired benchmark.
 
-Bayes by Backprop and pSGLD inference methods, a mean, variance and posterior
-run, the NLL and point CRPS of its predictives, and a plot of the posterior
+Bayes by Backprop, pSGLD and MC-Dropout inference methods, MC-Dropout's
+posterior network, a mean, variance and posterior run, the NLL and point CRPS of its predictives, and a plot of the posterior
 predictive band against the variance stage's band. The data, models and the
 two stages it starts from live in ``benchmark.py``.
 """
@@ -19,6 +19,7 @@ from benchmark import (
     INTERVAL_MULTIPLIER,
     XSinConfig,
     XSinData,
+    XSinDropoutMeanModel,
     XSinResult,
     interpolation_mask,
     make_xsin_loader,
@@ -39,6 +40,7 @@ from stagereg.jax import (
     Gaussian,
     GaussianPredictor,
     InferenceMethod,
+    MCDropout,
     MetricSuite,
     Posterior,
     PosteriorPredictive,
@@ -171,11 +173,45 @@ def xsin_psgld(config: XSinConfig) -> PreconditionedSGLD:
     )
 
 
+def xsin_mc_dropout(config: XSinConfig) -> MCDropout:
+    """Build the MC-Dropout inference method of the XSin example.
+
+    Args:
+        config: Benchmark configuration.
+
+    Returns:
+        A fresh, uninitialized inference method. It needs the posterior
+        network from ``xsin_mc_dropout_model``.
+    """
+    return MCDropout(optimizer=optax.adam(config.mc_dropout_learning_rate))
+
+
+def xsin_mc_dropout_model(config: XSinConfig) -> XSinDropoutMeanModel:
+    """Build MC-Dropout's posterior network for the XSin example.
+
+    Its parameters are replaced by the trained mean's when the posterior
+    stage warm-starts it, so their initialization does not matter.
+
+    Args:
+        config: Benchmark configuration.
+
+    Returns:
+        The mean network with batch-shared dropout before its output layer.
+    """
+    return XSinDropoutMeanModel(
+        config.hidden_features,
+        rate=config.mc_dropout_rate,
+        train_domain=(config.train_min, config.train_max),
+        rngs=nnx.Rngs(config.seed + 5),
+    )
+
+
 def run_xsin_posterior(
     data: XSinData,
     config: XSinConfig,
     inference_method: InferenceMethod,
     *,
+    model: nnx.Module | None = None,
     event_sinks: Sequence[EventSink] = (),
 ) -> XSinPosteriorResult:
     """Train mean, variance and posterior stages, then score both predictives.
@@ -188,7 +224,9 @@ def run_xsin_posterior(
         data: Shared XSin data.
         config: Benchmark configuration.
         inference_method: A fresh inference method, e.g. from
-            ``xsin_bayes_by_backprop`` or ``xsin_psgld``.
+            ``xsin_bayes_by_backprop``, ``xsin_psgld`` or ``xsin_mc_dropout``.
+        model: The posterior network, e.g. from ``xsin_mc_dropout_model``.
+            Defaults to ``None``, which uses a copy of the mean network.
         event_sinks: Sinks shared by all three stages.
 
     Returns:
@@ -203,6 +241,7 @@ def run_xsin_posterior(
         inference_method=inference_method,
         train_loader=loader,
         dataset_size=config.train_size,
+        model=model,
         options=PosteriorStageOptions(
             epochs=config.posterior_epochs,
             num_draws=config.posterior_num_draws,

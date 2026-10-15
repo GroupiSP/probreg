@@ -46,7 +46,7 @@ class XSinConfig:
         variance_epochs: Training epochs for the Gamma variance stage.
         posterior_epochs: Training epochs for the posterior stage.
         posterior_num_draws: Draws taken from an unlimited posterior (Bayes by
-            Backprop) to form the posterior predictive.
+            Backprop or MC-Dropout) to form the posterior predictive.
         learning_rate: Adam learning rate used by all benchmark models.
         bbb_learning_rate: Adam learning rate of Bayes by Backprop's
             variational parameters.
@@ -56,6 +56,10 @@ class XSinConfig:
         psgld_burn_in: pSGLD update steps whose positions are discarded.
         psgld_thinning: pSGLD retains one position every this many steps
             after burn-in.
+        mc_dropout_rate: Dropout rate of MC-Dropout's posterior network,
+            in ``[0, 1)``.
+        mc_dropout_learning_rate: Adam learning rate of MC-Dropout's
+            fine-tuning.
         seed: Base JAX random seed for data, model, and training keys.
         train_min: Exclusive lower bound of the training-input domain.
         train_max: Exclusive upper bound of the training-input domain.
@@ -78,6 +82,8 @@ class XSinConfig:
     psgld_step_size: float = 3e-3
     psgld_burn_in: int = 0
     psgld_thinning: int = 8
+    mc_dropout_rate: float = 0.1
+    mc_dropout_learning_rate: float = 1e-3
     seed: int = 0
     train_min: float = 0.0
     train_max: float = 10.0
@@ -89,8 +95,9 @@ class XSinConfig:
 
         Raises:
             ValueError: If sizes are not positive, ``psgld_burn_in`` is
-                negative, or domain bounds are not strictly ordered around the
-                training interval.
+                negative, ``mc_dropout_rate`` is outside ``[0, 1)``,
+                ``mc_dropout_learning_rate`` is not positive, or domain bounds
+                are not strictly ordered around the training interval.
         """
         sizes = (
             self.train_size,
@@ -108,6 +115,10 @@ class XSinConfig:
             raise ValueError("benchmark sizes and epoch counts must be positive.")
         if self.psgld_burn_in < 0:
             raise ValueError("psgld_burn_in must not be negative.")
+        if not 0.0 <= self.mc_dropout_rate < 1.0:
+            raise ValueError("mc_dropout_rate must lie in [0, 1).")
+        if self.mc_dropout_learning_rate <= 0.0:
+            raise ValueError("mc_dropout_learning_rate must be positive.")
         if not (
             self.evaluation_min < self.train_min < self.train_max < self.evaluation_max
         ):
@@ -252,6 +263,37 @@ class XSinMeanModel(nnx.Module):
 
     def __call__(self, inputs: jax.Array) -> jax.Array:
         return self.output(self.backbone(inputs))
+
+
+class XSinDropoutMeanModel(XSinMeanModel):
+    """The XSin mean regressor with batch-shared dropout before its output.
+
+    Dropout has no parameters, so it has the mean regressor's parameter tree
+    and is warm-started from the trained mean as an MC-Dropout posterior
+    network. One dropout mask is shared by the whole batch axis, so a draw is
+    the same mean function at every input.
+
+    Args:
+        hidden_features: Width of the backbone's hidden layers.
+        rate: Probability of dropping each hidden feature.
+        train_domain: Lower and upper bounds of the training inputs, which its
+            backbone maps onto ``[-1, 1]``.
+        rngs: Random streams that initialize the layers.
+    """
+
+    def __init__(
+        self,
+        hidden_features: int,
+        *,
+        rate: float,
+        train_domain: tuple[float, float],
+        rngs: nnx.Rngs,
+    ) -> None:
+        super().__init__(hidden_features, train_domain=train_domain, rngs=rngs)
+        self.dropout = nnx.Dropout(rate, broadcast_dims=(0,), rngs=rngs)
+
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        return self.output(self.dropout(self.backbone(inputs)))
 
 
 class XSinGaussianModel(nnx.Module):
