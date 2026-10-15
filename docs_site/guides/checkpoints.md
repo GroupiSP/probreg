@@ -14,11 +14,10 @@ A [`Checkpoint`][stagereg.core.Checkpoint] is a frozen value with these fields:
 
 | Field | Holds |
 | --- | --- |
-| `state` | The [`TrainingState`][stagereg.core.TrainingState] at that epoch: lifecycle, stage, parameter roles, frozen components and metric history |
+| `state` | The [`TrainingState`][stagereg.core.TrainingState] at that epoch: lifecycle, active stage, random key, parameter roles, frozen components and metric history |
 | `epoch` | The epoch the checkpoint was taken at |
 | `parameters` | The model's state; in the JAX backend an [`NnxSnapshot`][stagereg.jax.NnxSnapshot] |
 | `optimizer_state` | The optimizer's state, also an `NnxSnapshot` |
-| `rng_state` | The random key |
 | `early_stopping_state` | The [`EarlyStoppingState`][stagereg.core.EarlyStoppingState] when it was taken |
 | `metadata` | Free-form annotations, such as the stage that finalized it |
 

@@ -34,7 +34,6 @@ class TrainingEvent:
         split: Split the event concerns: the split its metrics were
             measured on, or, for a decision event, the split of the metric
             the decision was made on.
-        iteration: Outer iteration of the staged workflow.
         step: Step of the stage the event belongs to.
         metrics: Metrics measured at this point, keyed by bare metric
             name. Empty for a decision event.
@@ -46,7 +45,6 @@ class TrainingEvent:
     name: str
     stage: str
     split: Split
-    iteration: int
     step: int
     metrics: Mapping[str, float]
     state: TrainingState

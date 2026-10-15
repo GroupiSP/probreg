@@ -88,7 +88,6 @@ def finalized_checkpoint(
         epoch=epoch,
         parameters=parameters,
         optimizer_state=optimizer_state,
-        rng_state=state.rng_state,
         early_stopping_state=early_stopping_state,
         metadata={
             **(metadata or {}),

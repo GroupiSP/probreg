@@ -15,14 +15,13 @@ class Checkpoint:
 
     Attributes:
         state: Snapshot of the [`TrainingState`][stagereg.core.TrainingState] at
-            the time the checkpoint was saved.
+            the time the checkpoint was saved. Its ``rng_state`` is the random
+            key a restore resumes training with.
         epoch: Epoch of the active stage at which the checkpoint was saved.
         parameters: Snapshot of the model's parameters, in the backend's own
             format. Defaults to ``None``.
         optimizer_state: Snapshot of the optimizer's state, in the backend's own
             format. Defaults to ``None``.
-        rng_state: Random key to resume training with. It mirrors the
-            ``rng_state`` of the embedded ``state``. Defaults to ``None``.
         early_stopping_state: State of the early stopper, such as an
             [`EarlyStoppingState`][stagereg.core.EarlyStoppingState], so that
             patience and the best value carry over on resume. Defaults to
@@ -35,7 +34,6 @@ class Checkpoint:
     epoch: int
     parameters: Any | None = None
     optimizer_state: Any | None = None
-    rng_state: Any | None = None
     early_stopping_state: Any | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
