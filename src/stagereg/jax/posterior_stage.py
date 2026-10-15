@@ -11,6 +11,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.stats as jstats
 from flax import nnx
+from flax.nnx.filterlib import Filter
 
 from stagereg.core.checkpoints import Checkpoint, CheckpointStore
 from stagereg.core.early_stopping import EarlyStopper
@@ -52,6 +53,7 @@ from stagereg.jax.posterior import (
     Posterior,
     PosteriorProblem,
     Prior,
+    require_inferred_tree,
 )
 from stagereg.jax.rng import split_key
 from stagereg.jax.stage_checkpoints import (
@@ -168,6 +170,15 @@ class PosteriorStage:
             parameters never change. Its parameter tree must equal the mean
             network's, but its module may differ. Defaults to ``None``, which
             uses a copy of the mean network.
+        inferred_subnetwork: An NNX filter selecting the inferred subnetwork
+            from the warm-started posterior network, e.g.
+            ``nnx.PathContains("conv")``. The stage infers only the ``Param``
+            leaves it selects, so RNG or batch-stat variables are never
+            inferred; every other ``Param`` leaf is the frozen remainder, held
+            at its trained-mean value. The posterior problem's initial
+            parameters, mean function and prior cover the inferred subnetwork
+            alone. The filter is not saved in checkpoints. Defaults to
+            ``nnx.Param``, the whole network.
         mean_model_name: Registry name of the trained mean model.
         variance_model_name: Registry name of the trained variance model.
         model_name: Registry name the posterior is registered under.
@@ -179,6 +190,7 @@ class PosteriorStage:
     options: PosteriorStageOptions
     prior: Prior = field(default_factory=IsotropicGaussianPrior)
     model: nnx.Module | None = None
+    inferred_subnetwork: Filter = nnx.Param
     mean_model_name: str = "mean_model"
     variance_model_name: str = "variance_model"
     model_name: str = "posterior"
@@ -449,9 +461,10 @@ class PosteriorStage:
         _require_same_parameter_tree(nnx.state(network, nnx.Param), mean_parameters)
 
         nnx.update(network, jax.tree.map(jnp.copy, mean_parameters))
-        mean_function = _mean_function(network)
+        split = _InferredSplit.of(network, self.inferred_subnetwork)
+        mean_function = split.mean_function()
         return PosteriorProblem(
-            initial_parameters=jax.tree.map(jnp.copy, nnx.state(network, nnx.Param)),
+            initial_parameters=jax.tree.map(jnp.copy, split.inferred),
             mean_function=mean_function,
             log_likelihood=_scaled_log_likelihood(
                 mean_function,
@@ -633,14 +646,57 @@ def _require_same_parameter_tree(candidate: PyTree, reference: PyTree) -> None:
         )
 
 
-def _mean_function(network: nnx.Module) -> Callable[[PyTree, PyTree], jax.Array]:
-    """Return the posterior network as a pure function of its parameters."""
-    graph, _, rest = nnx.split(network, nnx.Param, ...)
+@dataclass(frozen=True)
+class _InferredSplit:
+    """The posterior network split around its inferred subnetwork.
 
-    def mean_function(parameters: PyTree, inputs: PyTree) -> jax.Array:
-        return nnx.merge(graph, parameters, rest)(inputs)
+    Attributes:
+        graph: The network's graph definition.
+        inferred: The inferred subtree: the ``Param`` leaves the filter selects.
+        frozen: The frozen remainder: every other ``Param`` leaf.
+        rest: Every non-``Param`` variable, such as RNG or batch-stat state.
+    """
 
-    return mean_function
+    graph: nnx.GraphDef[nnx.Module]
+    inferred: nnx.State
+    frozen: nnx.State
+    rest: nnx.State
+
+    @classmethod
+    def of(cls, network: nnx.Module, inferred_subnetwork: Filter) -> _InferredSplit:
+        """Split ``network``; only ``Param`` leaves are ever inferred.
+
+        Raises:
+            ValueError: If the filter selects no ``Param`` leaf.
+        """
+        graph, inferred, frozen, rest = nnx.split(
+            network, nnx.All(nnx.Param, inferred_subnetwork), nnx.Param, ...
+        )
+        if not jax.tree.leaves(inferred):
+            raise ValueError(
+                "inferred_subnetwork selects no Param leaf of the posterior network."
+            )
+        return cls(graph, inferred, frozen, rest)
+
+    def mean_function(self) -> Callable[[PyTree, PyTree], jax.Array]:
+        """Return the network as a pure function of the inferred subtree.
+
+        The returned function merges its ``parameters`` with the frozen
+        remainder and the rest, and refuses parameters whose tree is not the
+        inferred subtree's.
+        """
+        graph, inferred, frozen, rest = (
+            self.graph,
+            self.inferred,
+            self.frozen,
+            self.rest,
+        )
+
+        def mean_function(parameters: PyTree, inputs: PyTree) -> jax.Array:
+            require_inferred_tree(parameters, inferred)
+            return nnx.merge(graph, parameters, frozen, rest)(inputs)
+
+        return mean_function
 
 
 def _aleatoric_variance(

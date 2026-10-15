@@ -211,6 +211,26 @@ class InferenceMethod(Protocol):
         ...
 
 
+def require_inferred_tree(parameters: PyTree, inferred: PyTree) -> None:
+    """Refuse parameters whose tree is not the inferred subnetwork's.
+
+    Args:
+        parameters: A tree meant to hold the inferred subnetwork's parameters,
+            such as a saved posterior's.
+        inferred: The inferred subnetwork's parameter tree, e.g. a posterior
+            problem's ``initial_parameters``.
+
+    Raises:
+        ValueError: If the two trees' structures differ, as they do for a
+            posterior saved under another ``inferred_subnetwork`` filter.
+    """
+    if jax.tree.structure(parameters) != jax.tree.structure(inferred):
+        raise ValueError(
+            "the parameter tree differs from the inferred subnetwork's; was the "
+            "posterior saved with another inferred_subnetwork filter?"
+        )
+
+
 @dataclass(frozen=True)
 class IsotropicGaussianPrior:
     """An independent zero-mean Gaussian on every parameter.
