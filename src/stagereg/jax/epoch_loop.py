@@ -510,7 +510,6 @@ def _save_checkpoint(
             epoch=epoch,
             parameters=trained.parameters,
             optimizer_state=trained.optimizer_state,
-            rng_state=state.rng_state,
             early_stopping_state=early_stopping_state,
         ),
     )

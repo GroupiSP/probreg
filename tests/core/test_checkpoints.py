@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -14,11 +15,10 @@ from stagereg.core.types import TrainingState
 def test_checkpoint_store_protocol_preserves_resume_state() -> None:
     store: CheckpointStore = InMemoryCheckpointStore()
     checkpoint = Checkpoint(
-        state=TrainingState(active_stage="mean"),
+        state=TrainingState(rng_state=42, active_stage="mean"),
         epoch=3,
         parameters={"weight": 1.0},
         optimizer_state={"step": 3},
-        rng_state=42,
         early_stopping_state={"best_loss": 0.1},
     )
 
@@ -66,3 +66,13 @@ def test_in_memory_store_save_overwrites_the_previous_checkpoint(epoch: int) -> 
     store.save("best", second)
 
     assert store.load("best") == second
+
+
+def test_a_checkpoint_carries_its_random_key_only_in_its_state() -> None:
+    checkpoint = Checkpoint(state=TrainingState(rng_state=42), epoch=0)
+
+    assert checkpoint.state.rng_state == 42
+    with pytest.raises(TypeError, match="rng_state"):
+        Checkpoint(  # type: ignore[call-arg]
+            state=TrainingState(rng_state=42), epoch=0, rng_state=43
+        )

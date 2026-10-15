@@ -423,8 +423,8 @@ class PosteriorStage:
         posterior_state = checkpoint.state.posterior_state
         if posterior_state is None:
             raise ValueError("checkpoint holds no posterior state.")
-        if not isinstance(checkpoint.rng_state, jax.Array):
-            raise TypeError("checkpoint.rng_state must be a JAX random key.")
+        if not isinstance(checkpoint.state.rng_state, jax.Array):
+            raise TypeError("checkpoint.state.rng_state must be a JAX random key.")
         mean_model = _registered_module(
             state, self.mean_model_name, ParameterRole.MEAN, kind="mean"
         )

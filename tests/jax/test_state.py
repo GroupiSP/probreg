@@ -46,7 +46,6 @@ def test_snapshot_is_independent_and_checkpoint_restores_live_objects() -> None:
         epoch=0,
         parameters=snapshot(model),
         optimizer_state=snapshot(optimizer),
-        rng_state=state.rng_state,
     )
 
     model.value[...] = 5.0
@@ -81,7 +80,6 @@ def test_restore_checkpoint_rejects_incompatible_objects_before_mutation() -> No
         epoch=0,
         parameters=snapshot(saved_model),
         optimizer_state=snapshot(saved_optimizer),
-        rng_state=saved_state.rng_state,
     )
     incompatible_model = OtherModel(5.0)
     incompatible_optimizer = create_optimizer(incompatible_model, optax.adam(0.1))
@@ -107,7 +105,6 @@ def test_restore_checkpoint_validates_optimizer_before_mutating_model() -> None:
         epoch=0,
         parameters=snapshot(saved_model),
         optimizer_state=snapshot(saved_optimizer),
-        rng_state=saved_state.rng_state,
     )
     live_model = ScalarModel(5.0)
     incompatible_optimizer = create_optimizer(live_model, optax.adam(0.1))
@@ -133,7 +130,6 @@ def test_restore_checkpoint_restores_optimizer_static_transform() -> None:
         epoch=0,
         parameters=snapshot(saved_model),
         optimizer_state=snapshot(saved_optimizer),
-        rng_state=saved_state.rng_state,
     )
     live_model = ScalarModel(5.0)
     live_optimizer = create_optimizer(live_model, optax.sgd(0.2))

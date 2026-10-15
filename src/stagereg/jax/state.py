@@ -167,8 +167,8 @@ def restore_checkpoint(
         raise TypeError("checkpoint.parameters must be an NnxSnapshot.")
     if not isinstance(checkpoint.optimizer_state, NnxSnapshot):
         raise TypeError("checkpoint.optimizer_state must be an NnxSnapshot.")
-    if not isinstance(checkpoint.rng_state, jax.Array):
-        raise TypeError("checkpoint.rng_state must be a JAX random key.")
+    if not isinstance(checkpoint.state.rng_state, jax.Array):
+        raise TypeError("checkpoint.state.rng_state must be a JAX random key.")
 
     _validate_graph(model, checkpoint.parameters, kind="model")
     _validate_state_structure(
@@ -184,7 +184,6 @@ def restore_checkpoint(
     _restore_optimizer_static_fields(optimizer, restored_optimizer)
     nnx.update(optimizer, checkpoint.optimizer_state.state)
     _restore_training_state(state, checkpoint.state)
-    state.rng_state = checkpoint.rng_state
     state.register_component(model_name, model)
     state.register_optimizer(optimizer_name, optimizer)
 
@@ -210,7 +209,6 @@ def restore_keeping_components(
     }
     optimizers = dict(state.optimizer_states)
     _restore_training_state(state, checkpoint.state)
-    state.rng_state = checkpoint.rng_state
     for name, component in components.items():
         state.register_component(name, component)
     for name, optimizer in optimizers.items():
