@@ -15,6 +15,7 @@ from stagereg.jax.evaluation import (
     make_evaluation_step,
 )
 from stagereg.jax.losses import make_supervised_loss
+from stagereg.jax.mc_dropout import MCDropout, MCDropoutPosterior
 from stagereg.jax.metrics import (
     BatchMetric,
     BatchMetricSpec,
@@ -68,6 +69,8 @@ __all__ = [
     "HeldOutValidation",
     "InferenceMethod",
     "IsotropicGaussianPrior",
+    "MCDropout",
+    "MCDropoutPosterior",
     "MeanFieldGaussianPosterior",
     "MeanStage",
     "MetricSuite",
