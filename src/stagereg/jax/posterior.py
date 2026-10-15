@@ -93,6 +93,12 @@ class PosteriorProblem:
         prior: The prior over the parameter tree.
         train_loader: Factory producing the training batches of each epoch.
         dataset_size: The number of training examples ``N``.
+        aleatoric_variance: Maps inputs to the fixed aleatoric variance at
+            them, without gradient: the same variance ``log_likelihood`` uses.
+            An implicit method uses it to turn draws into predictive samples,
+            e.g. for a discriminator. A
+            [`PosteriorStage`][stagereg.jax.PosteriorStage] always sets it.
+            Defaults to ``None``, for problems built by hand.
     """
 
     initial_parameters: PyTree
@@ -101,6 +107,7 @@ class PosteriorProblem:
     prior: Prior
     train_loader: LoaderFactory
     dataset_size: int
+    aleatoric_variance: Callable[[PyTree], jax.Array] | None = None
 
 
 class InferenceMethod(Protocol):

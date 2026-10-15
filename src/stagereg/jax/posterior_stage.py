@@ -450,17 +450,19 @@ class PosteriorStage:
 
         nnx.update(network, jax.tree.map(jnp.copy, mean_parameters))
         mean_function = _mean_function(network)
+        aleatoric_variance = _aleatoric_variance(variance_model)
         return PosteriorProblem(
             initial_parameters=jax.tree.map(jnp.copy, nnx.state(network, nnx.Param)),
             mean_function=mean_function,
             log_likelihood=_scaled_log_likelihood(
                 mean_function,
-                _aleatoric_variance(variance_model),
+                aleatoric_variance,
                 dataset_size=self.dataset_size,
             ),
             prior=self.prior,
             train_loader=self.train_loader,
             dataset_size=self.dataset_size,
+            aleatoric_variance=aleatoric_variance,
         )
 
     def _register_posterior(

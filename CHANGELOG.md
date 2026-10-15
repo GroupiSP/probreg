@@ -9,6 +9,10 @@ All notable changes to `stagereg` are recorded here. The format follows
 
 ### Added
 
+- `PosteriorProblem.aleatoric_variance`: the fixed, stop-gradient aleatoric
+  variance a `PosteriorStage` uses for its likelihood, so an implicit method
+  can turn draws into predictive samples. Optional for hand-built problems (#106).
+
 ### Changed
 
 ## [0.1.0]

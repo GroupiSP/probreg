@@ -102,7 +102,7 @@ The mean network's parameters outside the inferred subnetwork, held at their tra
 _Avoid_: Backbone, fixed weights
 
 **Posterior problem**:
-Everything a posterior stage hands its inference method: the starting point taken from the trained mean, the likelihood of the targets under the fixed aleatoric variance, the prior, the training data and its size. Every inference method honors the prior; methods without an explicit prior use it as their regularizer.
+Everything a posterior stage hands its inference method: the starting point taken from the trained mean, the likelihood of the targets under the fixed aleatoric variance, that aleatoric variance itself (so an implicit method can form predictive samples), the prior, the training data and its size. Every inference method honors the prior; methods without an explicit prior use it as their regularizer.
 _Avoid_: Log-posterior (only one part of it), target density
 
 **Posterior**:

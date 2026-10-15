@@ -328,6 +328,32 @@ def test_the_likelihood_weights_each_row_by_its_sample_weight(
     assert float(log_likelihood) == pytest.approx(expected, rel=1e-4)
 
 
+@settings(deadline=None, max_examples=10)
+@given(
+    inputs=st.lists(
+        st.floats(-3.0, 3.0, allow_nan=False, width=32), min_size=1, max_size=8
+    )
+)
+def test_the_problem_carries_the_stages_aleatoric_variance(
+    shared_variance_ready_run: VarianceReadyRun, inputs: list[float]
+) -> None:
+    run = _isolated(shared_variance_ready_run)
+    method = GradientAscentMethod()
+    _posterior_stage(method).prepare(run.state)
+    assert method.problem is not None
+    aleatoric_variance = method.problem.aleatoric_variance
+    assert aleatoric_variance is not None
+    points = jnp.asarray(inputs)[:, None]
+
+    variance = aleatoric_variance(points)
+
+    assert jnp.allclose(variance, run.variance_model(points).mean(), rtol=1e-6)
+    assert jnp.array_equal(
+        jax.grad(lambda x: aleatoric_variance(x).sum())(points),
+        jnp.zeros_like(points),
+    )
+
+
 def _validation_suite() -> MetricSuite:
     return MetricSuite(
         epoch=(
