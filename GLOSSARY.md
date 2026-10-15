@@ -70,8 +70,8 @@ The checkpoint a stage saves whenever its early stopper reports an improvement. 
 _Avoid_: Hand-off checkpoint
 
 **Finalized checkpoint**:
-A stage's best checkpoint saved again once the stage completes, with the stage's ready lifecycle state and marked complete. The only kind of checkpoint a stage restores from, so a restore always leaves the stage ready.
-_Avoid_: Hand-off checkpoint, final checkpoint (it holds the best epoch, not the last)
+The checkpoint a stage saves once it completes, with the stage's ready lifecycle state and marked complete: its best checkpoint when an early stopper is configured, otherwise its last epoch's. The only kind of checkpoint a stage restores from, so a restore always leaves the stage ready.
+_Avoid_: Hand-off checkpoint, final checkpoint (with an early stopper it holds the best epoch, not the last)
 
 **Checkpoint key**:
 The name a checkpoint is stored under in a checkpoint store, `stage/best` by default, so that stages sharing one store never overwrite each other's checkpoints.
