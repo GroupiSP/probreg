@@ -18,6 +18,7 @@ from typing import Any
 
 from stagereg.core.checkpoints import (
     STAGE_COMPLETE_METADATA_KEY,
+    STAGE_METADATA_KEY,
     Checkpoint,
     CheckpointStore,
     is_finalized,
@@ -32,9 +33,6 @@ from stagereg.core.types import (
     TrainingState,
 )
 from stagereg.jax.state import freeze_training_state
-
-STAGE_METADATA_KEY = "stage"
-"""Checkpoint metadata key naming the stage that wrote the checkpoint."""
 
 
 def load_best_checkpoint(

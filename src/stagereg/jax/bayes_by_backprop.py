@@ -26,14 +26,11 @@ from stagereg.jax.posterior import (
     IsotropicGaussianPrior,
     PosteriorProblem,
     Prior,
+    default_optimizer,
+    draw_unlimited,
     require_inferred_tree,
 )
 from stagereg.jax.rng import network_key
-
-
-def _default_optimizer() -> optax.GradientTransformation:
-    """Adam with a learning rate of ``1e-3``."""
-    return optax.adam(1e-3)
 
 
 @dataclass(frozen=True)
@@ -82,17 +79,13 @@ class MeanFieldGaussianPosterior:
         Raises:
             ValueError: If ``num_samples`` is omitted or not positive.
         """
-        if num_samples is None:
-            raise ValueError("an unlimited posterior needs num_samples.")
-        if num_samples <= 0:
-            raise ValueError("num_samples must be positive.")
 
         def draw(index: jax.Array) -> jax.Array:
             draw_key = jax.random.fold_in(key, index)
             parameters = _sample(self.means, self.stds, draw_key)
             return self.mean_function(parameters, inputs, network_key(draw_key))
 
-        return jax.vmap(draw)(jnp.arange(num_samples))
+        return draw_unlimited(draw, num_samples)
 
 
 @dataclass
@@ -127,7 +120,7 @@ class BayesByBackprop:
             positive and finite. Defaults to ``1e-3``.
     """
 
-    optimizer: optax.GradientTransformation = field(default_factory=_default_optimizer)
+    optimizer: optax.GradientTransformation = field(default_factory=default_optimizer)
     initial_std: float = 1e-3
     _problem: PosteriorProblem | None = field(default=None, init=False, repr=False)
     _variational: PyTree = field(default=None, init=False, repr=False)

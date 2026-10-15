@@ -171,6 +171,16 @@ def test_burn_in_and_thinning_retain_exactly_the_due_positions(
     jax.tree.map(np.testing.assert_array_equal, method.posterior_state(), expected)
 
 
+def test_samples_load_before_init_without_a_tree_check(every_position: PyTree) -> None:
+    method = PreconditionedSGLD(step_size=0.01)
+
+    method.load_posterior(every_position)
+
+    jax.tree.map(
+        np.testing.assert_array_equal, method.posterior_state(), every_position
+    )
+
+
 def test_a_chain_resumed_from_its_state_continues_as_if_uninterrupted(
     linear_regression_problem: PosteriorProblem,
 ) -> None:

@@ -185,28 +185,48 @@ tree differs from the configured subnetwork's.
 ## MC-Dropout
 
 [`MCDropout`][stagereg.jax.MCDropout] needs a posterior network with dropout
-layers. Pass it as `model`: here it is the mean network plus input dropout, so
-it has the mean network's parameter tree, since dropout has no parameters, and
-infers the same subnetwork as any other method. A training state holds one
-posterior, so this continues the run above in a fresh state:
+layers. Pass it as `model`: here it is a mean network with a hidden layer plus
+dropout on that layer, so it has the mean network's parameter tree, since
+dropout has no parameters, and infers the same subnetwork as any other method.
+Each mask then drops some of the hidden units. A training state holds one
+posterior, so this trains such a mean network and the variance model in a
+fresh state:
 
 ```{.python continuation}
 from stagereg.jax import MCDropout
 
 
-class DropoutLinear(nnx.Linear):
-    """The mean network behind an input dropout shared by the whole batch."""
+class MLP(nnx.Module):
+    """A mean network with one hidden layer of 16 units."""
 
     def __init__(self, *, rngs: nnx.Rngs) -> None:
-        super().__init__(1, 1, rngs=rngs)
+        self.hidden = nnx.Linear(1, 16, rngs=rngs)
+        self.output = nnx.Linear(16, 1, rngs=rngs)
+
+    def __call__(self, inputs: jax.Array) -> jax.Array:
+        return self.output(nnx.relu(self.hidden(inputs)))
+
+
+class DropoutMLP(MLP):
+    """The mean network with a hidden dropout mask shared by the whole batch."""
+
+    def __init__(self, *, rngs: nnx.Rngs) -> None:
+        super().__init__(rngs=rngs)
         self.dropout = nnx.Dropout(0.1, broadcast_dims=(0,), rngs=rngs)
 
     def __call__(self, inputs: jax.Array) -> jax.Array:
-        return super().__call__(self.dropout(inputs))
+        return self.output(self.dropout(nnx.relu(self.hidden(inputs))))
 
 
+mlp = MLP(rngs=nnx.Rngs(0))
+mlp_stage = MeanStage(
+    model=mlp,
+    optimizer=create_optimizer(mlp, optax.adam(0.1)),
+    train_loader=loader,
+    options=SupervisedStageOptions(epochs=3),
+)
 dropout_state = TrainingState(rng_state=jax.random.key(0))
-for stage in (mean_stage, variance_stage):
+for stage in (mlp_stage, variance_stage):
     stage.prepare(dropout_state)
     stage.train(dropout_state)
 
@@ -215,7 +235,7 @@ dropout_stage = PosteriorStage(
     train_loader=loader,
     dataset_size=8,
     options=PosteriorStageOptions(epochs=3, num_draws=16, validation_loader=loader),
-    model=DropoutLinear(rngs=nnx.Rngs(2)),
+    model=DropoutMLP(rngs=nnx.Rngs(2)),
 )
 dropout_stage.prepare(dropout_state)
 dropout_stage.train(dropout_state)
@@ -224,6 +244,7 @@ mask_draws = dropout_state.model_components["posterior"].sample_means(
     inputs, jax.random.key(3), 16
 )
 assert mask_draws.shape == (16, 8, 1)
+assert bool(jnp.any(mask_draws.std(axis=0) > 0.0))
 ```
 
 The stage fine-tunes the inferred subnetwork with dropout active, under fresh

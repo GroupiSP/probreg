@@ -19,12 +19,12 @@ import jax.numpy as jnp
 import optax
 
 from stagereg.core.types import Batch, PyTree
-from stagereg.jax.posterior import PosteriorProblem, require_inferred_tree
-
-
-def _default_optimizer() -> optax.GradientTransformation:
-    """Adam with a learning rate of ``1e-3``."""
-    return optax.adam(1e-3)
+from stagereg.jax.posterior import (
+    PosteriorProblem,
+    default_optimizer,
+    draw_unlimited,
+    require_inferred_tree,
+)
 
 
 @dataclass(frozen=True)
@@ -69,17 +69,13 @@ class MCDropoutPosterior:
         Raises:
             ValueError: If ``num_samples`` is omitted or not positive.
         """
-        if num_samples is None:
-            raise ValueError("an unlimited posterior needs num_samples.")
-        if num_samples <= 0:
-            raise ValueError("num_samples must be positive.")
 
         def draw(index: jax.Array) -> jax.Array:
             return self.mean_function(
                 self.parameters, inputs, jax.random.fold_in(key, index)
             )
 
-        return jax.vmap(draw)(jnp.arange(num_samples))
+        return draw_unlimited(draw, num_samples)
 
 
 @dataclass
@@ -112,7 +108,7 @@ class MCDropout:
             Defaults to Adam with a learning rate of ``1e-3``.
     """
 
-    optimizer: optax.GradientTransformation = field(default_factory=_default_optimizer)
+    optimizer: optax.GradientTransformation = field(default_factory=default_optimizer)
     _problem: PosteriorProblem | None = field(default=None, init=False, repr=False)
     _parameters: PyTree = field(default=None, init=False, repr=False)
     _optimizer_state: PyTree = field(default=None, init=False, repr=False)

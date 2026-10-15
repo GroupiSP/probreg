@@ -16,6 +16,9 @@ A stage saves its finalized checkpoint with this key set to ``True`` in its
 checkpoints, saved on every improvement during training, do not carry it.
 """
 
+STAGE_METADATA_KEY = "stage"
+"""Checkpoint metadata key naming the stage that wrote the checkpoint."""
+
 
 @dataclass(frozen=True)
 class Checkpoint:
@@ -234,6 +237,8 @@ class CachedCheckpointStore:
         """
         if self._cache.exists(key):
             return self._cache.load(key)
+        if not self._persistent.exists(key):
+            raise KeyError(key)
         return self._persistent.load(key)
 
     def exists(self, key: str) -> bool:

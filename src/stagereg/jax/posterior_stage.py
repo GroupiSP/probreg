@@ -681,6 +681,14 @@ class _InferredSplit:
     def of(cls, network: nnx.Module, inferred_subnetwork: Filter) -> _InferredSplit:
         """Split ``network``; only ``Param`` leaves are ever inferred.
 
+        Args:
+            network: The posterior network to split.
+            inferred_subnetwork: The NNX filter selecting the inferred
+                ``Param`` leaves.
+
+        Returns:
+            The network's graph, inferred subtree, frozen remainder and rest.
+
         Raises:
             ValueError: If the filter selects no ``Param`` leaf.
         """
@@ -701,6 +709,11 @@ class _InferredSplit:
         from its ``key``, and refuses parameters whose tree is not the inferred
         subtree's. The network's own RNG state never changes, so the same key
         gives the same result, also under ``jit`` and ``grad``.
+
+        Returns:
+            A function mapping ``(parameters, inputs, key)`` to the network's
+            outputs at ``inputs``. It raises ``ValueError`` if ``parameters``'
+            tree is not the inferred subtree's.
         """
         graph, inferred, frozen, rest = (
             self.graph,
@@ -725,6 +738,13 @@ def _keyed_rest(rest: nnx.State, key: jax.Array) -> nnx.State:
     every stream count restarts at zero, so two dropout layers with their own
     streams draw independent masks. ``rest`` itself is not changed, and a
     rest without RNG streams is returned as is.
+
+    Args:
+        rest: The network's non-``Param`` state.
+        key: A typed PRNG key or raw key data to reseed the streams from.
+
+    Returns:
+        A copy of ``rest`` with reseeded RNG streams.
     """
     if not jnp.issubdtype(key.dtype, jax.dtypes.prng_key):
         key = jax.random.wrap_key_data(key)

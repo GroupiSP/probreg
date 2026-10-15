@@ -161,6 +161,11 @@ def _check_diagnostics(
 ) -> None:
     """Refuse a diagnostic whose training tag is invalid or already taken.
 
+    Args:
+        stage: The stage name the diagnostics' tags are recorded under.
+        diagnostics: The diagnostic keys the stage records.
+        metrics: The stage's metric suite, whose metric names are taken.
+
     Raises:
         ValueError: As
             [`check_epoch_loop_arguments`][stagereg.jax.epoch_loop.check_epoch_loop_arguments].

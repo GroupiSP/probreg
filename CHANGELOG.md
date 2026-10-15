@@ -16,8 +16,6 @@ All notable changes to `stagereg` are recorded here. The format follows
   Nothing in the library populated them.
 - `TrainingEvent.iteration` is removed. It always reported `0`, as no run has outer
   iterations yet.
-- `InferenceMethod` requires a `diagnostics` property; a custom method
-  declares `()` to keep recording only its loss (#106).
 - The posterior seam is keyed: `PosteriorProblem.mean_function` takes
   `(parameters, inputs, key)` and `PosteriorProblem.log_likelihood` takes
   `(parameters, batch, key)`. `PosteriorStage` reseeds the posterior network's
@@ -26,6 +24,19 @@ All notable changes to `stagereg` are recorded here. The format follows
   to both, and a hand-built `PosteriorProblem` accepts one. `BayesByBackprop` and
   `PreconditionedSGLD` give the same results as before for a deterministic
   network (#92).
+- `MeanFieldGaussianPosterior.mean_function` and
+  `RetainedSamplesPosterior.mean_function` take `(parameters, inputs, key)` as
+  well; a hand-built posterior passes a three-argument mean function (#92).
+- `RetainedSamplesPosterior.sample_means` now uses its key: draw `s` is
+  evaluated with `jax.random.fold_in(key, s)`. A deterministic posterior
+  network still ignores it (#92).
+- `InferenceMethod` requires a `diagnostics` property; a custom method
+  declares `()` to keep recording only its loss (#106).
+- `PosteriorProblem.initial_parameters`, `mean_function` and `prior` cover the
+  inferred subnetwork only, so a custom `Prior` sees that subtree alone (#105).
+- `BayesByBackprop.load_posterior` and, once initialized,
+  `PreconditionedSGLD.load_posterior` refuse a posterior whose tree differs
+  from the inferred subnetwork's (#105).
 
 ### Added
 
@@ -59,10 +70,6 @@ All notable changes to `stagereg` are recorded here. The format follows
 
 ### Changed
 
-- `PosteriorProblem.initial_parameters`, `mean_function` and `prior` cover the
-  inferred subnetwork only. `BayesByBackprop.load_posterior` and
-  `PreconditionedSGLD.load_posterior` refuse a posterior whose tree differs
-  from it, and `PreconditionedSGLD.load_posterior` now requires `init` (#105).
 - `MeanStage` and `GammaVarianceStage` with a checkpoint store but no early stopper
   now save their last epoch as their finalized checkpoint under the stage's
   checkpoint key, so the stage can be restored in a later process. Previously they

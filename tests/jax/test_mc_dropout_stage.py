@@ -20,6 +20,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from posterior_runs import (
     DATASET_SIZE,
+    MLP,
+    DropoutMLP,
     RecordingStore,
     build_stages,
     leaves_equal,
@@ -33,30 +35,7 @@ from stagereg.core.early_stopping import EarlyStopper
 from stagereg.core.types import StageState, TrainingState
 from stagereg.jax import MCDropout, PosteriorStage, PosteriorStageOptions
 
-_HIDDEN = 8
 _NUM_DRAWS = 8
-
-
-class MLP(nnx.Module):
-    """The mean network: one hidden layer of eight units."""
-
-    def __init__(self, *, rngs: nnx.Rngs) -> None:
-        self.hidden = nnx.Linear(1, _HIDDEN, rngs=rngs)
-        self.output = nnx.Linear(_HIDDEN, 1, rngs=rngs)
-
-    def __call__(self, inputs: jax.Array) -> jax.Array:
-        return self.output(nnx.relu(self.hidden(inputs)))
-
-
-class DropoutMLP(MLP):
-    """The mean network with one hidden dropout mask shared by the whole batch."""
-
-    def __init__(self, *, rngs: nnx.Rngs) -> None:
-        super().__init__(rngs=rngs)
-        self.dropout = nnx.Dropout(0.5, broadcast_dims=(0,), rngs=rngs)
-
-    def __call__(self, inputs: jax.Array) -> jax.Array:
-        return self.output(self.dropout(nnx.relu(self.hidden(inputs))))
 
 
 def _stage(store: RecordingStore | None) -> PosteriorStage:
