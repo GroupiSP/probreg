@@ -19,7 +19,19 @@ def _as_nonempty_vector(values: ArrayLike, *, name: str) -> NDArray[np.float64]:
 
 
 def _as_nonempty_matrix(values: ArrayLike, *, name: str) -> NDArray[np.float64]:
-    """Return a finite, two-dimensional floating-point matrix without empty axes."""
+    """Return a finite, two-dimensional floating-point matrix without empty axes.
+
+    Args:
+        values: The values to convert.
+        name: The argument name used in error messages.
+
+    Returns:
+        ``values`` as a floating-point matrix.
+
+    Raises:
+        ValueError: If ``values`` is not two-dimensional, is empty, or holds a
+            non-finite value.
+    """
     matrix = np.asarray(values, dtype=float)
     if matrix.ndim != 2:
         raise ValueError(f"{name} must be two-dimensional.")
