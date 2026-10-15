@@ -30,9 +30,11 @@ from stagereg.core.types import Batch, PyTree
 from stagereg.jax import (
     BayesByBackprop,
     InferenceMethod,
+    MeanFieldGaussianPosterior,
     PosteriorProblem,
     PosteriorStage,
     PosteriorStageOptions,
+    RetainedSamplesPosterior,
 )
 
 
@@ -207,3 +209,57 @@ def test_a_dropout_networks_masks_come_from_the_key(
     again = jax.jit(problem.mean_function)(parameters, probe.probe_inputs, key)
 
     assert jnp.allclose(first, again)
+
+
+def _keyed_line(parameters: PyTree, inputs: jax.Array, key: jax.Array) -> jax.Array:
+    """A line shifted by one standard normal offset drawn from the key."""
+    return inputs * parameters["w"] + parameters["b"] + jax.random.normal(key)
+
+
+_LINE = {"w": jnp.asarray(1.5), "b": jnp.asarray(-0.5)}
+
+_KEYED_POSTERIORS: dict[str, Any] = {
+    "mean-field gaussian": lambda: MeanFieldGaussianPosterior(
+        mean_function=_keyed_line,
+        means=_LINE,
+        stds=jax.tree.map(lambda leaf: jnp.full_like(leaf, 0.1), _LINE),
+    ),
+    "retained samples": lambda: RetainedSamplesPosterior(
+        mean_function=_keyed_line,
+        samples=jax.tree.map(lambda leaf: jnp.stack([leaf] * 4), _LINE),
+    ),
+}
+
+
+def _draws(posterior: Any, inputs: jax.Array, key: jax.Array) -> jax.Array:
+    num_samples = None if posterior.num_draws is not None else 4
+    return posterior.sample_means(inputs, key, num_samples)
+
+
+@settings(deadline=None, max_examples=20)
+@given(
+    posterior_name=st.sampled_from(sorted(_KEYED_POSTERIORS)),
+    seed=st.integers(0, 2**31 - 1),
+    rows=st.lists(st.integers(0, 7), min_size=1, max_size=8),
+)
+def test_a_keyed_draw_is_the_same_function_at_every_input(
+    posterior_name: str, seed: int, rows: list[int]
+) -> None:
+    posterior = _KEYED_POSTERIORS[posterior_name]()
+    inputs = jnp.linspace(-1.0, 1.0, 8)[:, None]
+    key = jax.random.key(seed)
+    subset = jnp.asarray(rows)
+
+    full = _draws(posterior, inputs, key)
+    partial = _draws(posterior, inputs[subset], key)
+
+    assert jnp.allclose(partial, full[:, subset], atol=1e-6)
+
+
+@pytest.mark.parametrize("posterior_name", sorted(_KEYED_POSTERIORS))
+def test_keyed_draws_differ_from_each_other(posterior_name: str) -> None:
+    posterior = _KEYED_POSTERIORS[posterior_name]()
+
+    draws = _draws(posterior, jnp.zeros((1, 1)), jax.random.key(0))
+
+    assert len(set(draws.ravel().tolist())) == draws.shape[0]
