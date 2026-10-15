@@ -122,13 +122,22 @@ def test_xsin_methods_are_reproducible_and_fit_the_training_domain() -> None:
 run_xsin_posterior = _POSTERIOR_BENCHMARK.run_xsin_posterior
 xsin_bayes_by_backprop = _POSTERIOR_BENCHMARK.xsin_bayes_by_backprop
 xsin_psgld = _POSTERIOR_BENCHMARK.xsin_psgld
+xsin_mc_dropout = _POSTERIOR_BENCHMARK.xsin_mc_dropout
+xsin_mc_dropout_model = _POSTERIOR_BENCHMARK.xsin_mc_dropout_model
 
 
 @pytest.mark.parametrize(
-    "make_method", [xsin_bayes_by_backprop, xsin_psgld], ids=["bbb", "psgld"]
+    ("make_method", "make_model"),
+    [
+        (xsin_bayes_by_backprop, None),
+        (xsin_psgld, None),
+        (xsin_mc_dropout, xsin_mc_dropout_model),
+    ],
+    ids=["bbb", "psgld", "mc_dropout"],
 )
 def test_xsin_posterior_is_reproducible_with_finite_scores(
     make_method: Callable[[Any], Any],
+    make_model: Callable[[Any], nnx.Module] | None,
 ) -> None:
     config = XSinConfig(
         train_size=128,
@@ -145,8 +154,12 @@ def test_xsin_posterior_is_reproducible_with_finite_scores(
     )
     data = make_xsin_data(config)
 
-    first = run_xsin_posterior(data, config, make_method(config))
-    second = run_xsin_posterior(data, config, make_method(config))
+    def run() -> Any:
+        model = None if make_model is None else make_model(config)
+        return run_xsin_posterior(data, config, make_method(config), model=model)
+
+    first = run()
+    second = run()
 
     assert first.mean.shape == data.true_mean.shape
     assert first.aleatoric_variance.shape == data.true_variance.shape
