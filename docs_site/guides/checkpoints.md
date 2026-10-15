@@ -302,3 +302,62 @@ store of your own. `CheckpointStore` is a protocol, so any object with matching
 `save`, `load` and `exists` methods will do, with no base class to inherit.
 Such a store has to serialize the whole checkpoint, including the backend's
 snapshots and the random key, and `stagereg` does not ship one.
+
+### Persisting only what you need
+
+A stage with an early stopper saves a best checkpoint on every improvement. That
+is cheap in memory, but a persistent store, say one that uploads to an
+experiment tracker, would then write on every improvement too. Wrap it in a
+[`CachedCheckpointStore`][stagereg.core.CachedCheckpointStore]: every save lands
+in an in-memory cache, and only the saves its `persist_when` predicate selects
+reach the persistent store. `load` and `exists` read the cache first and fall
+back to the persistent store, so the stages resume from the cache within the
+process, and a fresh cache in a later process still loads what was persisted.
+A key held by neither raises `KeyError`, as with every store.
+
+A predicate is any callable `(key, checkpoint) -> bool`
+([`PersistencePredicate`][stagereg.core.PersistencePredicate]). Three are ready-made:
+
+| Predicate | Persists |
+| --- | --- |
+| [`finalized_only`][stagereg.core.finalized_only] (the default) | Only finalized checkpoints, those [`is_finalized`][stagereg.core.is_finalized] accepts |
+| [`every_nth_save(n)`][stagereg.core.every_nth_save] | The `n`-th, `2n`-th, ... save under each key; it counts, so give each store its own |
+| [`always`][stagereg.core.always] | Every save |
+
+A finalized checkpoint carries
+[`STAGE_COMPLETE_METADATA_KEY`][stagereg.core.STAGE_COMPLETE_METADATA_KEY]
+set to `True` in its metadata, which is what `finalized_only` reads. With it,
+a run's best checkpoints stay in memory, and each stage persists the one
+checkpoint it can be restored from:
+
+```python
+from stagereg.core import (
+    STAGE_COMPLETE_METADATA_KEY,
+    CachedCheckpointStore,
+    Checkpoint,
+    InMemoryCheckpointStore,
+    TrainingState,
+)
+
+persistent = InMemoryCheckpointStore()  # stands in for a store of your own
+store = CachedCheckpointStore(persistent)
+
+best = Checkpoint(state=TrainingState(), epoch=3)
+finalized = Checkpoint(
+    state=TrainingState(),
+    epoch=3,
+    metadata={"stage": "mean", STAGE_COMPLETE_METADATA_KEY: True},
+)
+
+store.save("mean/best", best)
+assert store.exists("mean/best") and not persistent.exists("mean/best")
+
+store.save("mean/best", finalized)
+assert persistent.load("mean/best") == finalized
+
+# A later process wraps the same persistent store in a fresh cache.
+assert CachedCheckpointStore(persistent).load("mean/best") == finalized
+```
+
+Pass the cached store as the stages' `checkpoint_store`, exactly where an
+`InMemoryCheckpointStore` went above.
