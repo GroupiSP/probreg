@@ -19,6 +19,9 @@ All notable changes to `stagereg` are recorded here. The format follows
   `PosteriorStage` records as `posterior/train/<key>` epoch means. Undeclared
   keys are ignored; a key colliding with a recorded tag is refused at `prepare`.
   `BayesByBackprop` and `PreconditionedSGLD` declare `()` (#106).
+- `stagereg.core.expected_sample_crps(predictive_samples, reference_samples)`: the
+  exact, grid-free expected CRPS of each scoring unit's empirical predictive under
+  its reference samples, batched over units.
 
 ### Changed
 
