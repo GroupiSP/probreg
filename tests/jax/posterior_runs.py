@@ -18,7 +18,11 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-from stagereg.core.checkpoints import Checkpoint, InMemoryCheckpointStore
+from stagereg.core.checkpoints import (
+    Checkpoint,
+    CheckpointStore,
+    InMemoryCheckpointStore,
+)
 from stagereg.core.early_stopping import EarlyStopper
 from stagereg.core.tracking import EventSink
 from stagereg.core.types import Batch, PyTree, TrainingState
@@ -99,7 +103,7 @@ def build_stages(
     squared_error: SupervisedLoss,
     *sinks: EventSink,
     seed: int = 0,
-    checkpoint_store: InMemoryCheckpointStore | None = None,
+    checkpoint_store: CheckpointStore | None = None,
 ) -> MeanAndVarianceStages:
     """Build both stages; a checkpoint store also adds patient early stoppers.
 
