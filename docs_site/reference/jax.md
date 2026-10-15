@@ -35,6 +35,12 @@ module that defines it. Using it needs the `jax` extra.
 
 ::: stagereg.jax.make_supervised_loss
 
+## `stagereg.jax.mc_dropout`
+
+::: stagereg.jax.MCDropout
+
+::: stagereg.jax.MCDropoutPosterior
+
 ## `stagereg.jax.metrics`
 
 ::: stagereg.jax.BatchMetric
