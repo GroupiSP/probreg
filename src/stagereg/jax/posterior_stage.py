@@ -693,12 +693,14 @@ class _InferredSplit:
             )
         return cls(graph, inferred, frozen, rest)
 
-    def mean_function(self) -> Callable[[PyTree, PyTree], jax.Array]:
-        """Return the network as a pure function of the inferred subtree.
+    def mean_function(self) -> Callable[[PyTree, PyTree, jax.Array], jax.Array]:
+        """Return the network as a pure function of the inferred subtree and a key.
 
         The returned function merges its ``parameters`` with the frozen
-        remainder and the rest, and refuses parameters whose tree is not the
-        inferred subtree's.
+        remainder and the rest, with every RNG stream of the rest reseeded
+        from its ``key``, and refuses parameters whose tree is not the inferred
+        subtree's. The network's own RNG state never changes, so the same key
+        gives the same result, also under ``jit`` and ``grad``.
         """
         graph, inferred, frozen, rest = (
             self.graph,
@@ -707,11 +709,40 @@ class _InferredSplit:
             self.rest,
         )
 
-        def mean_function(parameters: PyTree, inputs: PyTree) -> jax.Array:
+        def mean_function(
+            parameters: PyTree, inputs: PyTree, key: jax.Array
+        ) -> jax.Array:
             require_inferred_tree(parameters, inferred)
-            return nnx.merge(graph, parameters, frozen, rest)(inputs)
+            return nnx.merge(graph, parameters, frozen, _keyed_rest(rest, key))(inputs)
 
         return mean_function
+
+
+def _keyed_rest(rest: nnx.State, key: jax.Array) -> nnx.State:
+    """Return ``rest`` with every RNG stream reseeded from ``key``.
+
+    The ``i``-th stream key, in tree order, becomes ``fold_in(key, i)`` and
+    every stream count restarts at zero, so two dropout layers with their own
+    streams draw independent masks. ``rest`` itself is not changed, and a
+    rest without RNG streams is returned as is.
+    """
+    if not jnp.issubdtype(key.dtype, jax.dtypes.prng_key):
+        key = jax.random.wrap_key_data(key)
+    stream_index = 0
+
+    def reseed(variable: nnx.Variable) -> nnx.Variable:
+        nonlocal stream_index
+        if isinstance(variable, nnx.RngKey):
+            stream_key = jax.random.fold_in(key, stream_index)
+            stream_index += 1
+            return variable.replace(stream_key)
+        if isinstance(variable, nnx.RngCount):
+            return variable.replace(jnp.zeros_like(variable.get_value()))
+        return variable
+
+    return jax.tree.map(
+        reseed, rest, is_leaf=lambda node: isinstance(node, nnx.Variable)
+    )
 
 
 def _aleatoric_variance(
@@ -733,22 +764,23 @@ def _aleatoric_variance(
 
 
 def _scaled_log_likelihood(
-    mean_function: Callable[[PyTree, PyTree], jax.Array],
+    mean_function: Callable[[PyTree, PyTree, jax.Array], jax.Array],
     aleatoric_variance: Callable[[PyTree], jax.Array],
     *,
     dataset_size: int,
-) -> Callable[[PyTree, Batch], jax.Array]:
+) -> Callable[[PyTree, Batch, jax.Array], jax.Array]:
     """Return the batch Gaussian log-likelihood scaled by ``N / B``.
 
-    Rows are weighted by ``batch.sample_weight`` when it is set, as in the supervised
-    losses.
+    The key reaches the mean function, so a stochastic network's randomness
+    comes from it. Rows are weighted by ``batch.sample_weight`` when it is
+    set, as in the supervised losses.
     """
 
-    def log_likelihood(parameters: PyTree, batch: Batch) -> jax.Array:
+    def log_likelihood(parameters: PyTree, batch: Batch, key: jax.Array) -> jax.Array:
         if batch.targets is None:
             raise ValueError("training batches must provide targets.")
         targets = jnp.asarray(batch.targets)
-        means = mean_function(parameters, batch.inputs)
+        means = mean_function(parameters, batch.inputs, key)
         scale = jnp.sqrt(aleatoric_variance(batch.inputs))
         log_density = jstats.norm.logpdf(targets, loc=means, scale=scale)
         if batch.sample_weight is not None:

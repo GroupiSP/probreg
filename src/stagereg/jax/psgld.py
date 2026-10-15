@@ -19,24 +19,27 @@ import jax.numpy as jnp
 
 from stagereg.core.types import Batch, PyTree
 from stagereg.jax.posterior import PosteriorProblem, require_inferred_tree
+from stagereg.jax.rng import network_key
 
 
 @dataclass(frozen=True)
 class RetainedSamplesPosterior:
     """A finite posterior whose draws are retained parameter samples.
 
-    Draw ``s`` is the posterior network with the ``s``-th retained
-    parameters, so it is the same mean function at every input, and every
-    call uses all the draws.
+    Draw ``s`` under ``key`` is the posterior network with the ``s``-th
+    retained parameters, evaluated with the key ``jax.random.fold_in(key,
+    s)``, so it is the same mean function at every input, and every call uses
+    all the draws. For a deterministic posterior network the key changes
+    nothing.
 
     Attributes:
-        mean_function: Maps ``(parameters, inputs)`` to the posterior
+        mean_function: Maps ``(parameters, inputs, key)`` to the posterior
             network's mean predictions at ``inputs``.
         samples: The retained parameter trees, stacked along a leading axis of
             length ``S``.
     """
 
-    mean_function: Callable[[PyTree, PyTree], jax.Array]
+    mean_function: Callable[[PyTree, PyTree, jax.Array], jax.Array]
     samples: PyTree
 
     @property
@@ -54,7 +57,8 @@ class RetainedSamplesPosterior:
 
         Args:
             inputs: Model inputs with a leading batch dimension.
-            key: Ignored: the draws are fixed.
+            key: The PRNG key each draw's mean function is evaluated with;
+                a deterministic posterior network ignores it.
             num_samples: Must be ``None``; all retained samples are used.
 
         Returns:
@@ -63,13 +67,17 @@ class RetainedSamplesPosterior:
         Raises:
             ValueError: If ``num_samples`` is given.
         """
-        del key
         if num_samples is not None:
             raise ValueError(
                 "a finite posterior uses all its retained samples; "
                 "num_samples must be None."
             )
-        return jax.vmap(self.mean_function, in_axes=(0, None))(self.samples, inputs)
+        draw_keys = jax.vmap(lambda index: jax.random.fold_in(key, index))(
+            jnp.arange(self.num_draws)
+        )
+        return jax.vmap(self.mean_function, in_axes=(0, None, 0))(
+            self.samples, inputs, draw_keys
+        )
 
 
 @dataclass
@@ -184,7 +192,8 @@ class PreconditionedSGLD:
 
         Args:
             batch: The training batch.
-            key: The PRNG key of this step's injected noise.
+            key: The PRNG key of this step's injected noise; the
+                log-likelihood is evaluated with a key derived from it.
 
         Returns:
             ``{"loss": U}``, the negative log posterior estimate at the
@@ -292,9 +301,11 @@ def _make_step(
 ) -> Callable[..., Any]:
     """Compile one pSGLD step for ``problem``."""
 
-    def negative_log_posterior(parameters: PyTree, batch: Batch) -> jax.Array:
+    def negative_log_posterior(
+        parameters: PyTree, batch: Batch, key: jax.Array
+    ) -> jax.Array:
         return -(
-            problem.log_likelihood(parameters, batch)
+            problem.log_likelihood(parameters, batch, key)
             + problem.prior.log_prob(parameters)
         )
 
@@ -308,7 +319,9 @@ def _make_step(
         key: jax.Array,
     ) -> tuple[PyTree, PyTree, jax.Array]:
         batch = Batch(inputs=inputs, targets=targets, sample_weight=sample_weight)
-        loss, gradient = jax.value_and_grad(negative_log_posterior)(parameters, batch)
+        loss, gradient = jax.value_and_grad(negative_log_posterior)(
+            parameters, batch, network_key(key)
+        )
         second_moment = jax.tree.map(
             lambda v, g: decay * v + (1.0 - decay) * jnp.square(g),
             second_moment,

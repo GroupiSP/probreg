@@ -34,8 +34,9 @@ _NOISE_SCALE = 0.5
 _PRIOR_PRECISION = 1.0
 
 
-def _linear_mean(parameters: PyTree, inputs: jax.Array) -> jax.Array:
-    """A line through the inputs: ``weight * x + bias``."""
+def _linear_mean(parameters: PyTree, inputs: jax.Array, key: jax.Array) -> jax.Array:
+    """A line through the inputs: ``weight * x + bias``; it ignores the key."""
+    del key
     return parameters["weight"] * inputs[:, 0] + parameters["bias"]
 
 
@@ -49,8 +50,8 @@ def _linear_regression_batch() -> Batch:
 def _linear_regression_problem(batch: Batch) -> PosteriorProblem:
     """Bayesian linear regression with known noise, one full batch per step."""
 
-    def log_likelihood(parameters: PyTree, batch: Batch) -> jax.Array:
-        means = _linear_mean(parameters, batch.inputs)
+    def log_likelihood(parameters: PyTree, batch: Batch, key: jax.Array) -> jax.Array:
+        means = _linear_mean(parameters, batch.inputs, key)
         return jnp.sum(jstats.norm.logpdf(batch.targets, means, _NOISE_SCALE))
 
     return PosteriorProblem(
